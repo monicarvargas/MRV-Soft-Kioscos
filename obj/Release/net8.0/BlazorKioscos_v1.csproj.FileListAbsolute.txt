@@ -671,6 +671,7 @@ C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\BlazorKioscos_v1.AssemblyInfoInp
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\BlazorKioscos_v1.AssemblyInfo.cs
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\BlazorKioscos_v1.csproj.CoreCompileInputs.cache
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\BlazorKioscos_v1.MvcApplicationPartsAssemblyInfo.cache
+C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\BlazorKioscos_v1.sourcelink.json
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\webcil\Microsoft.AspNetCore.Authorization.wasm
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\webcil\Microsoft.AspNetCore.Components.wasm
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\webcil\Microsoft.AspNetCore.Components.Forms.wasm
@@ -1118,7 +1119,6 @@ C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\BlazorKioscos_v1.dll
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\refint\BlazorKioscos_v1.dll
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\BlazorKioscos_v1.pdb
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\ref\BlazorKioscos_v1.dll
-C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\BlazorKioscos_v1.sourcelink.json
-C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\9g0cvm5ic5-refy6q9dtm.gz
-C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\u53jqbalbn-zwzzjq9mph.gz
-C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\oqhjqgam9z-rgz60wicg9.gz
+C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\9g0cvm5ic5-3yf9oatgxd.gz
+C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\u53jqbalbn-eeioh7z3ag.gz
+C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\oqhjqgam9z-dgos0d75vf.gz

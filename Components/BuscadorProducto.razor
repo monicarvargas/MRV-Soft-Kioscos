@@ -4,6 +4,7 @@
 @implements IDisposable
 
 @inject Supabase.Client SupaClient
+@inject IJSRuntime JSRuntime
 
 <div class="search-box shadow-sm rounded border bg-white mb-2">
     <div class="input-group">
@@ -14,6 +15,12 @@
                placeholder="Buscar artículo..."
                @bind-value="textoActual"
                @oninput="OnInputChanged" />
+
+        @* BOTÓN DEL ESCÁNER *@
+        <button class="btn btn-white border-0 text-primary" @onclick="AbrirScanner" title="Escanear código">
+            <i class="bi bi-qr-code-scan"></i>
+        </button>
+
         @if (!string.IsNullOrEmpty(textoActual))
         {
             <button class="btn btn-white border-0" @onclick="LimpiarBusqueda">
@@ -22,6 +29,9 @@
         }
     </div>
 </div>
+
+@* CONTENEDOR PARA LA CÁMARA (Se muestra solo cuando se activa) *@
+<div id="reader" style="width: 100%; max-width: 400px; margin: auto;"></div>
 
 @if (estaCargando)
 {
@@ -39,7 +49,6 @@
         <div class="list-group list-group-flush" style="max-height: 400px; overflow-y: auto;">
             @foreach (var prod in productosFiltrados)
             {
-                @* Movimos el onclick aquí para que toda la fila sea interactiva *@
                 <div class="list-group-item d-flex align-items-center p-2"
                      @onclick="() => SeleccionarProducto(prod)"
                      style="cursor: pointer;">
@@ -53,7 +62,6 @@
                         <div class="fw-bold text-primary">$@prod.PrecioVenta?.ToString("N2")</div>
                     </div>
 
-                    @* El botón lo dejamos pero ya no necesita el onclick propio, lo hereda del padre *@
                     <button class="btn btn-primary btn-sm rounded-3 shadow-sm">
                         <i class="bi bi-plus-lg fs-5"></i>
                     </button>
@@ -74,7 +82,6 @@
 
     protected override async Task OnInitializedAsync()
     {
-        // Solo cargamos si el parámetro lo permite (ej: en la página Productos)
         if (CargarAlInicio)
         {
             await EjecutarBusqueda("");
@@ -84,7 +91,11 @@
     private void OnInputChanged(ChangeEventArgs e)
     {
         textoActual = e.Value?.ToString() ?? "";
+        ReiniciarTimer();
+    }
 
+    private void ReiniciarTimer()
+    {
         timer?.Dispose();
         timer = new System.Threading.Timer(async _ =>
         {
@@ -94,7 +105,6 @@
 
     private async Task EjecutarBusqueda(string busqueda)
     {
-        // Si no hay búsqueda y no debe cargar al inicio, vaciamos la lista
         if (string.IsNullOrWhiteSpace(busqueda) && !CargarAlInicio)
         {
             productosFiltrados = new();
@@ -131,37 +141,59 @@
         }
     }
 
+    // --- LÓGICA DEL ESCÁNER ---
+
+    private async Task AbrirScanner()
+    {
+        var dotNetHelper = DotNetObjectReference.Create(this);
+        await JSRuntime.InvokeVoidAsync("methodsJS.iniciarEscaneo", dotNetHelper);
+    }
+
+    [JSInvokable]
+    public async Task ProcesarCodigoEscaneado(string code)
+    {
+        textoActual = code;
+        await EjecutarBusqueda(code);
+
+        // Si solo hay un resultado (es lo común con código de barras), lo seleccionamos automáticamente
+        if (productosFiltrados.Count == 1)
+        {
+            await SeleccionarProducto(productosFiltrados[0]);
+        }
+    }
+
+    // --- FIN LÓGICA ESCÁNER ---
+
     private async Task LimpiarBusqueda()
     {
         textoActual = "";
-        productosFiltrados = CargarAlInicio ? (await SupaClient.From<Producto>().Limit(50).Get()).Models : new();
+        if (CargarAlInicio)
+        {
+            var res = await SupaClient.From<Producto>().Limit(50).Get();
+            productosFiltrados = res.Models;
+        }
+        else
+        {
+            productosFiltrados = new();
+        }
     }
 
-    // private async Task SeleccionarProducto(Producto p) => await OnProductoEncontrado.InvokeAsync(p);
     private async Task SeleccionarProducto(Producto p)
     {
-        // 1. Avisamos a la página que se seleccionó el producto
         await OnProductoEncontrado.InvokeAsync(p);
 
-        // 2. Lógica de "desaparecer":
-        // Si CargarAlInicio es false (estamos en Vender), limpiamos la lista
         if (!CargarAlInicio)
         {
-            // productosFiltrados = new();
-            // textoActual = ""; // Opcional: limpia el input también
-            // StateHasChanged();
             LimpiarTodo();
-
         }
-        // Si es true (estamos en Productos), no limpiamos nada porque
-        // la página va a navegar a "Editar" de todos modos.
     }
-    // Este método lo podrá llamar la página Vender.razor
+
     public void LimpiarTodo()
     {
         textoActual = "";
         productosFiltrados = new();
         StateHasChanged();
     }
+
     public void Dispose() => timer?.Dispose();
 }

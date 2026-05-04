@@ -1,0 +1,24 @@
+﻿@inject IJSRuntime JSRuntime
+
+<div id="reader" style="width: 100%; max-width: 500px; margin: auto;"></div>
+
+@code {
+    [Parameter] public EventCallback<string> OnCodeScanned { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Creamos una referencia para que JS pueda llamar a este componente
+            var dotNetHelper = DotNetObjectReference.Create(this);
+            await JSRuntime.InvokeVoidAsync("methodsJS.iniciarEscaneo", dotNetHelper);
+        }
+    }
+
+    [JSInvokable]
+    public async Task ProcesarCodigoEscaneado(string code)
+    {
+        // Aquí recibimos el código (ej: 7791234567890)
+        await OnCodeScanned.InvokeAsync(code);
+    }
+}

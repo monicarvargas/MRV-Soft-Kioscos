@@ -13,11 +13,11 @@
         <div class="d-flex gap-2 align-items-start">
             <div class="flex-grow-1">
                 @* El componente ahora maneja sus propios resultados flotantes o integrados *@
-                <BuscadorProducto @ref="buscadorRef" OnProductoEncontrado="AgregarAlCarrito" CargarAlInicio="false" />
+                <BuscadorProducto @ref="buscadorRef" OnProductoEncontrado="AgregarAlCarrito" CargarAlInicio="false"/>
             </div>
-            <button class="btn btn-outline-secondary border shadow-sm" style="height: 48px;" @onclick="AbrirEscaner">
+            @* <button class="btn btn-outline-secondary border shadow-sm" style="height: 48px;" @onclick="AbrirEscaner">
                 <i class="bi bi-upc-scan fs-4"></i>
-            </button>
+            </button> *@
         </div>
     </div>
 
@@ -121,7 +121,7 @@
     {
         // Lógica de cámara
     }
-   
+    
 
     private void FinalizarVenta()
     {
@@ -135,4 +135,5 @@
         buscadorRef?.LimpiarTodo();
         StateHasChanged();
     }
+    
 }
