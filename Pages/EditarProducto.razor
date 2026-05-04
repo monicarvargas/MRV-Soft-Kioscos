@@ -1,0 +1,87 @@
+﻿@page "/producto/editar/{Id:int}"
+@using BlazorKioscos_v1.Models
+@using BlazorKioscos_v1.Services
+@inject Supabase.Client Supabase
+@inject NavigationManager Nav
+@inject AppState State
+<div class="container mt-3">
+    <div class="d-flex align-items-center mb-4">
+        <button class="btn btn-link text-dark p-0 me-3" @onclick="Volver">
+            <i class="bi bi-arrow-left fs-4"></i>
+        </button>
+        <h3 class="mb-0">Editar</h3>
+    </div>
+
+    @if (modelo == null)
+    {
+        <p>Cargando datos...</p>
+    }
+    else
+    {
+        <div class="card shadow-sm border-0 p-3">
+            <div class="mb-3">
+                <label class="form-label small text-muted">Código</label>
+                <input type="text" class="form-control" @bind-value="modelo.CodigoBarras" />
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label small text-muted">Nombre / Descripción</label>
+                <input type="text" class="form-control" @bind-value="modelo.Nombre" />
+            </div>
+
+            <div class="row">
+                <div class="col-6 mb-3">
+                    <label class="form-label small text-muted">Precio Costo</label>
+                    <input type="number" step="0.01" class="form-control" @bind-value="modelo.PrecioCosto" />
+                </div>
+                <div class="col-6 mb-3">
+                    <label class="form-label small text-muted">Precio Venta</label>
+                    <input type="number" step="0.01" class="form-control" @bind-value="modelo.PrecioVenta" />
+                </div>
+                <div class="col-6 mb-3">
+                    <label class="form-label small text-muted">Precio Lista 2</label>
+                    <input type="number" step="0.01" class="form-control" @bind-value="modelo.PrecioLista2" />
+                </div>
+            </div>
+
+            <div class="mt-4">
+                <button class="btn btn-primary w-100 py-2 fw-bold" @onclick="Guardar">
+                    GUARDAR CAMBIOS
+                </button>
+            </div>
+            <div class="mt-4">
+                <button class="btn btn-outline-secondary w-100 py-2 fw-bold" @onclick="Volver">
+                    Ir al inicio
+                </button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public int Id { get; set; }
+    private Producto? modelo;
+    private decimal precioCosto; // Supongamos que lo tenés en tu tabla
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Buscamos el producto específico por su ID
+        var response = await Supabase.From<Producto>()
+            .Where(x => x.Id == Id)
+            .Single();
+
+        modelo = response;
+    }
+
+    private async Task Guardar()
+    {
+        if (modelo != null)
+        {
+            // Actualizamos en Supabase
+            await Supabase.From<Producto>().Update(modelo);
+            Nav.NavigateTo("/productos"); // Volvemos a la lista
+        }
+    }
+    
+    private void Volver() => Nav.NavigateTo("/productos");
+}

@@ -1,0 +1,20 @@
+## Visual Studio
+.vs/
+[Bb]in/
+[Ob]j/
+*.user
+*.userosscache
+*.sln.docstates
+
+## Archivos de usuario y temporales
+.DS_Store
+Thumbs.db
+
+## Resultados de compilación
+*.exe
+*.dll
+*.pdb
+*.suo
+
+## Vercel
+.vercel

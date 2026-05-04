@@ -1,0 +1,66 @@
+﻿@using BlazorKioscos_v1.Services
+@inherits LayoutComponentBase
+@inject NavigationManager Nav
+@inject AppState State
+
+<div class="page">
+    @* NAVBAR SUPERIOR *@
+    <nav class="navbar navbar-dark bg-primary fixed-top">
+        <div class="container-fluid">
+            <a class="navbar-brand" @onclick="IrAHome" style="cursor: pointer; text-decoration: none;">
+                @if (State.KioscoId == 0)
+                {
+                    <span>MRV Soft</span>
+                }
+                else
+                {
+                    <small class="text-white-50">MRV Soft | </small> <span>@State.NombreNegocio</span>
+                }
+            </a>
+        </div>
+    </nav>
+
+    @* CONTENIDO PRINCIPAL *@
+    <main style="margin-top: 60px; padding-bottom: 90px;">
+        <div class="container-fluid">
+            @Body
+        </div>
+    </main>
+
+    @* EL MENÚ SOLO SE MUESTRA SI HAY LOGUEO *@
+    @if (State.KioscoId != 0)
+    {
+        <div class="footer-nav">
+            <NavLink class="nav-item" href="productos">
+                <span class="bi bi-tag-fill" aria-hidden="true"></span>
+                <span class="nav-label">Productos</span>
+            </NavLink>
+
+            <div class="nav-item-center">
+                <NavLink class="vender-circle" href="producto/vender">
+                    <span class="bi bi-currency-dollar" aria-hidden="true"></span>
+                    <span class="vender-label">Vender</span>
+                </NavLink>
+            </div>
+
+            <NavLink class="nav-item" href="menu-adicional">
+                <span class="bi bi-list" aria-hidden="true"></span>
+                <span class="nav-label">Más</span>
+            </NavLink>
+        </div>
+    }
+</div>
+
+@code {
+    private void IrAHome()
+    {
+        if (State.KioscoId != 0)
+        {
+            Nav.NavigateTo("productos");
+        }
+        else
+        {
+            Nav.NavigateTo("/");
+        }
+    }
+}

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>MRV Soft</title>
+    <base href="/" />
+    <link rel="stylesheet" href="css/bootstrap/bootstrap.min.css" />
+    <link rel="stylesheet" href="css/app.css" />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <link href="BlazorKioscos_v1.styles.css" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <script src="https://unpkg.com/html5-qrcode"></script>
+</head>
+
+<body>
+    <div id="app">
+        <svg class="loading-progress">
+            <circle r="40%" cx="50%" cy="50%" />
+            <circle r="40%" cx="50%" cy="50%" />
+        </svg>
+        <div class="loading-progress-text"></div>
+    </div>
+
+    <div id="blazor-error-ui">
+        An unhandled error has occurred.
+        <a href="" class="reload">Reload</a>
+        <a class="dismiss">🗙</a>
+    </div>
+    <script src="_framework/blazor.webassembly.js" autostart="false"></script>
+
+    <script>
+        // Ponemos una pequeña espera para asegurar que el objeto Blazor ya existe
+        window.onload = function () {
+            if (window.Blazor) {
+                Blazor.start({
+                    loadBootResource: function (type, name, defaultUri, integrity) {
+                        if (type !== 'dotnetjs' && location.hostname !== 'localhost') {
+                            return (async function () {
+                                const response = await fetch(defaultUri, { cache: 'no-cache' });
+                                return response;
+                            })();
+                        }
+                    }
+                });
+            }
+        };
+    </script>
+</body>
+
+</html>

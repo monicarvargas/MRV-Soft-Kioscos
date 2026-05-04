@@ -1,0 +1,74 @@
+﻿@page "/login"
+@using BlazorKioscos_v1.Models
+@using BlazorKioscos_v1.Services
+@inject Supabase.Client Supabase
+@inject NavigationManager Nav
+@inject AppState State
+
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-4">
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white text-center">
+                    <h4>Acceso Empleados</h4>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label>Usuario</label>
+                        <input type="text" class="form-control" @bind="user" />
+                    </div>
+                    <div class="mb-3">
+                        <label>Contraseña</label>
+                        <input type="password" class="form-control" @bind="pass" />
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(error))
+                    {
+                        <div class="alert alert-danger">@error</div>
+                    }
+
+                    <button class="btn btn-success w-100" @onclick="Validar">Entrar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string user;
+    private string pass;
+    private string error;
+
+    private async Task Validar()
+    {
+        try
+        {
+            var res = await Supabase.From<Usuario>()
+                .Select("*, MiKiosco:id_kiosco(*)")
+                .Where(x => x.Username == user)
+                .Where(x => x.Password == pass)
+                .Get();
+
+            var u = res.Models.FirstOrDefault();
+
+            if (u != null)
+            {
+                // Guardamos los datos en el estado global
+                State.KioscoId = u.IdKiosco;
+                State.UsuarioNombre = u.Username;
+                State.NombreNegocio = u.MiKiosco?.NombreKiosco;
+
+                // Vamos a la página principal
+                Nav.NavigateTo("/productos");
+            }
+            else
+            {
+                error = "Datos incorrectos";
+            }
+        }
+        catch (Exception ex)
+        {
+            error = "Error: " + ex.Message;
+        }
+    }
+}

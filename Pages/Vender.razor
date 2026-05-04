@@ -1,0 +1,138 @@
+﻿@page "/producto/vender"
+@using BlazorKioscos_v1.Components
+@using BlazorKioscos_v1.Services
+@using BlazorKioscos_v1.Models
+
+@inject CarritoService Carrito
+@inject NavigationManager Nav
+
+<div class="venta-container bg-light min-vh-100 pb-5">
+
+    @* --- 1. SECCIÓN BÚSQUEDA (Estilo imagen) --- *@
+    <div class="search-section p-3 bg-white shadow-sm sticky-top">
+        <div class="d-flex gap-2 align-items-start">
+            <div class="flex-grow-1">
+                @* El componente ahora maneja sus propios resultados flotantes o integrados *@
+                <BuscadorProducto @ref="buscadorRef" OnProductoEncontrado="AgregarAlCarrito" CargarAlInicio="false" />
+            </div>
+            <button class="btn btn-outline-secondary border shadow-sm" style="height: 48px;" @onclick="AbrirEscaner">
+                <i class="bi bi-upc-scan fs-4"></i>
+            </button>
+        </div>
+    </div>
+
+    @* --- 2. SECCIÓN DEL CARRITO (Parte inferior de la imagen) --- *@
+    <div class="container mt-3">
+        <div class="card shadow-sm border-0">
+            @* Encabezado del Carrito *@
+            <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
+                <div class="d-flex align-items-center">
+                    <i class="bi bi-cart3 text-primary fs-4 me-2"></i>
+                    <h5 class="mb-0 fw-bold">Carrito (@Carrito.Items.Count)</h5>
+                </div>
+                <button class="btn btn-link text-danger text-decoration-none p-0" @onclick="() => Carrito.Vaciar()">
+                    Vaciar carrito <i class="bi bi-trash"></i>
+                </button>
+            </div>
+
+            <div class="card-body p-0">
+                @if (!Carrito.Items.Any())
+                {
+                    <div class="text-center py-5 text-muted">
+                        <i class="bi bi-cart-plus display-1 opacity-25"></i>
+                        <p class="mt-2">No hay productos en la venta actual</p>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var item in Carrito.Items)
+                    {
+                        <div class="d-flex align-items-center p-3 border-bottom">
+                            @* Info Producto *@
+                            <div class="flex-grow-1">
+                                <div class="fw-bold text-dark small text-uppercase">@item.Producto.Nombre</div>
+                                <div class="text-muted small">$ @item.Producto.PrecioVenta?.ToString("N2")</div>
+                            </div>
+
+                            @* Selector de Cantidad (Igual a la imagen) *@
+                            <div class="d-flex align-items-center bg-light rounded-pill px-2 py-1 mx-2">
+                                @* Usamos bi-dash-lg para que sea más visible *@
+                                <button class="btn btn-sm border-0" @onclick="() => DecrementarCantidad(item)">
+                                    <i class="bi bi-dash-lg"></i>
+                                </button>
+
+                                <span class="mx-2 fw-bold" style="min-width: 25px; text-align: center;">@item.Cantidad</span>
+
+                                @* Usamos bi-plus-lg para que sea más visible *@
+                                <button class="btn btn-sm border-0" @onclick="() => item.Cantidad++">
+                                    <i class="bi bi-plus-lg"></i>
+                                </button>
+                            </div>
+
+                            @* Subtotal *@
+                            <div class="text-end" style="min-width: 100px;">
+                                <div class="fw-bold text-primary">$ @item.Subtotal.ToString("N2")</div>
+                            </div>
+
+                            @* Botón Eliminar Fila *@
+                            <button class="btn btn-link text-danger ms-2" @onclick="() => Carrito.Eliminar(item.Producto.Id)">
+                                <i class="bi bi-trash3"></i>
+                            </button>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+
+    @* --- 3. TOTAL Y COBRO (Fijo abajo) --- *@
+    <div class="fixed-bottom bg-white border-top p-3 shadow-lg">
+        <div class="container">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="fs-5 text-muted">Importe a pagar:</span>
+                <span class="fs-2 fw-bold text-success">$ @Carrito.Total.ToString("N2")</span>
+            </div>
+            <button class="btn btn-primary btn-lg w-100 py-3 fw-bold rounded-3 @(Carrito.Items.Any() ? "" : "disabled")"
+                    @onclick="FinalizarVenta">
+                FINALIZAR VENTA / COBRAR
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    // Referencia al componente buscador
+    private BuscadorProducto? buscadorRef;
+    
+
+    private void AgregarAlCarrito(Producto p)
+    {
+        Carrito.Agregar(p);
+        StateHasChanged();
+    }
+
+    private void DecrementarCantidad(ItemCarrito item)
+    {
+        if (item.Cantidad > 1) item.Cantidad--;
+        else Carrito.Eliminar(item.Producto.Id);
+    }
+
+    private void AbrirEscaner()
+    {
+        // Lógica de cámara
+    }
+   
+
+    private void FinalizarVenta()
+    {
+        if (!Carrito.Items.Any()) return;
+        Nav.NavigateTo("/producto/cobrar");
+    }
+    private void VaciarCarrito()
+    {
+        Carrito.Vaciar();
+        // Le ordenamos al buscador que se limpie también
+        buscadorRef?.LimpiarTodo();
+        StateHasChanged();
+    }
+}

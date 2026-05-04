@@ -1,0 +1,42 @@
+﻿@page "/productos"
+@using BlazorKioscos_v1.Models
+@using BlazorKioscos_v1.Components
+@inject NavigationManager Nav
+
+<div class="container mt-3">
+    @* --- CABECERA --- *@
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        @* <h3 class="mb-0 fw-bold">Gestión de Stock</h3> *@
+        <button class="btn btn-primary rounded-pill" @onclick="CrearNuevo">
+            <i class="bi bi-plus-lg"></i> Nuevo
+        </button>
+    </div>
+
+    @* --- COMPONENTE DE BÚSQUEDA --- *@
+    @* OnProductoEncontrado ahora dispara la navegación directa al editor *@
+    <div class="mb-4">
+        <BuscadorProducto CargarAlInicio="true" OnProductoEncontrado="IrAEditar" />
+    </div>
+
+    @* Mensaje de ayuda *@
+    <div class="alert alert-info border-0 shadow-sm small">
+        <i class="bi bi-info-circle-fill me-2"></i>
+        Buscá un producto y seleccionalo para modificar precios o stock.
+    </div>
+</div>
+
+@code {
+    // Al tocar un producto en la lista del componente, este método recibe el objeto
+    private void IrAEditar(Producto p)
+    {
+        if (p != null)
+        {
+            Nav.NavigateTo($"/producto/editar/{p.Id}");
+        }
+    }
+
+    private void CrearNuevo()
+    {
+        Nav.NavigateTo("/producto/nuevo");
+    }
+}

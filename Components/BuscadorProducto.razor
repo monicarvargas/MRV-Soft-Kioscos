@@ -1,0 +1,167 @@
+﻿@using BlazorKioscos_v1.Models
+@using Supabase.Postgrest
+@using static Supabase.Postgrest.Constants
+@implements IDisposable
+
+@inject Supabase.Client SupaClient
+
+<div class="search-box shadow-sm rounded border bg-white mb-2">
+    <div class="input-group">
+        <span class="input-group-text bg-white border-0">
+            <i class="bi bi-search text-muted"></i>
+        </span>
+        <input type="text" class="form-control border-0 py-2"
+               placeholder="Buscar artículo..."
+               @bind-value="textoActual"
+               @oninput="OnInputChanged" />
+        @if (!string.IsNullOrEmpty(textoActual))
+        {
+            <button class="btn btn-white border-0" @onclick="LimpiarBusqueda">
+                <i class="bi bi-x-circle text-muted"></i>
+            </button>
+        }
+    </div>
+</div>
+
+@if (estaCargando)
+{
+    <div class="text-center p-3">
+        <div class="spinner-border spinner-border-sm text-primary"></div>
+    </div>
+}
+
+@if (productosFiltrados.Any())
+{
+    <div class="resultados-container shadow-sm border rounded bg-white">
+        <div class="p-2 bg-light border-bottom small fw-bold text-primary">
+            Resultados (@productosFiltrados.Count)
+        </div>
+        <div class="list-group list-group-flush" style="max-height: 400px; overflow-y: auto;">
+            @foreach (var prod in productosFiltrados)
+            {
+                @* Movimos el onclick aquí para que toda la fila sea interactiva *@
+                <div class="list-group-item d-flex align-items-center p-2"
+                     @onclick="() => SeleccionarProducto(prod)"
+                     style="cursor: pointer;">
+
+                    <div class="flex-grow-1">
+                        <div class="fw-bold mb-0" style="font-size: 0.85rem; color: #333;">@prod.Nombre</div>
+                        <div class="text-muted small">@prod.CodigoBarras</div>
+                    </div>
+
+                    <div class="text-end me-3">
+                        <div class="fw-bold text-primary">$@prod.PrecioVenta?.ToString("N2")</div>
+                    </div>
+
+                    @* El botón lo dejamos pero ya no necesita el onclick propio, lo hereda del padre *@
+                    <button class="btn btn-primary btn-sm rounded-3 shadow-sm">
+                        <i class="bi bi-plus-lg fs-5"></i>
+                    </button>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private System.Threading.Timer? timer;
+    private List<Producto> productosFiltrados = new();
+    private bool estaCargando = false;
+    private string textoActual = "";
+
+    [Parameter] public bool CargarAlInicio { get; set; } = false;
+    [Parameter] public EventCallback<Producto> OnProductoEncontrado { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Solo cargamos si el parámetro lo permite (ej: en la página Productos)
+        if (CargarAlInicio)
+        {
+            await EjecutarBusqueda("");
+        }
+    }
+
+    private void OnInputChanged(ChangeEventArgs e)
+    {
+        textoActual = e.Value?.ToString() ?? "";
+
+        timer?.Dispose();
+        timer = new System.Threading.Timer(async _ =>
+        {
+            await InvokeAsync(async () => await EjecutarBusqueda(textoActual));
+        }, null, 400, System.Threading.Timeout.Infinite);
+    }
+
+    private async Task EjecutarBusqueda(string busqueda)
+    {
+        // Si no hay búsqueda y no debe cargar al inicio, vaciamos la lista
+        if (string.IsNullOrWhiteSpace(busqueda) && !CargarAlInicio)
+        {
+            productosFiltrados = new();
+            estaCargando = false;
+            StateHasChanged();
+            return;
+        }
+
+        estaCargando = true;
+        StateHasChanged();
+
+        try
+        {
+            var query = SupaClient.From<Producto>();
+            if (!string.IsNullOrWhiteSpace(busqueda))
+            {
+                var res = await query.Or(new List<Supabase.Postgrest.Interfaces.IPostgrestQueryFilter>
+                {
+                    new Supabase.Postgrest.QueryFilter("nombre", Operator.ILike, $"%{busqueda}%"),
+                    new Supabase.Postgrest.QueryFilter("codigo_barras", Operator.ILike, $"%{busqueda}%")
+                }).Limit(20).Get();
+                productosFiltrados = res.Models;
+            }
+            else if (CargarAlInicio)
+            {
+                var res = await query.Limit(50).Get();
+                productosFiltrados = res.Models;
+            }
+        }
+        finally
+        {
+            estaCargando = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LimpiarBusqueda()
+    {
+        textoActual = "";
+        productosFiltrados = CargarAlInicio ? (await SupaClient.From<Producto>().Limit(50).Get()).Models : new();
+    }
+
+    // private async Task SeleccionarProducto(Producto p) => await OnProductoEncontrado.InvokeAsync(p);
+    private async Task SeleccionarProducto(Producto p)
+    {
+        // 1. Avisamos a la página que se seleccionó el producto
+        await OnProductoEncontrado.InvokeAsync(p);
+
+        // 2. Lógica de "desaparecer":
+        // Si CargarAlInicio es false (estamos en Vender), limpiamos la lista
+        if (!CargarAlInicio)
+        {
+            // productosFiltrados = new();
+            // textoActual = ""; // Opcional: limpia el input también
+            // StateHasChanged();
+            LimpiarTodo();
+
+        }
+        // Si es true (estamos en Productos), no limpiamos nada porque
+        // la página va a navegar a "Editar" de todos modos.
+    }
+    // Este método lo podrá llamar la página Vender.razor
+    public void LimpiarTodo()
+    {
+        textoActual = "";
+        productosFiltrados = new();
+        StateHasChanged();
+    }
+    public void Dispose() => timer?.Dispose();
+}
