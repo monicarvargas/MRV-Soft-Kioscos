@@ -1,7 +1,7 @@
 {
   "mainAssemblyName": "BlazorKioscos_v1",
   "resources": {
-    "hash": "sha256-SgHn2eiXFueN5Xavo4lsQ60u/xf2k+yUgtmZEEUbQQ0=",
+    "hash": "sha256-1+fwwNyP3NxjjhgfA4xEk0545PqPe4OFZ0xYNpj2OPo=",
     "jsModuleNative": {
       "dotnet.native.js": "sha256-nElGk+CZFyq0PbPm4JU8avD6lER7x9Z1C54BK7qY12Q="
     },
@@ -18,7 +18,7 @@
     },
     "coreAssembly": {},
     "assembly": {
-      "Microsoft.AspNetCore.Components.wasm": "sha256-8C4CfUOtUuQwNBpAInmd3EYiv/j51dXxSg+liNgQuYM=",
+      "Microsoft.AspNetCore.Components.wasm": "sha256-d970PIodTtngCgaW+N1uHcdss0ZRIpq+0iB0j6KECbg=",
       "Microsoft.AspNetCore.Components.Web.wasm": "sha256-tnjE05aM8uziN577vXqbOkgvzrGQ+K/MIiC8UIiaWvY=",
       "Microsoft.AspNetCore.Components.WebAssembly.wasm": "sha256-UBnzg6itn3UfauH11OH71TCcnDxjqVoIDImiDCohmdg=",
       "Microsoft.Extensions.Configuration.wasm": "sha256-dW14nEOBcwYs47V4WLNm3Ka4iUhM50MBLu9tRAHQoXk=",
@@ -105,7 +105,7 @@
       "System.wasm": "sha256-U1ugCDIgbEW6lR5UkMCUZh1lhLDB62fhi0ZthK9FNyg=",
       "netstandard.wasm": "sha256-2vIJiFPX8VTUoX1N7A9fn2nPW6AxMe89D+6+/yOWFnI=",
       "System.Private.CoreLib.wasm": "sha256-hlKkXiSr5XtWz0wBELYE1xBjmHFMRRjt+DaOnnAKWxY=",
-      "BlazorKioscos_v1.wasm": "sha256-BfeJD+2lT4XVzs2blIjHTziuqJUCzKu0G4O+dsdMyJM="
+      "BlazorKioscos_v1.wasm": "sha256-20AGl8ROQPN5szkyngDXUdPPrGhw/J4LRKFFoiENEos="
     }
   },
   "cacheBootResources": true,

@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("BlazorKioscos_v1")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+fc880580f55dc73143d42278c21eb40baca408e5")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+64f7d1840e89dac5461aac32df1aae9ef764b027")]
 [assembly: System.Reflection.AssemblyProductAttribute("BlazorKioscos_v1")]
 [assembly: System.Reflection.AssemblyTitleAttribute("BlazorKioscos_v1")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
