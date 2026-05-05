@@ -1,7 +1,7 @@
 {
   "mainAssemblyName": "BlazorKioscos_v1",
   "resources": {
-    "hash": "sha256-n9AlxfIXpdwnzK52HCQ7PgP1EkMaQHZ3pJqQOreboj0=",
+    "hash": "sha256-KooykGohBlTxGJrEFbwm4abCZ+vHqb4tAXJwbRzwKEw=",
     "jsModuleNative": {
       "dotnet.native.js": "sha256-nElGk+CZFyq0PbPm4JU8avD6lER7x9Z1C54BK7qY12Q="
     },
@@ -226,10 +226,10 @@
       "mscorlib.wasm": "sha256-UzRTTeY8BezBltrUF59UgvVNxbmnZS3LeowarsPY8+Y=",
       "netstandard.wasm": "sha256-xHQSNwqHm8E9DM86qW7CTJoRXXsQuGmPeNipDwQFNr8=",
       "System.Private.CoreLib.wasm": "sha256-N9/Djwpe2mX4HdyhCGu9jrxG/DSYKoTPbtsIOv6VFDk=",
-      "BlazorKioscos_v1.wasm": "sha256-BfeJD+2lT4XVzs2blIjHTziuqJUCzKu0G4O+dsdMyJM="
+      "BlazorKioscos_v1.wasm": "sha256-ryRd4bL7zB6HKlfYYTRJDaBIzjHVow709FAXfGErTzE="
     },
     "pdb": {
-      "BlazorKioscos_v1.pdb": "sha256-JpBDrmbthqBrHlDHXQpwctfqlZkJmdbXAvl1H3VC7eM="
+      "BlazorKioscos_v1.pdb": "sha256-ceVFCHoBDvtjhUcRSON3MiAQSGKTVv33N/92u/6JXNQ="
     }
   },
   "cacheBootResources": true,

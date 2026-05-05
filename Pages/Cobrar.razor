@@ -1,0 +1,158 @@
+﻿@page "/producto/cobrar"
+@using BlazorKioscos_v1.Models
+@inject BlazorKioscos_v1.Services.CarritoService Carrito
+@inject Supabase.Client SupaClient
+@inject NavigationManager Nav
+
+<div class="bg-primary text-white p-3 shadow-sm">
+    <div class="d-flex align-items-center">
+        <button class="btn text-white p-0 me-3" @onclick='() => Nav.NavigateTo("/producto/vender")'>
+            <i class="bi bi-arrow-left fs-4"></i>
+        </button>
+        <div>
+            <h5 class="mb-0 fw-bold">Pagar</h5>
+            <small class="opacity-75">Venta #@NroVentaTemporal</small>
+        </div>
+    </div>
+</div>
+
+<div class="container pb-5 mb-5">
+    @* --- 1. RESUMEN DE VENTA --- *@
+    <div class="card shadow-sm border-0 rounded-4 mt-3 mb-4">
+        <div class="card-body p-3">
+            <h6 class="fw-bold mb-3">Resumen de la venta</h6>
+            <div class="d-flex justify-content-between small mb-1">
+                <span class="text-muted">Subtotal</span>
+                <span>$ @Carrito.Total.ToString("N2")</span>
+            </div>
+            <div class="d-flex justify-content-between small mb-2">
+                <span class="text-muted">Descuento</span>
+                <span>$ 0,00</span>
+            </div>
+            <div class="d-flex justify-content-between align-items-center py-2 border-top">
+                <span class="fw-bold">Total a pagar</span>
+                <span class="fs-4 fw-bold text-primary">$ @Carrito.Total.ToString("N2")</span>
+            </div>
+        </div>
+    </div>
+
+    @* --- 2. MEDIOS DE PAGO (Botones Estilo Imagen) --- *@
+    <h6 class="fw-bold mb-3">Medios de pago</h6>
+    <div class="row g-2 mb-4">
+        @foreach (var forma in listaFormasPago)
+        {
+            <div class="col-4">
+                <button class="btn w-100 h-100 p-2 border rounded-4 d-flex flex-column align-items-center justify-content-center position-relative @(formaSeleccionada?.Id == forma.Id ? "border-success bg-light" : "bg-white")"
+                        @onclick="() => SeleccionarForma(forma)"
+                        style="min-height: 85px; transition: all 0.2s;">
+
+                    @if (formaSeleccionada?.Id == forma.Id)
+                    {
+                        <i class="bi bi-check-circle-fill text-success position-absolute" style="top: 5px; right: 5px;"></i>
+                    }
+
+                    <i class="@GetIcon(forma.Nombre) fs-3 mb-1 @(formaSeleccionada?.Id == forma.Id ? "text-success" : "text-primary")"></i>
+                    <span style="font-size: 0.75rem; font-weight: 500;" class="text-center">@forma.Nombre</span>
+                </button>
+            </div>
+        }
+    </div>
+
+    @* --- 3. DETALLE SEGÚN PAGO (Efectivo / Vuelto) --- *@
+    @if (formaSeleccionada != null)
+    {
+        <div class="card shadow-sm border-0 rounded-4 mb-4">
+            <div class="card-body p-3">
+                <h6 class="fw-bold mb-3">Pago en @formaSeleccionada.Nombre</h6>
+
+                <div class="d-flex justify-content-between mb-3">
+                    <span class="text-muted">Total a pagar</span>
+                    <span class="fw-bold">$ @Carrito.Total.ToString("N2")</span>
+                </div>
+
+                @if (formaSeleccionada.Nombre.ToLower().Contains("efectivo"))
+                {
+                    <div class="mb-3">
+                        <label class="text-success fw-bold small">Recibido</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-white border-end-0">$</span>
+                            <input type="number" class="form-control border-start-0 fs-5 fw-bold text-end"
+                                   @bind-value="montoRecibido" @bind-value:event="oninput" />
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-between align-items-center py-2 border-top border-dashed">
+                        <span class="text-success fw-bold">Vuelto</span>
+                        <span class="fs-3 fw-bold text-success">$ @CalcularVuelto().ToString("N2")</span>
+                    </div>
+                }
+
+                <div class="mt-3">
+                    <label class="text-muted small fw-bold">Observaciones (opcional)</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="Agregar observación..." @bind="observaciones" />
+                </div>
+            </div>
+        </div>
+    }
+
+    @* --- 4. BOTÓN CONFIRMAR (Fijo Abajo) --- 
+    <div class="fixed-bottom p-3 bg-white border-top">
+        <button class="btn btn-success btn-lg w-100 py-3 fw-bold rounded-4 d-flex align-items-center justify-content-center gap-2"
+                disabled="@(formaSeleccionada == null)"
+                @onclick="ConfirmarPago">
+            <i class="bi bi-check-lg fs-4"></i>
+            Confirmar pago
+        </button>
+    </div>*@
+
+    @* --- 4. BOTÓN CONFIRMAR (Al final del contenido) --- *@
+    <div class="p-3 mt-4">
+        <button class="btn btn-success btn-lg w-100 py-3 fw-bold rounded-4 d-flex align-items-center justify-content-center gap-2"
+                disabled="@(formaSeleccionada == null)"
+                @onclick="ConfirmarPago">
+            <i class="bi bi-check-lg fs-4"></i>
+            Confirmar pago
+        </button>
+    </div>
+</div>
+
+@code {
+    private List<FormaPago> listaFormasPago = new();
+    private FormaPago? formaSeleccionada;
+    private decimal montoRecibido;
+    private string observaciones = "";
+    private string NroVentaTemporal = "000123";
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Traemos las formas de pago de la tabla que creaste
+        var res = await SupaClient.From<FormaPago>().Where(x => x.Activo == true).Get();
+        listaFormasPago = res.Models;
+
+        // Seleccionamos efectivo por defecto si existe
+        formaSeleccionada = listaFormasPago.FirstOrDefault(f => f.Nombre.ToLower().Contains("efectivo"));
+        montoRecibido = Carrito.Total;
+    }
+
+    private void SeleccionarForma(FormaPago forma) => formaSeleccionada = forma;
+
+    private decimal CalcularVuelto() => montoRecibido > Carrito.Total ? montoRecibido - Carrito.Total : 0;
+
+    private string GetIcon(string nombre) => nombre.ToLower() switch
+    {
+        "efectivo" => "bi bi-cash-stack",
+        "mercado pago" => "bi bi-qr-code",
+        "transferencia" => "bi bi-bank",
+        "tarjeta de débito" => "bi bi-credit-card-2-front",
+        "tarjeta de crédito" => "bi bi-credit-card",
+        _ => "bi bi-three-dots"
+    };
+
+    private async Task ConfirmarPago()
+    {
+        // Aquí irá la lógica para guardar en la tabla ventas y venta_detalles
+        // Por ahora, solo vaciamos y volvemos
+        Carrito.Vaciar();
+        Nav.NavigateTo("/producto/vender");
+    }
+}

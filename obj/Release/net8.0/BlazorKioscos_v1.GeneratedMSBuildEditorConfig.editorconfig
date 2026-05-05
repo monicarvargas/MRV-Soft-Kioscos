@@ -36,6 +36,10 @@ build_metadata.AdditionalFiles.CssScope =
 build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xTY2FubmVyLnJhem9y
 build_metadata.AdditionalFiles.CssScope = 
 
+[C:/Sistemas/BlazorKioscos1.0/Pages/Cobrar.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcQ29icmFyLnJhem9y
+build_metadata.AdditionalFiles.CssScope = 
+
 [C:/Sistemas/BlazorKioscos1.0/Pages/Counter.razor]
 build_metadata.AdditionalFiles.TargetPath = UGFnZXNcQ291bnRlci5yYXpvcg==
 build_metadata.AdditionalFiles.CssScope = 

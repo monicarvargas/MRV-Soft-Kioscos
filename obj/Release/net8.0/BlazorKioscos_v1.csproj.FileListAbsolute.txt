@@ -1119,6 +1119,6 @@ C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\BlazorKioscos_v1.dll
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\refint\BlazorKioscos_v1.dll
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\BlazorKioscos_v1.pdb
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\ref\BlazorKioscos_v1.dll
-C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\9g0cvm5ic5-3yf9oatgxd.gz
-C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\u53jqbalbn-eeioh7z3ag.gz
-C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\oqhjqgam9z-dgos0d75vf.gz
+C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\9g0cvm5ic5-92c9ixcw34.gz
+C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\u53jqbalbn-92qe2urx4i.gz
+C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\oqhjqgam9z-xd59as6g80.gz
