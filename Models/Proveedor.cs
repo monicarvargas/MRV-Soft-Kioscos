@@ -7,9 +7,9 @@ namespace BlazorKioscos_v1.Models
     public class Proveedor:BaseModel
     {
         [PrimaryKey("id", false)]
-        public int? Id { get; set; }
+        public long Id { get; set; }
         [Column("kiosco_id")]
-        public int? KioscoId { get; set; }
+        public long? KioscoId { get; set; }
         [Column("nombre")]
         public string? Nombre { get; set;}
         [Column("cuit")]
@@ -21,6 +21,6 @@ namespace BlazorKioscos_v1.Models
         [Column("direccion")]
         public string? Direccion { get; set; }
         [Column("created_ad")]
-        public DateTime FechaCReacion { get; set; }
+        public DateTime FechaCReacion { get; set; } = DateTime.UtcNow.ToLocalTime();
     }
 }

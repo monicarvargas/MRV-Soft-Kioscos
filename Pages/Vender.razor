@@ -2,22 +2,30 @@
 @using BlazorKioscos_v1.Components
 @using BlazorKioscos_v1.Services
 @using BlazorKioscos_v1.Models
-
+@using static Supabase.Postgrest.Constants
+@inject Supabase.Client SupaClient
 @inject CarritoService Carrito
 @inject NavigationManager Nav
+@inject PrecioService PrecioServ
 
-<div class="venta-container bg-light min-vh-100 pb-5">
+<div class="venta-container mt-3 ">
+    <div class="d-flex align-items-center mb-4">
+        <button class="btn btn-link text-dark p-0 me-3" @onclick="Volver">
+            <i class="bi bi-arrow-left fs-4"></i>
+        </button>
+        <h3 class="mb-0">Vender</h3>
+    </div>
+
+
 
     @* --- 1. SECCIÓN BÚSQUEDA (Estilo imagen) --- *@
     <div class="search-section p-3 bg-white shadow-sm sticky-top">
         <div class="d-flex gap-2 align-items-start">
             <div class="flex-grow-1">
                 @* El componente ahora maneja sus propios resultados flotantes o integrados *@
-                <BuscadorProducto @ref="buscadorRef" OnProductoEncontrado="AgregarAlCarrito" CargarAlInicio="false"/>
+                @* cargarAlInicio: es para indicar si muestra el listado de productos al iniciar *@
+                <BuscadorProducto @ref="buscadorRef" OnProductoEncontrado="AgregarAlCarrito" CargarAlInicio="false" MostrarPrimeraLista="mostrarPrimeraLista" MostrarSegundaLista="mostrarSegundaLista" />
             </div>
-            @* <button class="btn btn-outline-secondary border shadow-sm" style="height: 48px;" @onclick="AbrirEscaner">
-                <i class="bi bi-upc-scan fs-4"></i>
-            </button> *@
         </div>
     </div>
 
@@ -51,7 +59,7 @@
                             @* Info Producto *@
                             <div class="flex-grow-1">
                                 <div class="fw-bold text-dark small text-uppercase">@item.Producto.Nombre</div>
-                                <div class="text-muted small">$ @item.Producto.PrecioVenta?.ToString("N2")</div>
+                                <div class="text-muted small">$ @item.PrecioUnitario.ToString("N2")</div>
                             </div>
 
                             @* Selector de Cantidad (Igual a la imagen) *@
@@ -106,16 +114,16 @@
             <div class="card shadow-sm border-0 rounded-4 overflow-hidden">
                 <div class="card-body p-4 bg-white">
                     @* Subtotal *@
-                    <div class="d-flex justify-content-between align-items-center mb-2">
+                    @* <div class="d-flex justify-content-between align-items-center mb-2">
                         <span class="text-muted fw-medium">Subtotal</span>
                         <span class="fw-bold text-dark">$ @Carrito.Total.ToString("N2")</span>
-                    </div>
+                    </div> *@
 
                     @* Descuento (Hardcodeado en 0 por ahora como en la imagen) *@
-                    <div class="d-flex justify-content-between align-items-center mb-3">
+                   @*  <div class="d-flex justify-content-between align-items-center mb-3">
                         <span class="text-muted fw-medium">Descuento</span>
                         <span class="fw-bold text-dark">$ 0,00</span>
-                    </div>
+                    </div> *@
 
                     @* Línea divisoria sutil *@
                     <hr class="text-muted opacity-25" />
@@ -143,15 +151,61 @@
 
 @code {
     // Referencia al componente buscador
+    private bool mostrarPrimeraLista = true;
+    private bool mostrarSegundaLista = false;
     private BuscadorProducto? buscadorRef;
-    
+    // Estado de la venta actual
+    private List<ItemCarrito> carrito = new();
+    private TimeSpan horaInicioVenta;
+    private string columnaPrecioActiva = "precio_venta"; // Por defecto
+    private long idNegocio = 1; // Tu kiosco activo
 
-    private void AgregarAlCarrito(Producto p)
+    protected override async Task OnInitializedAsync()
     {
-        Carrito.Agregar(p);
-        StateHasChanged();
+        await IniciarNuevaVenta();
     }
 
+    private async Task IniciarNuevaVenta()
+    {
+        carrito.Clear();
+
+        // 1. CONGELAMOS LA HORA en este preciso instante
+        horaInicioVenta = DateTime.Now.TimeOfDay;
+
+        columnaPrecioActiva = await PrecioServ.ObtenerColumnaPrecioActivaAsync(1, horaInicioVenta);
+        if (columnaPrecioActiva == "precio_lista2")
+        {
+            mostrarSegundaLista = true;
+            mostrarPrimeraLista = false;
+        }
+    }
+
+    // 3. Cuando el buscador te devuelve un producto, usás la columna congelada
+    private void AgregarAlCarrito(Producto prod)
+    {
+        // Evaluamos dinámicamente qué precio asignarle al ítem según la columna congelada
+        decimal precioAplicado = columnaPrecioActiva switch
+        {
+            "precio_lista2" => prod.PrecioLista2 ?? prod.PrecioVenta ?? 0,
+            "precio_lista3" => prod.PrecioLista3 ?? prod.PrecioVenta ?? 0, // Por si agregás más adelante
+            _ => prod.PrecioVenta ?? 0
+        };
+        
+        //Este codigo me puede servir a futuro si quiero mostrar el precio aplicado en el carrito o en algún lado, pero por ahora lo dejo comentado porque el servicio CarritoService ya hace esa lógica internamente al recibir la columnaPrecioActiva
+        // decimal precioAplicado = columnaPrecioActiva switch
+        // {
+        //     "precio_venta" => prod.PrecioVenta ?? 0,
+        //     "precio_lista2" => prod.PrecioLista2 ?? prod.PrecioVenta ?? 0,
+        //     "precio_lista3" => prod.PrecioLista3 ?? prod.PrecioVenta ?? 0,
+
+        //     _ => prod.PrecioVenta ?? 0 // Respaldo por si viene un string vacío o cualquier otra cosa
+        // };
+
+
+        Carrito.Agregar(prod, columnaPrecioActiva);
+
+        StateHasChanged();
+    }
     private void DecrementarCantidad(ItemCarrito item)
     {
         if (item.Cantidad > 1) item.Cantidad--;
@@ -162,7 +216,7 @@
     {
         // Lógica de cámara
     }
-    
+    private void Volver() => Nav.NavigateTo("/productos");
 
     private void FinalizarVenta()
     {
@@ -176,5 +230,4 @@
         buscadorRef?.LimpiarTodo();
         StateHasChanged();
     }
-    
 }

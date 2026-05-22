@@ -7,7 +7,7 @@ namespace BlazorKioscos_v1.Models
     public class FormaPago : BaseModel
     {
         [PrimaryKey("id", false)]
-        public int Id { get; set; }
+        public long Id { get; set; }
         [Column("nombre")]
         public string? Nombre { get; set; }
         [Column("activo")]
@@ -17,6 +17,6 @@ namespace BlazorKioscos_v1.Models
         [Column("orden")]
         public int Orden { get; set; }
         [Column("created_at")]
-        public DateTime FechaCreacion { get; set; } = DateTime.Now;
+        public DateTime FechaCreacion { get; set; } =  DateTime.UtcNow.ToLocalTime();
     }
 }

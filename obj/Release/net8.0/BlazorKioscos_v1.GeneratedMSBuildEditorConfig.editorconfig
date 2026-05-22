@@ -40,6 +40,10 @@ build_metadata.AdditionalFiles.CssScope =
 build_metadata.AdditionalFiles.TargetPath = UGFnZXNcQ29icmFyLnJhem9y
 build_metadata.AdditionalFiles.CssScope = 
 
+[C:/Sistemas/BlazorKioscos1.0/Pages/Configuracion.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcQ29uZmlndXJhY2lvbi5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = 
+
 [C:/Sistemas/BlazorKioscos1.0/Pages/Counter.razor]
 build_metadata.AdditionalFiles.TargetPath = UGFnZXNcQ291bnRlci5yYXpvcg==
 build_metadata.AdditionalFiles.CssScope = 
@@ -54,6 +58,14 @@ build_metadata.AdditionalFiles.CssScope =
 
 [C:/Sistemas/BlazorKioscos1.0/Pages/Login.razor]
 build_metadata.AdditionalFiles.TargetPath = UGFnZXNcTG9naW4ucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Sistemas/BlazorKioscos1.0/Pages/MenuAdicional.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcTWVudUFkaWNpb25hbC5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Sistemas/BlazorKioscos1.0/Pages/NuevoProducto.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcTnVldm9Qcm9kdWN0by5yYXpvcg==
 build_metadata.AdditionalFiles.CssScope = 
 
 [C:/Sistemas/BlazorKioscos1.0/Pages/Productos.razor]

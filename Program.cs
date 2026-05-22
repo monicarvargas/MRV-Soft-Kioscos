@@ -4,6 +4,9 @@ using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using Supabase;
 
+
+
+
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
 
 builder.RootComponents.Add<App>("#app");
@@ -12,10 +15,16 @@ builder.RootComponents.Add<HeadOutlet>("head::after");
 // Estado global
 builder.Services.AddSingleton<AppState>();
 builder.Services.AddSingleton<CarritoService>();
+//builder.Services.AddSingleton<PrecioService>();
 
 // HttpClient
 builder.Services.AddScoped(sp =>
     new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
+
+// Registrar un servicio de lógica de precios
+builder.Services.AddScoped<PrecioService>();
+
+builder.Services.AddLocalStorageServices();
 
 // Configuración Supabase
 var supabaseUrl = builder.Configuration["SupabaseUrl"];

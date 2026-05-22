@@ -1,10 +1,12 @@
 ﻿@using BlazorKioscos_v1.Models
+@using BlazorKioscos_v1.Services
 @using Supabase.Postgrest
 @using static Supabase.Postgrest.Constants
 @implements IDisposable
 
 @inject Supabase.Client SupaClient
 @inject IJSRuntime JSRuntime
+@inject PrecioService PrecioServ
 
 <div class="search-box shadow-sm rounded border bg-white mb-2">
     <div class="input-group">
@@ -59,12 +61,66 @@
                     </div>
 
                     <div class="text-end me-3">
-                        <div class="fw-bold text-primary">$@prod.PrecioVenta?.ToString("N2")</div>
+                        @if (MostrarPrimeraLista)
+                        {
+                            @* <div class="fw-bold text-primary">$@prod.PrecioVenta?.ToString("N2")</div> *@
+                            <td class="text-center @(columnaPrecioActiva == "precio_venta" ? "table-primary border-primary border-start border-end" : "")">
+                                <span class="@(columnaPrecioActiva == "precio_venta" ? "fw-bold fs-5 text-primary" : "text-muted small")">
+                                     @(prod.PrecioVenta?.ToString("N2") ?? "0.00")
+                                </span>
+                                @if (columnaPrecioActiva == "precio_venta")
+                                {
+                                    <div class="badge bg-primary d-block mx-auto mt-1" style="font-size: 0.65rem; max-width: 70px;"></div>
+                                }
+                            </td>
+                            
+                        }
+                    
+                        @* @if (MostrarSegundaLista)
+                        {
+                           
+                            <td class="text-center @(columnaPrecioActiva == "precio_lista2" ? "table-success border-success border-start border-end" : "")">
+                                <span class="@(columnaPrecioActiva == "precio_lista2" ? "fw-bold fs-5 text-success" : "text-muted small")">
+                                     @(prod.PrecioLista2?.ToString("N2") ?? "0.00")
+                                </span>
+                                @if (columnaPrecioActiva == "precio_lista2")
+                                {
+                                    <div class="badge bg-success d-block mx-auto mt-1" style="font-size: 0.65rem; max-width: 70px;"></div>
+                                }
+                            </td>
+                        } *@
+                        @if (MostrarSegundaLista)
+                        {
+                            // 1. Calculamos el precio real a mostrar en una variable local para no repetir código
+                            // Si PrecioLista2 es nulo o es igual a 0, le sumamos 500 al PrecioVenta
+                            decimal precioLista2AMostrar = (prod.PrecioLista2 == null || prod.PrecioLista2 == 0)
+                            ? (prod.PrecioVenta ?? 0) + 500
+                            : prod.PrecioLista2.Value;
+
+                            <td class="text-center @(columnaPrecioActiva == "precio_lista2" ? "table-success border-success border-start border-end" : "")">
+                                <span class="@(columnaPrecioActiva == "precio_lista2" ? "fw-bold fs-5 text-success" : "text-muted small")">
+                                    $ @precioLista2AMostrar.ToString("N2")
+                                </span>
+
+                                @* Un plus: Si aplicó el recargo de auxilio, le podemos poner un cartelito sutil al vendedor *@
+                                @if (prod.PrecioLista2 == null || prod.PrecioLista2 == 0)
+                                {
+                                    <div class="text-danger" style="font-size: 0.65rem;" title="PrecioLista2 no cargado. Se aplicó +$500 de recargo por defecto.">
+                                        <i class="bi bi-exclamation-circle"></i> Ajustado
+                                    </div>
+                                }
+
+                                @if (columnaPrecioActiva == "precio_lista2")
+                                {
+                                    <div class="badge bg-success d-block mx-auto mt-1" style="font-size: 0.65rem; max-width: 70px;"></div>
+                                }
+                            </td>
+                        }
                     </div>
 
-                    <button class="btn btn-primary btn-sm rounded-3 shadow-sm">
+                    @* <button class="btn btn-primary btn-sm rounded-3 shadow-sm">
                         <i class="bi bi-plus-lg fs-5"></i>
-                    </button>
+                    </button> *@
                 </div>
             }
         </div>
@@ -76,9 +132,14 @@
     private List<Producto> productosFiltrados = new();
     private bool estaCargando = false;
     private string textoActual = "";
+    private string columnaPrecioActiva = "precio_venta"; // Por defecto
+    private TimeSpan horaInicioVenta = DateTime.Now.TimeOfDay;
+    private long idNegocio = 1; // Tu kiosco activo
 
     [Parameter] public bool CargarAlInicio { get; set; } = false;
     [Parameter] public EventCallback<Producto> OnProductoEncontrado { get; set; }
+    [Parameter] public bool MostrarPrimeraLista { get; set; } = true;
+    [Parameter] public bool MostrarSegundaLista { get; set; } = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -86,8 +147,15 @@
         {
             await EjecutarBusqueda("");
         }
+        
+        columnaPrecioActiva = await PrecioServ.ObtenerColumnaPrecioActivaAsync(idNegocio, horaInicioVenta);
     }
-
+    protected override void OnParametersSet()
+    {
+        // Cada vez que el componente padre (Productos.razor) actualice el parámetro,
+        // le avisamos a la interfaz del buscador que debe redibujarse con el nuevo valor.
+        StateHasChanged();
+    }
     private void OnInputChanged(ChangeEventArgs e)
     {
         textoActual = e.Value?.ToString() ?? "";

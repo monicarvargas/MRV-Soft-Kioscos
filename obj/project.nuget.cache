@@ -1,9 +1,11 @@
 {
   "version": 2,
-  "dgSpecHash": "eb3ULcKrZoE=",
+  "dgSpecHash": "sPCzyAnOIU4=",
   "success": true,
   "projectFilePath": "C:\\Sistemas\\BlazorKioscos1.0\\BlazorKioscos_v1.csproj",
   "expectedPackageFiles": [
+    "C:\\Users\\HP\\.nuget\\packages\\blazor.localstorage\\9.0.1\\blazor.localstorage.9.0.1.nupkg.sha512",
+    "C:\\Users\\HP\\.nuget\\packages\\blazor.serialization\\9.0.1\\blazor.serialization.9.0.1.nupkg.sha512",
     "C:\\Users\\HP\\.nuget\\packages\\microsoft.aspnetcore.authorization\\8.0.25\\microsoft.aspnetcore.authorization.8.0.25.nupkg.sha512",
     "C:\\Users\\HP\\.nuget\\packages\\microsoft.aspnetcore.components\\8.0.25\\microsoft.aspnetcore.components.8.0.25.nupkg.sha512",
     "C:\\Users\\HP\\.nuget\\packages\\microsoft.aspnetcore.components.analyzers\\8.0.25\\microsoft.aspnetcore.components.analyzers.8.0.25.nupkg.sha512",

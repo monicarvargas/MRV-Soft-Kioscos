@@ -1,6 +1,8 @@
 ﻿@page "/productos"
 @using BlazorKioscos_v1.Models
 @using BlazorKioscos_v1.Components
+@using Supabase.Postgrest
+@inject Supabase.Client SupaClient
 @inject NavigationManager Nav
 
 <div class="container mt-3">
@@ -15,7 +17,7 @@
     @* --- COMPONENTE DE BÚSQUEDA --- *@
     @* OnProductoEncontrado ahora dispara la navegación directa al editor *@
     <div class="mb-4">
-        <BuscadorProducto CargarAlInicio="true" OnProductoEncontrado="IrAEditar" />
+        <BuscadorProducto CargarAlInicio="true" OnProductoEncontrado="IrAEditar" MostrarPrimeraLista="true" MostrarSegundaLista="mostrarSegundaLista" />
     </div>
 
     @* Mensaje de ayuda *@
@@ -26,6 +28,43 @@
 </div>
 
 @code {
+    private bool mostrarSegundaLista = false;
+    private long idNegocio;
+
+    // CAMBIAMOS A OnInitializedAsync para que cargue ANTES de dibujar los componentes hijos
+    protected override async Task OnInitializedAsync()
+    {
+        // 1. Forzamos el ID del negocio (o lo traés de tu lógica)
+        idNegocio = 1;
+
+        if (idNegocio > 0)
+        {
+            try
+            {
+                
+                var res = await SupaClient.From<ListaPrecio>()
+                            .Where(x => x.KioscoId == idNegocio && x.NombreColumnaProductos == "precio_lista2")
+                            .Get();
+
+                var configuracionLista = res.Models.FirstOrDefault();
+
+                if (configuracionLista != null)
+                {
+                    // 3. Asignamos el valor directamente
+                    mostrarSegundaLista = configuracionLista.MostrarEnBuscador;
+                }
+                else
+                {
+                    // Log de respaldo en la consola del navegador por si no encuentra la fila
+                    Console.WriteLine("Alerta: No se encontró la configuración para 'precio_lista2' en la tabla listas_precios.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error al consultar listas_precios: {ex.Message}");
+            }
+        }
+    }
     // Al tocar un producto en la lista del componente, este método recibe el objeto
     private void IrAEditar(Producto p)
     {

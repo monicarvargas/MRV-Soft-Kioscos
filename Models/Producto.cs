@@ -8,13 +8,13 @@ namespace BlazorKioscos_v1.Models
     public class Producto: BaseModel
     {
         [PrimaryKey("id", false)]
-        public int Id { get; set; }
+        public long Id { get; set; }
         [Column("kiosco_id")]
-        public int? KioscoId { get; set; }
+        public long? KioscoId { get; set; }
         [Column("familia_id")]
-        public int FamiliaId { get; set; }
+        public long FamiliaId { get; set; }
         [Column("proveedor_id")]
-        public int? ProveedorId { get; set; }
+        public long? ProveedorId { get; set; }
         [Column("codigo_barras")]
         public string? CodigoBarras { get; set; }
         [Column("nombre")]
@@ -22,31 +22,31 @@ namespace BlazorKioscos_v1.Models
         [Column("marca")]
         public string? Marca { get; set; }
         [Column("precio_costo")]
-        public double? PrecioCosto { get; set; }
+        public decimal? PrecioCosto { get; set; }
         [Column("precio_venta")]
-        public double? PrecioVenta { get; set; }
+        public decimal? PrecioVenta { get; set; }
         [Column("utilidad_pv")]
-        public double? UtilidadPV { get; set; }
+        public decimal? UtilidadPV { get; set; }
         [Column("precio_lista2")]
-        public double? PrecioLista2 { get; set; }
+        public decimal? PrecioLista2 { get; set; }
         [Column("utilidad_lista2")]
-        public double? UtilidadLista2 { get; set; }
+        public decimal? UtilidadLista2 { get; set; }
         [Column("precio_lista3")]
-        public double? PrecioLista3 { get; set; }
+        public decimal? PrecioLista3 { get; set; }
         [Column("utilidad_lista3")]
-        public double? UtilidadLista3 { get; set; }
+        public decimal? UtilidadLista3 { get; set; }
         [Column("precio_lista4")]
-        public double? PrecioLista4 { get; set; }
+        public decimal? PrecioLista4 { get; set; }
         [Column("utilidad_lista4")]
-        public double? UtilidadLista4 { get; set; }
+        public decimal? UtilidadLista4 { get; set; }
         [Column("precio_lista5")]
-        public double? PrecioLista5 { get; set; }
+        public decimal? PrecioLista5 { get; set; }
         [Column("utilidad_lista5")]
-        public double? UtilidadLista5 { get; set; }
+        public decimal? UtilidadLista5 { get; set; }
         [Column("precio_venta_por_mayor")]
-        public double? PrecioVentaxMayor { get; set; }
+        public decimal? PrecioVentaxMayor { get; set; }
         [Column("utilidad_x_mayor")]
-        public double? UtilidadVentaxMayor { get; set; }
+        public decimal? UtilidadVentaxMayor { get; set; }
         [Column("cant_por_mayor")]
         public int? CantxMayor { get; set; }
         [Column("venta_por_peso")]
@@ -54,7 +54,7 @@ namespace BlazorKioscos_v1.Models
         [Column("unidad")]
         public string? UnidadMedida { get; set; }
         [Column("stock_actual")]
-        public int? StockActual { get; set; }
+        public int StockActual { get; set; }
         [Column("stock_ideal")]
         public int? StockIdeal { get; set; }
         [Column("stock_minimo")]
@@ -64,7 +64,7 @@ namespace BlazorKioscos_v1.Models
         [Column("imagen_url")]
         public  string? ImagenUrl { get; set; }
         [Column("fecha_actualizacion")]
-        public DateTime FechaActualizacion { get; set; }
+        public DateTime FechaActualizacion { get; set; } = DateTime.UtcNow.ToLocalTime();
         [Column("activo")]
         public bool Activo { get; set; }
     }

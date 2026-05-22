@@ -9,14 +9,14 @@ namespace BlazorKiosco_v1.Models
     public class Familia:BaseModel
     {
         [PrimaryKey("id",false)]
-        public int? Id { get; set; }
+        public long? Id { get; set; }
         [Column("kiosco_id")]
-        public int? KioscoId { get; set; }
+        public long? KioscoId { get; set; }
         [Column("nombre")]
         public string? Nombre { get; set; }
         [Column("descripcion")]
         public string? Descripcion { get; set; }
         [Column("created_ad")]
-        public DateTime fechaCreacion { get; set; }
+        public DateTime fechaCreacion { get; set; } = DateTime.UtcNow.ToLocalTime();
     }
 }

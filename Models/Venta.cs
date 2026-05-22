@@ -11,7 +11,7 @@ namespace BlazorKioscos_v1.Models
         [PrimaryKey("id", false)]
         public long Id { get; set; }
         [Column("fecha")]
-        public DateTime Fecha { get; set; } = DateTime.Now;
+        public DateTime Fecha { get; set; } = DateTime.UtcNow.ToLocalTime();
         [Column("total")]
         public decimal Total { get; set; }
         [Column("usuario_id")]

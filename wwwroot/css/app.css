@@ -187,3 +187,21 @@ code {
 .item-fila {
     min-height: 70px;
 }
+
+/* Quita las flechas del input number */
+.no-spinner::-webkit-inner-spin-button,
+.no-spinner::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.no-spinner {
+    -moz-appearance: textfield;
+}
+
+/* Evita que el botón de X resalte el borde azul al hacer foco en el input */
+.input-group:focus-within .btn,
+.input-group:focus-within .input-group-text {
+    border-color: #86b7fe; /* Color de foco de Bootstrap */
+}
+

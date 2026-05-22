@@ -56,7 +56,7 @@
                 // Guardamos los datos en el estado global
                 State.KioscoId = u.IdKiosco;
                 State.UsuarioNombre = u.Username;
-                State.NombreNegocio = u.MiKiosco?.NombreKiosco;
+                State.NombreNegocio = u.Kiosco?.NombreKiosco;
 
                 // Vamos a la página principal
                 Nav.NavigateTo("/productos");

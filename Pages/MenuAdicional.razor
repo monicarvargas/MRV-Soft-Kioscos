@@ -1,0 +1,16 @@
+﻿@page "/MenuAdicional"
+@using BlazorKioscos_v1.Services
+@inject AppState State
+@inject NavigationManager Nav
+
+<h3>En Contrucción</h3>
+@code {
+    protected override void OnInitialized()
+    {
+        // Si el ID del kiosco es 0, significa que no pasó por el Login
+        if (State.KioscoId == 0)
+        {
+            Nav.NavigateTo("/login");
+        }
+    }
+}

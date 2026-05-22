@@ -1109,9 +1109,6 @@ C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\dfgctlum5a-tjcz0u77k5
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\h4xpbrmr58-tptq2av103.gz
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\cseq0iantc-lfu7j35m59.gz
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\iitouz96ib-oyz0vx2fzb.gz
-C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\9g0cvm5ic5-bornpbl54a.gz
-C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\u53jqbalbn-chifzasdjx.gz
-C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\oqhjqgam9z-pcka7ptzpz.gz
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\staticwebassets.build.json
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\staticwebassets.build.json.cache
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\staticwebassets.development.json
@@ -1122,3 +1119,16 @@ C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\BlazorKioscos_v1.dll
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\refint\BlazorKioscos_v1.dll
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\BlazorKioscos_v1.pdb
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\ref\BlazorKioscos_v1.dll
+C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\wwwroot\_framework\Blazor.LocalStorage.wasm
+C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\wwwroot\_framework\Blazor.Serialization.wasm
+C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\wwwroot\_framework\Blazor.LocalStorage.wasm.gz
+C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\wwwroot\_framework\Blazor.Serialization.wasm.gz
+C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\Blazor.LocalStorage.dll
+C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\Blazor.Serialization.dll
+C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\webcil\Blazor.LocalStorage.wasm
+C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\webcil\Blazor.Serialization.wasm
+C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\qjq4w7l1hg-8pyw849bax.gz
+C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\035x79iaz1-5euzdfqqzn.gz
+C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\9g0cvm5ic5-doei07ih34.gz
+C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\u53jqbalbn-jn7dy9ci7p.gz
+C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\oqhjqgam9z-iey6dq33ka.gz

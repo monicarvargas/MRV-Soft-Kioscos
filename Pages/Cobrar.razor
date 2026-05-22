@@ -11,7 +11,7 @@
         </button>
         <div>
             <h5 class="mb-0 fw-bold">Pagar</h5>
-            <small class="opacity-75">Venta #@NroVentaTemporal</small>
+            @* <small class="opacity-75">Venta #@NroVentaTemporal</small> *@
         </div>
     </div>
 </div>
@@ -25,10 +25,10 @@
                 <span class="text-muted">Subtotal</span>
                 <span>$ @Carrito.Total.ToString("N2")</span>
             </div>
-            <div class="d-flex justify-content-between small mb-2">
+           @*  <div class="d-flex justify-content-between small mb-2">
                 <span class="text-muted">Descuento</span>
                 <span>$ 0,00</span>
-            </div>
+            </div> *@
             <div class="d-flex justify-content-between align-items-center py-2 border-top">
                 <span class="fw-bold">Total a pagar</span>
                 <span class="fs-4 fw-bold text-primary">$ @Carrito.Total.ToString("N2")</span>
@@ -70,14 +70,26 @@
                     <span class="fw-bold">$ @Carrito.Total.ToString("N2")</span>
                 </div>
 
+              
                 @if (formaSeleccionada.Nombre.ToLower().Contains("efectivo"))
                 {
                     <div class="mb-3">
                         <label class="text-success fw-bold small">Recibido</label>
-                        <div class="input-group">
-                            <span class="input-group-text bg-white border-end-0">$</span>
-                            <input type="number" class="form-control border-start-0 fs-5 fw-bold text-end"
-                                   @bind-value="montoRecibido" @bind-value:event="oninput" />
+                        <div class="search-box shadow-sm rounded border bg-white mb-2">
+                            <div class="input-group">
+                                <span class="input-group-text bg-white border-end-0 text-muted">$</span>
+
+                                <input type="number"
+                                       class="form-control border-0 py-2 fs-5 fw-bold text-end no-spinner"
+                                       @bind-value="montoRecibido"
+                                       @bind-value:event="oninput"
+                                       placeholder="0,00" />
+
+                                <button class="btn btn-white border-0 pe-3" @onclick="() => montoRecibido = 0">
+                                    <i class="bi bi-x-circle text-muted"></i>
+                                </button>
+
+                            </div>
                         </div>
                     </div>
 
@@ -86,7 +98,6 @@
                         <span class="fs-3 fw-bold text-success">$ @CalcularVuelto().ToString("N2")</span>
                     </div>
                 }
-
                 <div class="mt-3">
                     <label class="text-muted small fw-bold">Observaciones (opcional)</label>
                     <input type="text" class="form-control form-control-sm" placeholder="Agregar observación..." @bind="observaciones" />
@@ -94,17 +105,6 @@
             </div>
         </div>
     }
-
-    @* --- 4. BOTÓN CONFIRMAR (Fijo Abajo) --- 
-    <div class="fixed-bottom p-3 bg-white border-top">
-        <button class="btn btn-success btn-lg w-100 py-3 fw-bold rounded-4 d-flex align-items-center justify-content-center gap-2"
-                disabled="@(formaSeleccionada == null)"
-                @onclick="ConfirmarPago">
-            <i class="bi bi-check-lg fs-4"></i>
-            Confirmar pago
-        </button>
-    </div>*@
-
     @* --- 4. BOTÓN CONFIRMAR (Al final del contenido) --- *@
     <div class="p-3 mt-4">
         <button class="btn btn-success btn-lg w-100 py-3 fw-bold rounded-4 d-flex align-items-center justify-content-center gap-2"
@@ -121,7 +121,7 @@
     private FormaPago? formaSeleccionada;
     private decimal montoRecibido;
     private string observaciones = "";
-    private string NroVentaTemporal = "000123";
+    // private string NroVentaTemporal = "000123";
 
     protected override async Task OnInitializedAsync()
     {
@@ -132,6 +132,8 @@
         // Seleccionamos efectivo por defecto si existe
         formaSeleccionada = listaFormasPago.FirstOrDefault(f => f.Nombre.ToLower().Contains("efectivo"));
         montoRecibido = Carrito.Total;
+
+
     }
 
     private void SeleccionarForma(FormaPago forma) => formaSeleccionada = forma;
@@ -148,11 +150,70 @@
         _ => "bi bi-three-dots"
     };
 
+    // private async Task ConfirmarPago()
+    // {
+    //     // Aquí irá la lógica para guardar en la tabla ventas y venta_detalles
+    //     // Por ahora, solo vaciamos y volvemos
+    //     Carrito.Vaciar();
+    //     Nav.NavigateTo("/producto/vender");
+    // }
+
     private async Task ConfirmarPago()
     {
-        // Aquí irá la lógica para guardar en la tabla ventas y venta_detalles
-        // Por ahora, solo vaciamos y volvemos
-        Carrito.Vaciar();
-        Nav.NavigateTo("/producto/vender");
+        try
+        {
+            // 1. Validaciones básicas
+            if (formaSeleccionada == null) return;
+            if (!Carrito.Items.Any())
+            {
+                // Opcional: Mostrar alerta (ej. JS las, toastr, etc.)
+                return;
+            }
+
+            // 2. Crear el objeto Venta
+            
+            var nuevaVenta = new Venta
+            {
+                FormaPagoId = formaSeleccionada.Id,
+                Total = Carrito.Total,
+                KioscoId = 1, 
+                // Fecha = DateTime.UtcNow, // Guarda en UTC y formatea al mostrar
+
+                // Si moviste cliente_id a la tabla ventas, iría acá.
+            };
+            // 3. Insertar en la tabla ventas en Supabase
+            var responseVenta = await SupaClient.From<Venta>().Insert(nuevaVenta);
+            var ventaCreada = responseVenta.Models.FirstOrDefault();
+
+            if (ventaCreada != null)
+            {
+                long ventaId = ventaCreada.Id;
+
+                // 4. Recorrer el carrito e insertar los detalles
+                foreach (var item in Carrito.Items)
+                {
+                    var detalle = new VentaDetalle
+                    {
+                        VentaId = ventaId,
+                        ProductoId = item.Producto.Id,
+                        Cantidad = item.Cantidad,
+                        PrecioUnitario = item.Producto.PrecioVenta ?? 0,
+                        Subtotal = item.Subtotal
+
+                    };
+
+                    await SupaClient.From<VentaDetalle>().Insert(detalle);
+                }
+
+                // 5. Limpiar y volver
+                Carrito.Vaciar();
+                Nav.NavigateTo("/producto/vender");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error al guardar la venta: {ex.Message}");
+        }
     }
+    
 }
