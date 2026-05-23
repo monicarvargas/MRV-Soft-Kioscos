@@ -1,4 +1,6 @@
 C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\wwwroot\_framework\blazor.webassembly.js
+C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\wwwroot\_framework\Blazor.LocalStorage.wasm
+C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\wwwroot\_framework\Blazor.Serialization.wasm
 C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\wwwroot\_framework\Microsoft.AspNetCore.Authorization.wasm
 C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\wwwroot\_framework\Microsoft.AspNetCore.Components.wasm
 C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\wwwroot\_framework\Microsoft.AspNetCore.Components.Forms.wasm
@@ -221,6 +223,8 @@ C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\wwwroot\_framework\BlazorKioscos
 C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\wwwroot\_framework\BlazorKioscos_v1.pdb
 C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\wwwroot\_framework\blazor.boot.json
 C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\wwwroot\_framework\blazor.webassembly.js.gz
+C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\wwwroot\_framework\Blazor.LocalStorage.wasm.gz
+C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\wwwroot\_framework\Blazor.Serialization.wasm.gz
 C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\wwwroot\_framework\Microsoft.AspNetCore.Authorization.wasm.gz
 C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\wwwroot\_framework\Microsoft.AspNetCore.Components.wasm.gz
 C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\wwwroot\_framework\Microsoft.AspNetCore.Components.Forms.wasm.gz
@@ -442,10 +446,13 @@ C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\wwwroot\_framework\emcc-props.js
 C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\wwwroot\_framework\BlazorKioscos_v1.wasm.gz
 C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\wwwroot\_framework\BlazorKioscos_v1.pdb.gz
 C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\wwwroot\_framework\blazor.boot.json.gz
+C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\vercel.json
 C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\BlazorKioscos_v1.staticwebassets.runtime.json
 C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\BlazorKioscos_v1.staticwebassets.endpoints.json
 C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\BlazorKioscos_v1.dll
 C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\BlazorKioscos_v1.pdb
+C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\Blazor.LocalStorage.dll
+C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\Blazor.Serialization.dll
 C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\Microsoft.AspNetCore.Authorization.dll
 C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\Microsoft.AspNetCore.Components.dll
 C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\Microsoft.AspNetCore.Components.Forms.dll
@@ -672,6 +679,8 @@ C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\BlazorKioscos_v1.AssemblyInfo.cs
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\BlazorKioscos_v1.csproj.CoreCompileInputs.cache
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\BlazorKioscos_v1.MvcApplicationPartsAssemblyInfo.cache
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\BlazorKioscos_v1.sourcelink.json
+C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\webcil\Blazor.LocalStorage.wasm
+C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\webcil\Blazor.Serialization.wasm
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\webcil\Microsoft.AspNetCore.Authorization.wasm
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\webcil\Microsoft.AspNetCore.Components.wasm
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\webcil\Microsoft.AspNetCore.Components.Forms.wasm
@@ -891,6 +900,8 @@ C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\scopedcss\projectbundle\BlazorKi
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\blazor.build.boot-extension.json
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\blazor.boot.json
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\ax0i5npjn4-mv535bwyet.gz
+C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\qjq4w7l1hg-8pyw849bax.gz
+C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\035x79iaz1-5euzdfqqzn.gz
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\az4km1231y-tx4jaj7zh2.gz
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\fi3gvr4nll-f53hk3z88w.gz
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\fkt2ckaeml-7fne88z130.gz
@@ -1109,6 +1120,9 @@ C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\dfgctlum5a-tjcz0u77k5
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\h4xpbrmr58-tptq2av103.gz
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\cseq0iantc-lfu7j35m59.gz
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\iitouz96ib-oyz0vx2fzb.gz
+C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\9g0cvm5ic5-wwh2kubix5.gz
+C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\u53jqbalbn-ccgjefjsdn.gz
+C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\oqhjqgam9z-fu7e4vczd1.gz
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\staticwebassets.build.json
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\staticwebassets.build.json.cache
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\staticwebassets.development.json
@@ -1119,16 +1133,3 @@ C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\BlazorKioscos_v1.dll
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\refint\BlazorKioscos_v1.dll
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\BlazorKioscos_v1.pdb
 C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\ref\BlazorKioscos_v1.dll
-C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\wwwroot\_framework\Blazor.LocalStorage.wasm
-C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\wwwroot\_framework\Blazor.Serialization.wasm
-C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\wwwroot\_framework\Blazor.LocalStorage.wasm.gz
-C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\wwwroot\_framework\Blazor.Serialization.wasm.gz
-C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\Blazor.LocalStorage.dll
-C:\Sistemas\BlazorKioscos1.0\bin\Release\net8.0\Blazor.Serialization.dll
-C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\webcil\Blazor.LocalStorage.wasm
-C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\webcil\Blazor.Serialization.wasm
-C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\qjq4w7l1hg-8pyw849bax.gz
-C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\035x79iaz1-5euzdfqqzn.gz
-C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\9g0cvm5ic5-doei07ih34.gz
-C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\u53jqbalbn-jn7dy9ci7p.gz
-C:\Sistemas\BlazorKioscos1.0\obj\Release\net8.0\compressed\oqhjqgam9z-iey6dq33ka.gz
