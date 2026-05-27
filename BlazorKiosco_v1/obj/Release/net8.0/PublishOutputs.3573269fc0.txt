@@ -1,0 +1,3 @@
+C:\Sistemas\BlazorKioscos1.0\BlazorKiosco_v1\obj\Release\net8.0\browser-wasm\PubTmp\Out\vercel.json
+C:\Sistemas\BlazorKioscos1.0\BlazorKiosco_v1\obj\Release\net8.0\browser-wasm\PubTmp\Out\emcc-props.json
+C:\Sistemas\BlazorKioscos1.0\BlazorKiosco_v1\obj\Release\net8.0\browser-wasm\PubTmp\Out\web.config
