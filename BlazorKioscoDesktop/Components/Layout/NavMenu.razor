@@ -1,0 +1,143 @@
+﻿@using BlazorKioscoDesktop.Components.Services
+@inject BlazorKioscoCompartido.Services.AppState State
+@inject NavigationManager Navigation
+@inject UserStateService UserState
+@implements IDisposable
+
+<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler')?.click()">
+    <nav class="flex-column">
+
+        @* --- 1. PRODUCTOS (MENÚ DESPLEGABLE) --- *@
+        <div class="nav-item px-3">
+            <button class="nav-link-btn w-100 d-flex align-items-center justify-content-between @(collapseProductos ? "" : "parent-active")"
+                    @onclick="ToggleProductos" @onclick:stopPropagation="true">
+                <span class="d-flex align-items-center">
+                    <i class="bi bi-box-seam-fill me-3"></i> Productos
+                </span>
+                <i class="bi @(collapseProductos ? "bi-chevron-down" : "bi-chevron-up") chevron-icon"></i>
+            </button>
+        </div>
+
+        @* SUBMENÚS DE PRODUCTOS *@
+        <div class="submenu-list @(collapseProductos ? "d-none" : "d-block")">
+            <div class="nav-item px-3">
+                <NavLink class="nav-link ps-4" href="productos-desktop" Match="NavLinkMatch.All">
+                    <i class="bi bi-circle-fill xsmall-dot me-3"></i> Lista de productos
+                </NavLink>
+            </div>
+            <div class="nav-item px-3">
+                <NavLink class="nav-link ps-4" href="producto/nuevo-desktop">
+                    <i class="bi bi-circle-fill xsmall-dot me-3"></i> Agregar producto
+                </NavLink>
+            </div>
+            @if (State.UsuarioRol == "admin")
+            {
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link ps-4" href="producto/importar-excel">
+                        <i class="bi bi-circle-fill xsmall-dot me-3"></i> Importar Excel
+                    </NavLink>
+                </div>
+            }
+        </div>
+
+        @* --- 2. VENTAS --- *@
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="vender-desktop">
+                <i class="bi bi-cart-fill me-3"></i> Vender
+            </NavLink>
+        </div>
+
+        @if (State.UsuarioRol == "admin")
+        {
+            @* --- 3. REPORTES --- *@
+            <div class="nav-item px-3">
+                <button class="nav-link-btn w-100 d-flex align-items-center justify-content-between @(collapseReportes ? "" : "parent-active")"
+                        @onclick="ToggleReportes" @onclick:stopPropagation="true">
+                    <span class="d-flex align-items-center">
+                        <i class="bi bi-bar-chart-line-fill me-3"></i> Reportes
+                    </span>
+                    <i class="bi @(collapseReportes ? "bi-chevron-down" : "bi-chevron-up") chevron-icon"></i>
+                </button>
+            </div>
+
+            @* SUBMENÚS DE REPORTES *@
+            <div class="submenu-list @(collapseReportes ? "d-none" : "d-block")">
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link ps-4" href="reportebasicodesktop-recaudacion" Match="NavLinkMatch.All">
+                        <i class="bi bi-circle-fill xsmall-dot me-3"></i> Reporte diario
+                    </NavLink>
+                </div>
+
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link ps-4" href="reportedeudoresdesktop" Match="NavLinkMatch.All">
+                        <i class="bi bi-circle-fill xsmall-dot me-3"></i> Reporte deudores
+                    </NavLink>
+                </div>
+            </div>
+        }
+
+        @* --- 4. CAMBIAR USUARIO --- *@
+        <div class="nav-item px-3 mt-3 separator-top">
+            <NavLink class="nav-link" href="login" @onclick="CerrarSesionYCambiarUsuario">
+                <i class="bi bi-person-key-fill me-3" aria-hidden="true"></i> Cambiar Usuario
+            </NavLink>
+        </div>
+
+    </nav>
+</div>
+
+@code {
+    private bool collapseProductos = false;
+    private bool collapseReportes = false;
+
+    protected override void OnInitialized()
+    {
+        // Suscribirse a los cambios de estado para forzar la re-evaluación de los permisos en el menú
+        if (UserState != null)
+        {
+            UserState.OnChange += RefrescarEstado;
+        }
+        if (State != null)
+        {
+            State.OnChange += RefrescarEstado;
+        }
+    }
+
+    private void RefrescarEstado()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void ToggleProductos()
+    {
+        collapseProductos = !collapseProductos;
+    }
+
+    private void ToggleReportes()
+    {
+        collapseReportes = !collapseReportes;
+    }
+
+    private async Task CerrarSesionYCambiarUsuario()
+    {
+        // 1. Resetear variables o roles de usuario en tus servicios Singleton/Scoped
+        State.UsuarioRol = null;
+        UserState.ClearUser();
+
+        // 2. Navegar directamente al login
+        Navigation.NavigateTo("login");
+    }
+
+    public void Dispose()
+    {
+        // Desuscribir los eventos al destruir el componente para evitar fugas de memoria
+        if (UserState != null)
+        {
+            UserState.OnChange -= RefrescarEstado;
+        }
+        if (State != null)
+        {
+            State.OnChange -= RefrescarEstado;
+        }
+    }
+}

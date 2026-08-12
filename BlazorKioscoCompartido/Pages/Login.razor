@@ -1,0 +1,186 @@
+﻿@page "/login"
+@using BlazorKioscoCompartido.Models
+@using BlazorKioscoCompartido.Services
+@inject Supabase.Client Supabase
+@inject NavigationManager Nav
+@inject AppState State
+@using static Supabase.Postgrest.Constants
+
+<div class="login-container d-flex align-items-center justify-content-center min-vh-100 bg-light p-3">
+    <div class="card shadow-lg border-0 rounded-4 overflow-hidden style-card">
+
+        @* Cabecera con degradado y logo/ícono *@
+        <div class="card-header bg-primary bg-gradient text-white text-center py-4 border-0">
+            <div class="mb-2">
+                <i class="bi bi-shop display-4"></i>
+            </div>
+            <h3 class="fw-bold m-0">Acceso al Sistema</h3>
+            <small class="text-white-50">Ingresá los datos de tu negocio</small>
+        </div>
+
+        <div class="card-body p-4 p-md-5">
+            <form @onsubmit="Validar" @onsubmit:preventDefault>
+
+                @* Campo: Negocio *@
+                <div class="mb-3">
+                    <label class="form-label fw-semibold text-secondary small">CÓDIGO DE NEGOCIO</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-light text-muted border-end-0">
+                            <i class="bi bi-building"></i>
+                        </span>
+                        <input type="text" class="form-control bg-light border-start-0 ps-0"
+                               placeholder="Ej: KIOSCO-01" @bind="codigoVinculacion" required />
+                    </div>
+                </div>
+
+                @* Campo: Usuario *@
+                <div class="mb-3">
+                    <label class="form-label fw-semibold text-secondary small">USUARIO</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-light text-muted border-end-0">
+                            <i class="bi bi-person-fill"></i>
+                        </span>
+                        <input type="text" class="form-control bg-light border-start-0 ps-0"
+                               placeholder="Nombre de usuario" @bind="user" required />
+                    </div>
+                </div>
+
+                @* Campo: Contraseña *@
+                <div class="mb-4">
+                    <label class="form-label fw-semibold text-secondary small">CONTRASEÑA</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-light text-muted border-end-0">
+                            <i class="bi bi-lock-fill"></i>
+                        </span>
+                        <input type="password" class="form-control bg-light border-start-0 ps-0"
+                               placeholder="••••••••" @bind="pass" required />
+                    </div>
+                </div>
+
+                @* Alerta de Error *@
+                @if (!string.IsNullOrEmpty(error))
+                {
+                    <div class="alert alert-danger d-flex align-items-center gap-2 rounded-3 py-2 px-3 mb-4" role="alert">
+                        <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
+                        <div class="small">@error</div>
+                    </div>
+                }
+
+                @* Botón con estado de Carga *@
+                <button type="submit" class="btn btn-primary btn-lg w-100 fw-bold rounded-3 shadow-sm py-2 d-flex align-items-center justify-content-center gap-2" disabled="@cargando">
+                    @if (cargando)
+                    {
+                        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                        <span>Ingresando...</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-box-arrow-in-right"></i>
+                        <span>Entrar</span>
+                    }
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<style>
+    .login-container {
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    }
+
+    .style-card {
+        width: 100%;
+        max-width: 420px;
+    }
+
+    .input-group-text {
+        border-color: #dee2e6;
+    }
+
+    .form-control {
+        border-color: #dee2e6;
+    }
+
+        .form-control:focus {
+            box-shadow: none;
+            border-color: #86b7fe;
+        }
+</style>
+
+@code {
+    private string user;
+    private string pass;
+    private string error;
+    private string codigoVinculacion;
+    private bool cargando = false;
+
+    private async Task Validar()
+    {
+        error = null;
+        cargando = true;
+
+        try
+        {
+            // 1. Buscamos el Kiosco
+            var codigoLimpio = codigoVinculacion?.Replace(" ", "");
+            var resk = await Supabase.From<Kiosco>()
+                .Or(new List<Supabase.Postgrest.Interfaces.IPostgrestQueryFilter>
+                {
+                    new Supabase.Postgrest.QueryFilter("codigo_vinculacion", Operator.ILike, $"{codigoLimpio}")
+                })
+                .Get();
+
+            var kiosco = resk.Models.FirstOrDefault();
+
+            if (kiosco == null)
+            {
+                error = "Negocio no encontrado";
+                cargando = false;
+                return; // Cortamos el flujo si no existe el negocio
+            }
+
+            // 2. Buscamos el usuario asociado a ese id_kiosco
+            var res = await Supabase.From<Usuario>()
+                 .Where(x => x.Password == pass)
+                 .Where(x => x.IdKiosco == kiosco.Id)
+                 .Or(new List<Supabase.Postgrest.Interfaces.IPostgrestQueryFilter>
+                 {
+                    new Supabase.Postgrest.QueryFilter("username", Operator.ILike, $"{user}")
+                 })
+                 .Get();
+
+            var u = res.Models.FirstOrDefault();
+
+            if (u != null)
+            {
+                // Guardamos los datos en el estado global
+                State.KioscoId = u.IdKiosco;
+                State.UsuarioId = u.Id;
+                State.UsuarioNombre = u.Username;
+                State.UsuarioRol = u.Rol;
+                State.NombreNegocio = u.Kiosco?.NombreKiosco;
+                State.UsarRedondeo = u.Kiosco?.UsarRedondeo ?? false;
+                State.MultiploRedondeo = u.Kiosco?.MultiploRedondeo ?? 0;
+
+                // Avisamos al layout que se dibuje el menú
+                State.NotifyStateChanged();
+
+                // Redirigimos
+                Nav.NavigateTo("/productos");
+            }
+            else
+            {
+                error = "Usuario o contraseña incorrectos";
+            }
+        }
+        catch (Exception ex)
+        {
+            error = "Error de conexión: " + ex.Message;
+        }
+        finally
+        {
+            cargando = false;
+        }
+    }
+}

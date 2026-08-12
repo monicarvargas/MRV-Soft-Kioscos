@@ -1,0 +1,541 @@
+﻿@inject BlazorKioscoCompartido.Services.AppState State
+@inject NavigationManager Nav
+@inject Supabase.Client SupaClient
+@using BlazorKioscoCompartido.Models
+
+<div class="container-fluid px-3 py-2 bg-light min-vh-100 animate__animated animate__fadeIn style-notebook mb-5">
+
+    @* === ENCABEZADO ESTILO CUADERNO === *@
+    <div class="d-flex justify-content-between align-items-center mb-2 bg-white p-2 rounded-3 shadow-sm border-start border-danger border-4">
+        <div class="d-flex align-items-center">
+            <div class="bg-danger text-white p-2 rounded-3 me-2 d-flex align-items-center justify-content-center" style="width: 35px; height: 35px;">
+                <i class="bi bi-journal-bookmark-fill fs-5"></i>
+            </div>
+            <div>
+                <h5 class="mb-0 fw-bold text-dark-custom">Cobro de Cuentas Corrientes / Fiados</h5>
+            </div>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary d-none d-md-flex align-items-center gap-1 rounded-3 fw-bold" @onclick="Volver">
+            <i class="bi bi-arrow-left"></i> Volver
+        </button>
+    </div>
+
+    <div class="row g-2">
+        @* ============================================================================= *@
+        @* COLUMNA IZQUIERDA: SELECCIÓN DE DEUDOR Y DETALLE DE LO QUE DEBE              *@
+        @* ============================================================================= *@
+        <div class="col-12 col-lg-7">
+
+            @* SELECTOR DE PERSONA / DEUDOR *@
+            <div class="card shadow-sm border-0 rounded-3 mb-2 p-2 bg-white">
+                <label class="form-label text-danger fw-bold x-small-text text-uppercase mb-1">
+                    <i class="bi bi-person-fill me-1"></i> Seleccionar Cliente Deudor
+                </label>
+                <select class="form-select form-select-sm rounded-3 border-secondary fw-bold" @onchange="OnPersonaChanged" value="@personaSeleccionadaId">
+                    <option value="0">-- Seleccione una persona --</option>
+                    @foreach (var persona in listaPersonas)
+                    {
+                        if (persona.Habilitado)
+                        {
+                            <option value="@persona.Id">@persona.Nombre</option>
+                        }
+                    }
+                </select>
+            </div>
+
+            @if (personaSeleccionadaId == 0)
+            {
+                <div class="alert alert-info text-center border-0 shadow-sm rounded-3 p-4 my-2">
+                    <i class="bi bi-info-circle-fill text-primary fs-3 d-block mb-2"></i>
+                    <h6 class="fw-bold mb-0">Seleccione un cliente para ver las ventas pendientes de pago y sus productos fiados.</h6>
+                </div>
+            }
+            else if (cargando)
+            {
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <p class="mt-2 text-muted small fw-bold">Cargando cuenta corriente...</p>
+                </div>
+            }
+            else
+            {
+                @* TARJETA: PRODUCTOS DEBIDOS *@
+                <div class="card shadow-sm border-0 rounded-3 mb-2">
+                    <div class="card-header bg-white py-2 border-bottom d-flex align-items-center justify-content-between">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-box-seam text-danger me-2"></i>
+                            <span class="fw-bold text-dark-custom small">Detalle de Productos Fiados</span>
+                        </div>
+                        <span class="badge bg-danger rounded-pill">@listaProductosFiados.Count ítems</span>
+                    </div>
+                    <div class="card-body p-0" style="max-height: 220px; overflow-y: auto;">
+                        @if (!listaProductosFiados.Any())
+                        {
+                            <div class="text-center text-success py-3 small fw-bold">
+                                <i class="bi bi-check-circle-fill me-1"></i> Este cliente no registra deudas pendientes.
+                            </div>
+                        }
+                        else
+                        {
+                            <table class="table table-sm table-hover align-middle mb-0" style="font-size: 0.85rem;">
+                                <thead class="table-light sticky-top">
+                                    <tr class="text-muted small">
+                                        <th class="ps-3">Producto</th>
+                                        <th class="text-center">Cant.</th>
+                                        <th class="text-end">P. Unit.</th>
+                                        <th class="text-end pe-3">Subtotal</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var prod in listaProductosFiados)
+                                    {
+                                        <tr>
+                                            <td class="ps-3 fw-semibold text-uppercase text-dark-custom text-truncate" style="max-width: 180px;">
+                                                @prod.NombreProducto
+                                            </td>
+                                            <td class="text-center fw-bold text-secondary">@prod.Cantidad</td>
+                                            <td class="text-end text-muted">$ @prod.PrecioUnitario.ToString("N2")</td>
+                                            <td class="text-end pe-3 text-danger fw-bold">$ @prod.Subtotal.ToString("N2")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                    </div>
+                </div>
+
+                @* TARJETA: SELECCIÓN DE FORMA DE PAGO Y PAGO A REGISTRAR *@
+                <div class="card shadow-sm border-0 rounded-3 p-3 mb-2 bg-white">
+                    <span class="text-primary fw-bold x-small-text text-uppercase d-block mb-2">
+                        <i class="bi bi-wallet2 me-1"></i> Seleccione Medio para Recibir el Entrega / Pago
+                    </span>
+
+                    <div class="row row-cols-3 g-1 mb-3">
+                        <div class="col">
+                            <button type="button" class="btn btn-sm w-100 py-2 px-0 d-flex flex-column align-items-center border rounded-3 @(formaPagoSeleccionada == 1 ? "active-efectivo" : "btn-medio-custom")" @onclick='() => SeleccionarMedio(1, "Efectivo")'>
+                                <i class="bi bi-cash fs-5"></i>
+                                <span class="small-font fw-semibold">Efectivo</span>
+                            </button>
+                        </div>
+                        <div class="col">
+                            <button type="button" class="btn btn-sm w-100 py-2 px-0 d-flex flex-column align-items-center border rounded-3 @(formaPagoSeleccionada == 2 ? "active-mercado" : "btn-medio-custom")" @onclick='() => SeleccionarMedio(2, "Mercado Pago")'>
+                                <i class="bi bi-qr-code fs-5"></i>
+                                <span class="small-font fw-semibold">MP</span>
+                            </button>
+                        </div>
+                        <div class="col">
+                            <button type="button" class="btn btn-sm w-100 py-2 px-0 d-flex flex-column align-items-center border rounded-3 @(formaPagoSeleccionada == 3 ? "active-transferencia" : "btn-medio-custom")" @onclick='() => SeleccionarMedio(3, "Transferencia")'>
+                                <i class="bi bi-bank fs-5"></i>
+                                <span class="small-font fw-semibold">Transf.</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <span class="text-primary fw-bold x-small-text text-uppercase d-block mb-1">
+                        Monto Entregado en: @nombreFormaPagoSeleccionada.ToUpper()
+                    </span>
+                    <div class="row g-2 align-items-center mb-2">
+                        <div class="col-8 col-md-9">
+                            <div class="input-group input-group-sm border rounded-3 overflow-hidden border-secondary shadow-sm">
+                                <span class="input-group-text bg-light text-dark-custom border-0 fw-bold">$</span>
+                                <input type="number" class="form-control border-0 fw-black fs-5 text-end pe-3 text-dark-custom" @bind-value="montoEntregado" @bind-value:event="oninput" placeholder="0,00" />
+                            </div>
+                        </div>
+                        <div class="col-4 col-md-3">
+                            <button type="button" class="btn btn-primary btn-sm w-100 py-2 fw-black rounded-3 text-uppercase shadow-sm" @onclick="CargarSaldoTotal">
+                                Total
+                            </button>
+                        </div>
+                    </div>
+
+                    @* Montos Rápidos *@
+                    <div class="d-flex flex-wrap gap-1 mt-1">
+                        <button type="button" class="btn btn-sm btn-outline-secondary px-2 rounded-3 text-dark-custom bg-white" @onclick="() => CargarMontoRapido(1000)">$ 1.000</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary px-2 rounded-3 text-dark-custom bg-white" @onclick="() => CargarMontoRapido(5000)">$ 5.000</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary px-2 rounded-3 text-dark-custom bg-white" @onclick="() => CargarMontoRapido(10000)">$ 10.000</button>
+                        <button type="button" class="btn btn-sm btn-outline-danger px-2 rounded-3 text-danger border-danger bg-white fw-bold" @onclick="CargarSaldoTotal">Pagar Todo</button>
+                    </div>
+                </div>
+            }
+        </div>
+
+        @* ============================================================================= *@
+        @* COLUMNA DERECHA: RESUMEN DE SALDOS Y REGISTRO DE COBRO                         *@
+        @* ============================================================================= *@
+        <div class="col-12 col-lg-5">
+            @if (personaSeleccionadaId > 0 && !cargando)
+            {
+                @* TARJETA: HISTORIAL DE ENTREGAS / PAGOS PARCIALES PREVIOS *@
+                <div class="card shadow-sm border-0 rounded-3 mb-2">
+                    <div class="card-header bg-white py-2 border-bottom d-flex align-items-center justify-content-between">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-clock-history text-primary me-2"></i>
+                            <span class="fw-bold text-dark-custom small">Entregas Parciales Registradas</span>
+                        </div>
+                    </div>
+                    <div class="card-body p-0" style="max-height: 120px; overflow-y: auto;">
+                        @if (!historialEntregas.Any())
+                        {
+                            <div class="text-center text-muted py-3 small">
+                                <i class="bi bi-info-circle me-1"></i> No registra entregas parciales previas.
+                            </div>
+                        }
+                        else
+                        {
+                            <table class="table table-sm align-middle mb-0" style="font-size: 0.85rem;">
+                                <tbody>
+                                    @foreach (var entrega in historialEntregas)
+                                    {
+                                        <tr>
+                                            <td class="ps-3 text-muted">@entrega.Fecha.ToString("dd/MM/yyyy")</td>
+                                            <td class="fw-semibold text-dark-custom">@entrega.NombreFormaPago</td>
+                                            <td class="text-end pe-3 fw-bold text-success">$ @entrega.Monto.ToString("N2")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                    </div>
+                </div>
+
+                @* TARJETA CENTRAL NEGRA: CONTROL DE SALDO Y GUARDADO *@
+                <div class="card shadow border-0 rounded-3 bg-dark text-white p-3">
+                    <span class="text-white-50 text-uppercase x-small-text fw-bold d-block">Deuda Original Acumulada</span>
+                    <h3 class="fw-black text-white mb-2 font-monospace">$ @totalDeudaOriginal.ToString("N2")</h3>
+
+                    <div class="rounded-3 p-2 mb-2" style="background-color: rgba(255,255,255,0.07); font-size: 0.85rem;">
+                        <div class="d-flex justify-content-between mb-1">
+                            <span class="text-white-50">Entregado Previamente:</span>
+                            <span class="fw-bold text-info font-monospace">$ @totalEntregadoPreviamente.ToString("N2")</span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-0">
+                            <span class="text-white-50">Saldo Restante Actual:</span>
+                            <span class="fw-bold text-warning font-monospace">$ @saldoPendienteActual.ToString("N2")</span>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <span class="text-white-50 x-small-text d-block">Nuevo Saldo Tras Esta Entrega</span>
+                        <h3 class="fw-black @(nuevoSaldo < 0 ? "text-danger" : (nuevoSaldo == 0 ? "text-success" : "text-warning")) mb-0 font-monospace">
+                            $ @(nuevoSaldo < 0 ? "0,00 (Excedente: " + Math.Abs(nuevoSaldo).ToString("N2") + ")" : nuevoSaldo.ToString("N2"))
+                        </h3>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(mensajeError))
+                    {
+                        <div class="alert alert-danger alert-dismissible fade show shadow-sm my-2 fw-bold align-items-center d-flex gap-2" role="alert">
+                            <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+                            <div>@mensajeError</div>
+                            <button type="button" class="btn-close" @onclick="() => mensajeError = null" aria-label="Close"></button>
+                        </div>
+                    }
+
+                    <button type="button" class="btn btn-success w-100 py-3 fw-black rounded-3 shadow fs-5 d-flex align-items-center justify-content-center gap-2 @(montoEntregado > 0 ? "" : "disabled")"
+                            style="background-color: #00875a; border: none;"
+                            @onclick="ProcesarCobroFiado">
+                        <span>REGISTRAR COBRO</span>
+                        <i class="bi bi-check-circle-fill"></i>
+                    </button>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<style>
+    .style-notebook {
+        font-size: 0.95rem;
+        color: #111111;
+        padding-bottom: 25px;
+    }
+
+    .x-small-text {
+        font-size: 0.82rem;
+    }
+
+    .small-font {
+        font-size: 0.75rem;
+    }
+
+    .fw-black {
+        font-weight: 850;
+    }
+
+    .text-dark-custom {
+        color: #111111 !important;
+    }
+
+    .btn-medio-custom {
+        background-color: #ffffff;
+        color: #111111;
+        border-color: #ced4da !important;
+    }
+
+        .btn-medio-custom:hover {
+            background-color: #f8f9fa;
+        }
+
+    .active-efectivo {
+        background-color: #e8f5e9;
+        color: #2e7d32;
+        border-color: #2e7d32 !important;
+        font-weight: bold;
+    }
+
+    .active-mercado {
+        background-color: #e3f2fd;
+        color: #0d6efd;
+        border-color: #0d6efd !important;
+        font-weight: bold;
+    }
+
+    .active-transferencia {
+        background-color: #f3e5f5;
+        color: #7b1fa2;
+        border-color: #7b1fa2 !important;
+        font-weight: bold;
+    }
+
+    .style-notebook input:focus, .style-notebook select:focus {
+        border-color: #000000 !important;
+        box-shadow: 0 0 0 0.2rem rgba(0,0,0,0.1) !important;
+    }
+</style>
+
+@code {
+    [Parameter] public string RutaOrigenVentas { get; set; } = "/vender-desktop";
+    [Parameter] public long PersonaId { get; set; } = 0;
+
+    private bool cargando = false;
+    private string mensajeError = "";
+
+    private List<Persona> listaPersonas = new List<Persona>();
+    private long personaSeleccionadaId = 0;
+
+    private long formaPagoSeleccionada = 1;
+    private string nombreFormaPagoSeleccionada = "Efectivo";
+    private decimal montoEntregado = 0;
+
+    // Clases auxiliares para estructurar los datos recuperados
+    public class ProductoFiadoItem
+    {
+        public string NombreProducto { get; set; } = "";
+        public decimal Cantidad { get; set; }
+        public decimal PrecioUnitario { get; set; }
+        public decimal Subtotal { get; set; }
+    }
+
+    public class EntregaParcialItem
+    {
+        public DateTime Fecha { get; set; }
+        public string NombreFormaPago { get; set; } = "";
+        public decimal Monto { get; set; }
+    }
+
+    private List<ProductoFiadoItem> listaProductosFiados = new List<ProductoFiadoItem>();
+    private List<EntregaParcialItem> historialEntregas = new List<EntregaParcialItem>();
+
+    private decimal totalDeudaOriginal = 0;
+    private decimal totalEntregadoPreviamente = 0;
+    private decimal saldoPendienteActual => totalDeudaOriginal - totalEntregadoPreviamente;
+    private decimal nuevoSaldo => saldoPendienteActual - montoEntregado;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarPersonas();
+
+        if (PersonaId > 0)
+        {
+            personaSeleccionadaId = PersonaId;
+            await CargarCuentaCorrientePersona();
+        }
+    }
+
+    private async Task CargarPersonas()
+    {
+        try
+        {
+            var res = await SupaClient.From<Persona>().Get();
+            if (res.Models != null)
+            {
+                listaPersonas = res.Models.OrderBy(p => p.Nombre).ToList();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error al cargar clientes: {ex.Message}");
+        }
+    }
+
+    private async Task OnPersonaChanged(ChangeEventArgs e)
+    {
+        if (long.TryParse(e.Value?.ToString(), out long id))
+        {
+            personaSeleccionadaId = id;
+            await CargarCuentaCorrientePersona();
+        }
+    }
+
+    private async Task CargarCuentaCorrientePersona()
+    {
+        if (personaSeleccionadaId == 0) return;
+
+        cargando = true;
+        mensajeError = "";
+        listaProductosFiados.Clear();
+        historialEntregas.Clear();
+        totalDeudaOriginal = 0;
+        totalEntregadoPreviamente = 0;
+
+        try
+        {
+            // 1. Obtener todas las ventas registradas a nombre de la persona
+            var resVentas = await SupaClient.From<Venta>()
+                                .Where(v => v.PersonaId == personaSeleccionadaId)
+                                .Get();
+
+            var ventasPersona = resVentas.Models ?? new List<Venta>();
+
+            // Separar las que son Deudas (FormaPagoId == 6 / Fiado) de los Pagos Parciales/Entregas (FormaPagoId != 6)
+            var ventasFiadas = ventasPersona.Where(v => v.FormaPagoId == 6).ToList();
+            var entregasRealizadas = ventasPersona.Where(v => v.FormaPagoId != 6 && (v.Pagado == false)).ToList();
+
+            totalDeudaOriginal = ventasFiadas.Sum(v => v.Total);
+            totalEntregadoPreviamente = entregasRealizadas.Sum(v => v.Total);
+
+            // Cargar Historial de Entregas Parciales
+            foreach (var e in entregasRealizadas)
+            {
+                historialEntregas.Add(new EntregaParcialItem
+                {
+                    Fecha = e.Fecha,
+                    NombreFormaPago = ObtenerNombreMedio(e.FormaPagoId),
+                    Monto = e.Total
+                });
+            }
+
+            // 2. Obtener los detalles de los productos que integran esas ventas fiadas
+            if (ventasFiadas.Any())
+            {
+                var movsFiados = ventasFiadas.Select(v => v.NumeroUnicoIdentificatorioMovimiento).Distinct().ToList();
+
+                var resDetalles = await SupaClient.From<VentaDetalle>().Get();
+                var detallesFiados = resDetalles.Models
+                                        .Where(d => movsFiados.Contains(d.NumeroUnicoIdentificatorioMovimiento))
+                                        .ToList();
+
+                var productosIds = detallesFiados.Select(d => d.ProductoId).Distinct().ToList();
+                var resProductos = await SupaClient.From<Producto>().Get();
+                var dictProductos = resProductos.Models.ToDictionary(p => p.Id, p => p.Nombre);
+
+                foreach (var d in detallesFiados)
+                {
+                    listaProductosFiados.Add(new ProductoFiadoItem
+                    {
+                        NombreProducto = dictProductos.ContainsKey(d.ProductoId) ? dictProductos[d.ProductoId] : "Producto #" + d.ProductoId,
+                        Cantidad = d.Cantidad,
+                        PrecioUnitario = d.PrecioUnitario,
+                        Subtotal = d.Subtotal
+                    });
+                }
+            }
+
+            montoEntregado = saldoPendienteActual > 0 ? saldoPendienteActual : 0;
+        }
+        catch (Exception ex)
+        {
+            mensajeError = "Error al recuperar cuenta corriente: " + ex.Message;
+        }
+        finally
+        {
+            cargando = false;
+        }
+    }
+
+    private string ObtenerNombreMedio(long formaPagoId)
+    {
+        return formaPagoId switch
+        {
+            1 => "Efectivo",
+            2 => "Mercado Pago",
+            3 => "Transferencia",
+            _ => "Otro"
+        };
+    }
+
+    private void SeleccionarMedio(long id, string nombre)
+    {
+        formaPagoSeleccionada = id;
+        nombreFormaPagoSeleccionada = nombre;
+    }
+
+    private void CargarMontoRapido(decimal monto)
+    {
+        montoEntregado = monto;
+    }
+
+    private void CargarSaldoTotal()
+    {
+        montoEntregado = saldoPendienteActual > 0 ? saldoPendienteActual : 0;
+    }
+
+    private async Task ProcesarCobroFiado()
+    {
+        if (montoEntregado <= 0)
+        {
+            mensajeError = "Ingrese un monto válido a cobrar.";
+            return;
+        }
+
+        try
+        {
+            // Obtener número de movimiento unificado
+            var respuestaRpc = await SupaClient.Rpc("obtener_proximo_movimiento", null);
+            long numeroMovimientoUnico = Convert.ToInt64(respuestaRpc.Content);
+
+            // Se registra el ingreso del dinero abonado/entregado parcial o totalmente
+            var filaCobro = new Venta
+            {
+                NumeroUnicoIdentificatorioMovimiento = numeroMovimientoUnico,
+                Fecha = DateTime.Today,
+                Total = montoEntregado,
+                FormaPagoId = formaPagoSeleccionada,
+                KioscoId = State.KioscoId,
+                UsuarioOperadorId = State.UsuarioId,
+                PersonaId = personaSeleccionadaId,
+                Pagado = true // El pago parcial/total entregado hoy ya ingresó
+            };
+
+            await SupaClient.From<Venta>().Insert(filaCobro);
+
+            // Si la entrega salda la totalidad del saldo pendiente, se marcan las ventas de fiado como pagadas
+            if (montoEntregado >= saldoPendienteActual)
+            {
+                var resVentasFiadas = await SupaClient.From<Venta>()
+                                        .Where(v => v.PersonaId == personaSeleccionadaId && v.Pagado == false)
+                                        .Get();
+
+                if (resVentasFiadas.Models != null)
+                {
+                    foreach (var v in resVentasFiadas.Models)
+                    {
+                        v.Pagado = true;
+                        await SupaClient.From<Venta>().Update(v);
+                    }
+                }
+            }
+
+            // Recargar la pantalla de la persona para refrescar los nuevos saldos
+            await CargarCuentaCorrientePersona();
+        }
+        catch (Exception ex)
+        {
+            mensajeError = "Error al registrar el cobro del fiado: " + ex.Message;
+        }
+    }
+
+    private void Volver()
+    {
+        Nav.NavigateTo(RutaOrigenVentas);
+    }
+}

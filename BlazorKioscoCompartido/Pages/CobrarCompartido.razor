@@ -1,0 +1,518 @@
+﻿@inject BlazorKioscoCompartido.Services.AppState State
+@inject CarritoService Carrito
+@inject NavigationManager Nav
+@inject Supabase.Client SupaClient
+@using BlazorKioscoCompartido.Models
+
+<div class="container-fluid px-3 py-2 bg-light min-vh-100 animate__animated animate__fadeIn style-notebook mb-5">
+
+    @* === ENCABEZADO CON TU ESTILO CUADERNO === *@
+    <div class="d-flex justify-content-between align-items-center mb-2 bg-white p-2 rounded-3 shadow-sm border-start border-primary border-4">
+        <div class="d-flex align-items-center">
+            <div class="bg-primary text-white p-2 rounded-3 me-2 d-flex align-items-center justify-content-center" style="width: 35px; height: 35px;">
+                <i class="bi bi-credit-card-2-front fs-5"></i>
+            </div>
+            <div>
+                <h5 class="mb-0 fw-bold text-dark-custom">Panel de Cobro Mixto</h5>
+            </div>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary d-none d-md-flex align-items-center gap-1 rounded-3 fw-bold">
+            <i class="bi bi-question-circle"></i> Ayuda
+        </button>
+    </div>
+
+    @if (State.KioscoId == 0 || State.CarritoActual == null || !State.CarritoActual.Any())
+    {
+        <div class="alert alert-warning text-center mt-3 border-0 shadow-sm rounded-3 p-3">
+            <h6 class="fw-bold"><i class="bi bi-exclamation-triangle-fill text-warning me-1"></i> No hay una venta activa para cobrar.</h6>
+            <button class="btn btn-sm btn-primary mt-2 rounded-3 fw-bold px-4" @onclick="VolverAVender">Volver a Ventas</button>
+        </div>
+    }
+    else
+    {
+        <div class="row g-2">
+            @* ============================================================================= *@
+            @* COLUMNA IZQUIERDA: DETALLES Y MEDIOS                                          *@
+            @* ============================================================================= *@
+            <div class="col-12 col-lg-7">
+
+                @* SELECCIÓN DE CLIENTE / PERSONA *@
+                <div class="card shadow-sm border-0 rounded-3 mb-2 p-2 bg-white">
+                    <label class="form-label text-primary fw-bold x-small-text text-uppercase mb-1">
+                        <i class="bi bi-person-badge me-1"></i> Cliente / Persona
+                    </label>
+                    <select class="form-select form-select-sm rounded-3 border-secondary" @bind="personaSeleccionadaId">
+                        <option value="0">-- Consumidor Final / Ninguno --</option>
+                        @foreach (var persona in listaPersonas)
+                        {
+                            if (persona.Habilitado)
+                            {
+                                <option value="@persona.Id">@persona.Nombre</option>
+                            }
+                        }
+                    </select>
+                </div>
+
+                @* TARJETA 1: DETALLE DE ARTÍCULOS *@
+                <div class="card shadow-sm border-0 rounded-3 mb-2">
+                    <div class="card-header bg-white py-2 border-bottom d-flex align-items-center">
+                        <i class="bi bi-cart3 text-primary me-2"></i>
+                        <span class="fw-bold text-dark-custom small">Detalle de Productos (@State.CarritoActual.Count)</span>
+                    </div>
+                    <div class="card-body p-0" style="max-height: 140px; overflow-y: auto;">
+                        <table class="table table-sm table-hover align-middle mb-0" style="font-size: 0.85rem;">
+                            <thead class="table-light sticky-top">
+                                <tr class="text-muted small">
+                                    <th class="ps-3">Producto</th>
+                                    <th class="text-center">Cant.</th>
+                                    <th class="text-end pe-3">Subtotal</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in State.CarritoActual)
+                                {
+                                    <tr>
+                                        <td class="ps-3 fw-semibold text-uppercase text-dark-custom text-truncate" style="max-width: 180px;">
+                                            @if (item.EsProductoVario)
+                                            {
+                                                <span class="badge bg-warning text-dark me-1" style="font-size: 0.65rem;">VARIO</span>
+                                            }
+                                            @item.Producto.Nombre
+                                        </td>
+                                        <td class="text-center fw-bold text-secondary">@item.Cantidad</td>
+                                        <td class="text-end pe-3 text-primary fw-bold">$ @item.Subtotal.ToString("N2")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                @* TARJETA 2: SELECCIÓN DE FORMA DE PAGO Y INGRESOS *@
+                <div class="card shadow-sm border-0 rounded-3 p-3 mb-2 bg-white">
+                    <span class="text-primary fw-bold x-small-text text-uppercase d-block mb-2"><i class="bi bi-wallet2 me-1"></i> Seleccione Forma de Pago</span>
+
+                    <div class="row row-cols-2 row-cols-sm-4 row-cols-md-6 g-1 mb-3">
+                        <div class="col">
+                            <button type="button" class="btn btn-sm w-100 py-2 px-0 d-flex flex-column align-items-center border rounded-3 @(formaPagoSeleccionada == 1 ? "active-efectivo" : "btn-medio-custom")" @onclick='() => SeleccionarMedio(1, "Efectivo")'>
+                                <i class="bi bi-cash fs-5"></i>
+                                <span class="small-font fw-semibold">Efectivo</span>
+                            </button>
+                        </div>
+                        <div class="col">
+                            <button type="button" class="btn btn-sm w-100 py-2 px-0 d-flex flex-column align-items-center border rounded-3 @(formaPagoSeleccionada == 2 ? "active-mercado" : "btn-medio-custom")" @onclick='() => SeleccionarMedio(2, "Mercado Pago")'>
+                                <i class="bi bi-qr-code fs-5"></i>
+                                <span class="small-font fw-semibold">MP</span>
+                            </button>
+                        </div>
+                        <div class="col">
+                            <button type="button" class="btn btn-sm w-100 py-2 px-0 d-flex flex-column align-items-center border rounded-3 @(formaPagoSeleccionada == 3 ? "active-transferencia" : "btn-medio-custom")" @onclick='() => SeleccionarMedio(3, "Transferencia")'>
+                                <i class="bi bi-bank fs-5"></i>
+                                <span class="small-font fw-semibold">Transf.</span>
+                            </button>
+                        </div>
+                        <div class="col">
+                            <button type="button" class="btn btn-sm w-100 py-2 px-0 d-flex flex-column align-items-center border rounded-3 @(formaPagoSeleccionada == 6 ? "active-fiado" : "btn-medio-custom")" @onclick='() => SeleccionarMedio(6, "Fiado")'>
+                                <i class="bi bi-journal-bookmark-fill fs-5"></i>
+                                <span class="small-font fw-semibold">Fiado</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <span class="text-primary fw-bold x-small-text text-uppercase d-block mb-1">Monto a abonar en: @nombreFormaPagoSeleccionada.ToUpper()</span>
+                    <div class="row g-2 align-items-center mb-2">
+                        <div class="col-8 col-md-9">
+                            <div class="input-group input-group-sm border rounded-3 overflow-hidden border-secondary shadow-sm">
+                                <span class="input-group-text bg-light text-dark-custom border-0 fw-bold">$</span>
+                                <input type="number" class="form-control border-0 fw-black fs-5 text-end pe-3 text-dark-custom" @bind-value="montoAIngresar" @bind-value:event="oninput" placeholder="0,00" />
+                            </div>
+                        </div>
+                        <div class="col-4 col-md-3">
+                            <button type="button" class="btn btn-primary btn-sm w-100 py-2 fw-black rounded-3 text-uppercase shadow-sm" @onclick="AgregarPago">
+                                <i class="bi bi-plus-lg me-1"></i> Cargar
+                            </button>
+                        </div>
+                    </div>
+
+                    @* Montos Rápidos *@
+                    <div class="d-flex flex-wrap gap-1 mt-1">
+                        <button type="button" class="btn btn-sm btn-outline-secondary px-2 rounded-3 text-dark-custom bg-white" @onclick="() => CargarMontoRapido(1500)">$ 1.500</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary px-2 rounded-3 text-dark-custom bg-white" @onclick="() => CargarMontoRapido(5000)">$ 5.000</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary px-2 rounded-3 text-dark-custom bg-white" @onclick="() => CargarMontoRapido(10000)">$ 10.000</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary px-2 rounded-3 text-primary border-primary bg-white fw-bold" @onclick="() => CargarMontoRapido(Restante)">Restante</button>
+                    </div>
+                </div>
+
+                @* BOTÓN CANCELAR *@
+                <div class="mb-2 mt-1">
+                    <button type="button" class="btn btn-outline-danger btn-sm px-3 py-2 rounded-3 fw-bold bg-white shadow-sm" @onclick="CancelarVenta">
+                        <i class="bi bi-x-circle me-1"></i> Cancelar Toda la Venta
+                    </button>
+                </div>
+            </div>
+
+            @* ============================================================================= *@
+            @* COLUMNA DERECHA: RESUMEN Y TOTALES                                            *@
+            @* ============================================================================= *@
+            <div class="col-12 col-lg-5">
+
+                @* TARJETA 3: TABLA DE PAGOS PARCIALES *@
+                <div class="card shadow-sm border-0 rounded-3 mb-2">
+                    <div class="card-header bg-white py-2 border-bottom d-flex align-items-center">
+                        <i class="bi bi-file-text text-primary me-2"></i>
+                        <span class="fw-bold text-dark-custom small">RESUMEN DE PAGOS INGRESADOS</span>
+                    </div>
+                    <div class="card-body p-0" style="max-height: 110px; overflow-y: auto;">
+                        @if (!pagosAgregados.Any())
+                        {
+                            <div class="text-center text-muted py-3 small">
+                                <i class="bi bi-info-circle me-1"></i> Sin medios cargados aún.
+                            </div>
+                        }
+                        else
+                        {
+                            <table class="table table-sm align-middle mb-0" style="font-size: 0.85rem;">
+                                <tbody>
+                                    @foreach (var p in pagosAgregados)
+                                    {
+                                        <tr>
+                                            <td class="ps-3 fw-semibold text-dark-custom">@p.NombreFormaPago</td>
+                                            <td class="text-end fw-black text-dark-custom">$ @p.Monto.ToString("N2")</td>
+                                            <td class="text-center" style="width: 50px;">
+                                                <button type="button" class="btn btn-link text-danger p-0 border-0" @onclick="() => RemoverPago(p)" title="Eliminar pago">
+                                                    <i class="bi bi-trash3-fill text-danger fs-6"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                    </div>
+                </div>
+
+                @* TARJETA CENTRAL NEGRA: CAJA DE CONTROL FINAL Y GUARDADO *@
+                <div class="card shadow border-0 rounded-3 bg-dark text-white p-3">
+                    <span class="text-white-50 text-uppercase x-small-text fw-bold d-block">Total a Cobrar</span>
+                    <h2 class="fw-black text-warning mb-2 font-monospace">$ @State.TotalVentaActual.ToString("N2")</h2>
+
+                    <div class="rounded-3 p-2 mb-2" style="background-color: rgba(255,255,255,0.07); font-size: 0.85rem;">
+                        <div class="d-flex justify-content-between mb-1">
+                            <span class="text-white-50">Ingresado:</span>
+                            <span class="fw-bold text-info font-monospace">$ @TotalIngresado.ToString("N2")</span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-0">
+                            <span class="text-white-50">Falta Pagar:</span>
+                            <span class="fw-bold font-monospace @(Restante > 0 ? "text-danger" : "text-white-50")">
+                                $ @(Restante > 0 ? Restante.ToString("N2") : "0,00")
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <span class="text-white-50 x-small-text d-block">Vuelto para el Cliente</span>
+                        <h3 class="fw-black text-success mb-0 font-monospace">$ @VueltoCalculado.ToString("N2")</h3>
+                    </div>
+                    @if (!string.IsNullOrEmpty(mensajeError))
+                    {
+                        <div class="alert alert-danger alert-dismissible fade show shadow-sm my-2 fw-bold align-items-center d-flex gap-2" role="alert">
+                            <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+                            <div>@mensajeError</div>
+                            <button type="button" class="btn-close" @onclick="() => mensajeError = null" aria-label="Close"></button>
+                        </div>
+                    }
+                    <button type="button" class="btn btn-success w-100 py-3 fw-black rounded-3 shadow fs-5 d-flex align-items-center justify-content-center gap-2 @(TotalIngresado >= State.TotalVentaActual ? "" : "disabled")"
+                            style="background-color: #00875a; border: none;"
+                            @onclick="ProcesarCobro">
+                        <span>CONFIRMAR Y GUARDAR</span>
+                        <i class="bi bi-check-circle-fill"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @* === PIE DE PÁGINA MENOR === *@
+    <div class="bg-white border rounded-3 p-2 d-flex align-items-center justify-content-between shadow-sm mt-3" style="font-size: 0.75rem;">
+        <div class="d-flex align-items-center text-muted">
+            <i class="bi bi-info-circle-fill text-primary me-2 fs-6"></i>
+            <span>Verifica bien los montos recibidos.</span>
+        </div>
+        <div class="text-muted d-none d-sm-block">
+            <i class="bi bi-shield-lock-fill text-primary me-1"></i> Sistema Cerrado
+        </div>
+    </div>
+</div>
+
+<style>
+    .style-notebook {
+        font-size: 0.95rem;
+        color: #111111;
+        padding-bottom: 25px;
+    }
+
+    .x-small-text {
+        font-size: 0.82rem;
+    }
+
+    .small-font {
+        font-size: 0.75rem;
+    }
+
+    .fw-black {
+        font-weight: 850;
+    }
+
+    .text-dark-custom {
+        color: #111111 !important;
+    }
+
+    .btn-medio-custom {
+        background-color: #ffffff;
+        color: #111111;
+        border-color: #ced4da !important;
+    }
+
+        .btn-medio-custom:hover {
+            background-color: #f8f9fa;
+        }
+
+    .active-efectivo {
+        background-color: #e8f5e9;
+        color: #2e7d32;
+        border-color: #2e7d32 !important;
+        font-weight: bold;
+    }
+
+    .active-mercado {
+        background-color: #e3f2fd;
+        color: #0d6efd;
+        border-color: #0d6efd !important;
+        font-weight: bold;
+    }
+
+    .active-transferencia {
+        background-color: #f3e5f5;
+        color: #7b1fa2;
+        border-color: #7b1fa2 !important;
+        font-weight: bold;
+    }
+
+    .active-fiado {
+        background-color: #ffebee;
+        color: #c62828;
+        border-color: #c62828 !important;
+        font-weight: bold;
+    }
+
+    .style-notebook input:focus, .style-notebook select:focus {
+        border-color: #000000 !important;
+        box-shadow: 0 0 0 0.2rem rgba(0,0,0,0.1) !important;
+    }
+</style>
+
+@code {
+    [Parameter] public string RutaOrigenVentas { get; set; } = "/vender-desktop";
+    private string mensajeError = "";
+    public class PagoTemporal
+    {
+        public long FormaPagoId { get; set; }
+        public string NombreFormaPago { get; set; }
+        public decimal Monto { get; set; }
+    }
+
+    private List<PagoTemporal> pagosAgregados = new List<PagoTemporal>();
+    private List<Persona> listaPersonas = new List<Persona>();
+    private long personaSeleccionadaId = 0;
+
+    private long formaPagoSeleccionada = 1;
+    private string nombreFormaPagoSeleccionada = "Efectivo";
+    private decimal montoAIngresar;
+
+    private decimal TotalIngresado => pagosAgregados.Sum(p => p.Monto);
+    private decimal Restante => State.TotalVentaActual - TotalIngresado;
+
+    private decimal VueltoCalculado
+    {
+        get
+        {
+            if (TotalIngresado <= State.TotalVentaActual) return 0;
+            decimal vueltoBruto = TotalIngresado - State.TotalVentaActual;
+
+            if (State.UsarRedondeo && State.MultiploRedondeo > 0)
+            {
+                decimal resto = vueltoBruto % State.MultiploRedondeo;
+                return vueltoBruto - resto;
+            }
+            return vueltoBruto;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        montoAIngresar = State.TotalVentaActual;
+        await CargarPersonas();
+    }
+
+    private async Task CargarPersonas()
+    {
+        try
+        {
+            var res = await SupaClient.From<Persona>().Get();
+            if (res.Models != null)
+            {
+                listaPersonas = res.Models.OrderBy(p => p.Nombre).ToList();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error al cargar clientes/personas: {ex.Message}");
+        }
+    }
+
+    private void SeleccionarMedio(long id, string nombre)
+    {
+        formaPagoSeleccionada = id;
+        nombreFormaPagoSeleccionada = nombre;
+        montoAIngresar = Restante > 0 ? Restante : 0;
+    }
+
+    private void CargarMontoRapido(decimal monto)
+    {
+        montoAIngresar = monto;
+    }
+
+    private void AgregarPago()
+    {
+        if (montoAIngresar <= 0) return;
+
+        pagosAgregados.Add(new PagoTemporal
+        {
+            FormaPagoId = formaPagoSeleccionada,
+            NombreFormaPago = nombreFormaPagoSeleccionada,
+            Monto = montoAIngresar
+        });
+
+        montoAIngresar = Restante > 0 ? Restante : 0;
+    }
+
+    private void RemoverPago(PagoTemporal pago)
+    {
+        pagosAgregados.Remove(pago);
+        montoAIngresar = Restante > 0 ? Restante : 0;
+    }
+
+    private void CancelarVenta()
+    {
+        pagosAgregados.Clear();
+        Carrito.Vaciar();
+        State.CarritoActual = null;
+        State.TotalVentaActual = 0;
+        Nav.NavigateTo(RutaOrigenVentas);
+    }
+
+    private void VolverAVender()
+    {
+        Nav.NavigateTo(RutaOrigenVentas);
+    }
+
+    
+    private async Task ProcesarCobro()
+    {
+        try
+        {
+            if (!pagosAgregados.Any()) return;
+
+            bool tieneFiado = pagosAgregados.Any(p => p.FormaPagoId == 6);
+            if (tieneFiado && personaSeleccionadaId == 0)
+            {
+                mensajeError = "Atención: Debe seleccionar un cliente para registrar una venta fiada.";
+                return;
+            }
+
+            var respuestaRpc = await SupaClient.Rpc("obtener_proximo_movimiento", null);
+            long numeroMovimientoUnico = Convert.ToInt64(respuestaRpc.Content);
+
+            // 1. Guardar las formas de pago / cabeceras de venta
+            foreach (var pago in pagosAgregados)
+            {
+                bool esFiado = pago.FormaPagoId == 6;
+
+                var filaVenta = new Venta
+                {
+                    NumeroUnicoIdentificatorioMovimiento = numeroMovimientoUnico,
+                    Fecha = DateTime.Today,
+                    Total = pago.Monto,
+                    FormaPagoId = pago.FormaPagoId,
+                    KioscoId = State.KioscoId,
+                    UsuarioOperadorId = State.UsuarioId,
+                    PersonaId = personaSeleccionadaId > 0 ? personaSeleccionadaId : null,
+                    Pagado = !esFiado
+                };
+                await SupaClient.From<Venta>().Insert(filaVenta);
+            }
+
+            // 2. Separar los ítems normales de los productos varios
+            var itemsNormales = State.CarritoActual.Where(i => !i.EsProductoVario).ToList();
+            var itemsVarios = State.CarritoActual.Where(i => i.EsProductoVario).ToList();
+
+            // 3. Insertar detalles normales y decrementar stock de cada producto
+            if (itemsNormales.Any())
+            {
+                var detallesProductos = itemsNormales.Select(item => new VentaDetalle
+                {
+                    NumeroUnicoIdentificatorioMovimiento = numeroMovimientoUnico,
+                    ProductoId = item.Producto.Id,
+                    Cantidad = item.Cantidad,
+                    PrecioUnitario = item.PrecioUnitario,
+                    Subtotal = item.Subtotal,
+                }).ToList();
+
+                await SupaClient.From<VentaDetalle>().Insert(detallesProductos);
+
+                // === 3.1 DECREMENTAR STOCK DE PRODUCTOS ===
+                foreach (var item in itemsNormales)
+                {
+                    // Si la propiedad de stock en tu modelo Producto se llama 'Stock' o 'CantidadStock':
+                    item.Producto.StockActual -= item.Cantidad;
+
+                    // Actualizamos la fila del producto en Supabase
+                    await SupaClient
+                        .From<Producto>()
+                        .Where(p => p.Id == item.Producto.Id)
+                        .Set(p => p.StockActual, item.Producto.StockActual)
+                        .Update();
+                }
+            }
+
+            // 4. Insertar los productos varios en la tabla 'productos_varios_ventas'
+            if (itemsVarios.Any())
+            {
+                var registrosVarios = itemsVarios.Select(item => new ProductoVarioVenta
+                {
+                    NumeroUnicoIdentificatorioMovimiento = numeroMovimientoUnico,
+                    NombreProducto = item.Producto.Nombre,
+                    Subtotal = item.Subtotal,
+                    KioscoId = State.KioscoId,
+                    Cantidad = item.Cantidad,
+                    PrecioUnitario = item.PrecioUnitario,
+                    FechaCreacion = DateTime.Today
+                }).ToList();
+
+                await SupaClient.From<ProductoVarioVenta>().Insert(registrosVarios);
+            }
+
+            // Limpieza y redirección
+            pagosAgregados.Clear();
+            Carrito.Vaciar();
+            State.CarritoActual = null;
+            State.TotalVentaActual = 0;
+
+            Nav.NavigateTo(RutaOrigenVentas);
+        }
+        catch (Exception ex)
+        {
+            mensajeError = "Error al guardar el cobro: " + ex.Message;
+        }
+    }
+}

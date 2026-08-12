@@ -1,0 +1,377 @@
+﻿@using BlazorKioscoCompartido.Models
+@using BlazorKioscoCompartido.Services
+@using Microsoft.JSInterop
+@using Supabase.Postgrest
+@using static Supabase.Postgrest.Constants
+@implements IDisposable
+
+@inject Supabase.Client SupaClient
+@inject IJSRuntime JSRuntime
+@inject PrecioService PrecioServ
+
+<div class="search-box shadow-sm rounded border bg-white mb-2">
+    <div class="input-group">
+        <span class="input-group-text bg-white border-0">
+            <i class="bi bi-search text-muted"></i>
+        </span>
+        <input type="text" class="form-control border-0 py-2"
+               placeholder="Buscar artículo..."
+               @bind-value="textoActual"
+               @oninput="OnInputChanged" 
+               @onkeyup="ManejarKeyUp" 
+               @ref="txtBuscar" />
+
+        @* BOTÓN DEL ESCÁNER *@
+        <button class="btn btn-white border-0 text-primary" @onclick="AbrirScanner" title="Escanear código">
+            <i class="bi bi-qr-code-scan"></i>
+        </button>
+
+        @if (!string.IsNullOrEmpty(textoActual))
+        {
+            <button class="btn btn-white border-0" @onclick="LimpiarBusqueda">
+                <i class="bi bi-x-circle text-muted"></i>
+            </button>
+        }
+    </div>
+</div>
+
+@* CONTENEDOR PARA LA CÁMARA (Se muestra solo cuando se activa) *@
+<div id="reader" style="width: 100%; max-width: 400px; margin: auto;"></div>
+
+@if (estaCargando)
+{
+    <div class="text-center p-3">
+        <div class="spinner-border spinner-border-sm text-primary"></div>
+    </div>
+}
+
+@if (productosFiltrados.Any())
+{
+    <div class="resultados-container shadow-sm border rounded bg-white">
+        <div class="p-2 bg-light border-bottom small fw-bold text-primary">
+            Resultados (@productosFiltrados.Count)
+        </div>
+        <div class="list-group list-group-flush" style="max-height: 400px; overflow-y: auto;">
+            @foreach (var prod in productosFiltrados)
+            {
+                <div class="list-group-item d-flex align-items-center p-2"
+                     @onclick="() => SeleccionarProducto(prod)"
+                     style="cursor: pointer;">
+
+                    <div class="flex-grow-1">
+                        <div class="fw-bold mb-0" style="font-size: 0.85rem; color: #333;">@prod.Nombre</div>
+                        <div class="text-muted small">@prod.CodigoBarras</div>
+                    </div>
+
+                    <div class="text-end me-3">
+                        @if (MostrarPrimeraLista)
+                        {
+                            @* <div class="fw-bold text-primary">$@prod.PrecioVenta?.ToString("N2")</div> *@
+                            <td class="text-center @(columnaPrecioActiva == "precio_venta" ? "table-primary border-primary border-start border-end" : "")">
+                                <span class="@(columnaPrecioActiva == "precio_venta" ? "fw-bold fs-5 text-primary" : "text-muted small")">
+                                     @(prod.PrecioVenta?.ToString("N2") ?? "0.00")
+                                </span>
+                                @if (columnaPrecioActiva == "precio_venta")
+                                {
+                                    <div class="badge bg-primary d-block mx-auto mt-1" style="font-size: 0.65rem; max-width: 70px;"></div>
+                                }
+                            </td>
+                            
+                        }
+                        @if (MostrarSegundaLista)
+                        {
+                            // 1. Calculamos el precio real a mostrar en una variable local para no repetir código
+                            // Si PrecioLista2 es nulo o es igual a 0, le sumamos un recargo al PrecioVenta
+                            decimal precioLista2AMostrar = (prod.PrecioLista2 == null || prod.PrecioLista2 == 0 || prod.PrecioLista2 <=prod.PrecioVenta)
+                            ? (prod.PrecioVenta ?? 0) + CalcularPrecioConRecargo(prod.PrecioVenta ?? 0)
+                            : prod.PrecioLista2.Value;
+
+                            <td class="text-center @(columnaPrecioActiva == "precio_lista2" ? "table-success border-success border-start border-end" : "")">
+                                <span class="@(columnaPrecioActiva == "precio_lista2" ? "fw-bold fs-5 text-success" : "text-muted small")">
+                                    $ @precioLista2AMostrar.ToString("N2")
+                                </span>
+
+                                @* Un plus: Si aplicó el recargo de auxilio, le podemos poner un cartelito sutil al vendedor *@
+                                @if (prod.PrecioLista2 == null || prod.PrecioLista2 == 0 || prod.PrecioLista2 <= prod.PrecioVenta)
+                                {
+                                    <div class="text-danger" style="font-size: 0.65rem;" title="PrecioLista2 no cargado. Se aplicó un recargo por defecto.">
+                                        <i class="bi bi-exclamation-circle"></i> Ajustado
+                                    </div>
+                                }
+
+                                @if (columnaPrecioActiva == "precio_lista2")
+                                {
+                                    <div class="badge bg-success d-block mx-auto mt-1" style="font-size: 0.65rem; max-width: 70px;"></div>
+                                }
+                            </td>
+                        }
+                    </div>
+
+                    @* <button class="btn btn-primary btn-sm rounded-3 shadow-sm">
+                        <i class="bi bi-plus-lg fs-5"></i>
+                    </button> *@
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private System.Threading.Timer? timer;
+    private List<Producto> productosFiltrados = new();
+    private bool estaCargando = false;
+    private string textoActual = "";
+    private string columnaPrecioActiva = "precio_venta"; // Por defecto
+    private TimeSpan horaInicioVenta = DateTime.Now.TimeOfDay;
+    private long idNegocio = 1; // Tu kiosco activo
+    private ElementReference txtBuscar;
+
+    [Parameter] public bool CargarAlInicio { get; set; } = false;
+    [Parameter] public EventCallback<Producto> OnProductoEncontrado { get; set; }
+    [Parameter] public EventCallback<string> OnProductoNoEncontrado { get; set; }
+    [Parameter] public bool MostrarPrimeraLista { get; set; } = true;
+    [Parameter] public bool MostrarSegundaLista { get; set; } = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (CargarAlInicio)
+        {
+            // await EjecutarBusqueda("");
+            // Al inicio ponemos false para que no dispare un alta si la base está vacía
+            await EjecutarBusqueda("", forzarAlta: false);
+        }
+        
+        columnaPrecioActiva = await PrecioServ.ObtenerColumnaPrecioActivaAsync(idNegocio, horaInicioVenta);
+    }
+    protected override void OnParametersSet()
+    {
+        // Cada vez que el componente padre (Productos.razor) actualice el parámetro,
+        // le avisamos a la interfaz del buscador que debe redibujarse con el nuevo valor.
+        StateHasChanged();
+    }
+    private void OnInputChanged(ChangeEventArgs e)
+    {
+        textoActual = e.Value?.ToString() ?? "";
+        ReiniciarTimer();
+    }
+
+    private void ReiniciarTimer()
+    {
+        timer?.Dispose();
+        timer = new System.Threading.Timer(async _ =>
+        {
+            // await InvokeAsync(async () => await EjecutarBusqueda(textoActual));
+            // Las búsquedas automáticas del timer NO deben forzar el alta automática
+            await InvokeAsync(async () => await EjecutarBusqueda(textoActual, forzarAlta: false));
+        }, null, 400, System.Threading.Timeout.Infinite);
+    }
+    public decimal CalcularPrecioConRecargo(decimal precioVenta)
+    {
+        // Evaluamos el rango del precio de venta para determinar el recargo fijo
+        decimal recargo = precioVenta switch
+        {
+            <= 500 => 50,
+            > 500 and <= 800 => 100,
+            > 800 and <= 2000 => 200,
+            > 2000 and <= 5000 => 300,
+            > 5000 and <= 7000 => 400,
+            > 7000 and <= 9999 => 500,
+            _ => 800 // Para 10000 o más (caso por defecto)
+        };
+
+        // Devolvemos  el recargo correspondiente
+        return  recargo;
+    }
+    private async Task EjecutarBusqueda(string busqueda, bool forzarAlta)
+    {
+        if (string.IsNullOrWhiteSpace(busqueda) && !CargarAlInicio)
+        {
+            productosFiltrados = new();
+            estaCargando = false;
+            StateHasChanged();
+            return;
+        }
+
+        estaCargando = true;
+        StateHasChanged();
+
+        try
+        {
+            var query = SupaClient.From<Producto>();
+            if (!string.IsNullOrWhiteSpace(busqueda))
+            {
+                var res = await query.Or(new List<Supabase.Postgrest.Interfaces.IPostgrestQueryFilter>
+                {
+                    new Supabase.Postgrest.QueryFilter("nombre", Operator.ILike, $"%{busqueda}%"),
+                    new Supabase.Postgrest.QueryFilter("codigo_barras", Operator.ILike, $"%{busqueda}%")
+                }).Limit(20).Get();
+                productosFiltrados = res.Models;
+                //Se agrega esta condición para que si el usuario presiona Enter y hay un solo resultado, se seleccione automáticamente
+                if (EsCodigoBarras(textoActual))
+                {
+                    if (productosFiltrados.Count == 1)
+                    {
+                        await SeleccionarProducto(productosFiltrados[0]);
+                        return;
+                    }
+
+                    if (productosFiltrados.Count == 0)
+                    {
+                        await OnProductoNoEncontrado.InvokeAsync(textoActual);
+                        return;
+                    }
+                }
+                // !!! FUNCIONALIDAD CLAVE !!!
+                // Si la base de datos no devolvió nada Y el usuario presionó Enter (o vino del escáner)
+                if (!productosFiltrados.Any() && forzarAlta)
+                {
+                    await OnProductoNoEncontrado.InvokeAsync(busqueda);
+                }
+            }
+            else if (CargarAlInicio)
+            {
+                var res = await query.Limit(50).Get();
+                productosFiltrados = res.Models;
+            }
+        }
+        finally
+        {
+            estaCargando = false;
+            StateHasChanged();
+        }
+    }
+
+    // --- LÓGICA DEL ESCÁNER ---
+
+    private async Task AbrirScanner()
+    {
+        var dotNetHelper = DotNetObjectReference.Create(this);
+        await JSRuntime.InvokeVoidAsync("methodsJS.iniciarEscaneo", dotNetHelper);
+    }
+
+    // [JSInvokable]
+    // public async Task ProcesarCodigoEscaneado(string code)
+    // {
+    //     textoActual = code;
+    //     await EjecutarBusqueda(code);
+
+    //     // Si solo hay un resultado (es lo común con código de barras), lo seleccionamos automáticamente
+    //     if (productosFiltrados.Count == 1)
+    //     {
+    //         await SeleccionarProducto(productosFiltrados[0]);
+    //     }
+    // }
+    [JSInvokable]
+    public async Task ProcesarCodigoEscaneado(string code)
+    {
+        textoActual = code;
+
+        // Al venir de la cámara, pasamos forzarAlta: true porque el código ya entró completo
+        await EjecutarBusqueda(code, forzarAlta: true);
+
+        if (productosFiltrados.Count == 1)
+        {
+            await SeleccionarProducto(productosFiltrados[0]);
+        }
+        else if (!productosFiltrados.Any())
+        {
+            await OnProductoNoEncontrado.InvokeAsync(code);
+        }
+    }
+    // --- FIN LÓGICA ESCÁNER ---
+
+    private async Task LimpiarBusqueda()
+    {
+        textoActual = "";
+        if (CargarAlInicio)
+        {
+            var res = await SupaClient.From<Producto>().Limit(50).Get();
+            productosFiltrados = res.Models;
+        }
+        else
+        {
+            productosFiltrados = new();
+        }
+    }
+
+    // private async Task SeleccionarProducto(Producto p)
+    // {
+    //     await OnProductoEncontrado.InvokeAsync(p);
+
+    //     if (!CargarAlInicio)
+    //     {
+    //         LimpiarTodo();
+    //     }
+    // }
+    // private async Task SeleccionarProducto(Producto p)
+    // {
+    //     await OnProductoEncontrado.InvokeAsync(p);
+
+    //     if (!CargarAlInicio)
+    //     {
+    //         LimpiarTodo();
+
+    //         await Task.Delay(50);
+
+    //         await JSRuntime.InvokeVoidAsync("methodsJS.focusBuscarProducto");
+    //     }
+    // }
+    private async Task SeleccionarProducto(Producto p)
+    {
+        await OnProductoEncontrado.InvokeAsync(p);
+
+        if (!CargarAlInicio)
+        {
+            LimpiarTodo();
+
+            await Task.Delay(50);
+
+            await txtBuscar.FocusAsync();
+        }
+    }
+    public void LimpiarTodo()
+    {
+        textoActual = "";
+        productosFiltrados = new();
+        StateHasChanged();
+    }
+    // private async Task ManejarKeyUp(KeyboardEventArgs e)
+    // {
+    //     // Si presiona Enter, forzamos la búsqueda inmediata y permitimos la redirección si no existe
+    //     if (e.Key == "Enter")
+    //     {
+    //         timer?.Dispose(); // Cancelamos el timer pendiente para que no se ejecute doble
+    //         await EjecutarBusqueda(textoActual, forzarAlta: true);
+    //     }
+    // }
+    private async Task ManejarKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            timer?.Dispose();
+
+            await EjecutarBusqueda(textoActual, forzarAlta: true);
+
+            if (productosFiltrados.Count == 1)
+            {
+                await SeleccionarProducto(productosFiltrados[0]);
+            }
+            else if (!productosFiltrados.Any())
+            {
+                await OnProductoNoEncontrado.InvokeAsync(textoActual);
+            }
+        }
+    }
+    public async Task Enfocar()
+    {
+        await txtBuscar.FocusAsync();
+    }
+    private bool EsCodigoBarras(string texto)
+    {
+        return !string.IsNullOrWhiteSpace(texto)
+               && texto.All(char.IsDigit)
+               && texto.Length >= 8;
+    }
+    public void Dispose() => timer?.Dispose();
+    
+}

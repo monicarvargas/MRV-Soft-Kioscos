@@ -1,8 +1,9 @@
-﻿@using BlazorKioscos_v1.Services
+﻿@using BlazorKioscoCompartido.Services
+@inject BlazorKioscoCompartido.Services.AppState State
 @inherits LayoutComponentBase
 @inject NavigationManager Nav
 @inject AppState State
-
+@inject NavigationManager Navigation
 <div class="page">
     @* NAVBAR SUPERIOR *@
     <nav class="navbar navbar-dark bg-primary fixed-top">
@@ -27,7 +28,7 @@
         </div>
     </main>
 
-    @* EL MENÚ SOLO SE MUESTRA SI HAY LOGUEO *@
+    @* EL MENÚ INFERIOR SOLO SE MUESTRA SI HAY LOGUEO *@
     @if (State.KioscoId != 0)
     {
         <div class="footer-nav">
@@ -43,15 +44,238 @@
                 </NavLink>
             </div>
 
-            <NavLink class="nav-item" href="MenuAdicional">
+            @* Modificado: Quitamos href y agregamos el trigger del menú *@
+            <button class="nav-item bg-transparent border-0 text-muted p-0 w-auto" @onclick="ToggleMenuMas" style="cursor: pointer;">
                 <span class="bi bi-list" aria-hidden="true"></span>
                 <span class="nav-label">Más</span>
+            </button>
+        </div>
+
+        @* --- MENÚ LATERAL FLOTANTE (ESTILO MERCADO LIBRE) --- *@
+        <div class="mobile-sidebar-overlay @(mostrarMenuMas ? "active" : "")" @onclick="ToggleMenuMas"></div>
+
+        <div class="mobile-sidebar @(mostrarMenuMas ? "open" : "")">
+            @* Encabezado del Menú *@
+            <div class="sidebar-header d-flex align-items-center justify-content-between p-3 border-bottom">
+                <div class="d-flex align-items-center gap-2">
+                    <div class="avatar-menu bg-primary text-white rounded-circle d-flex align-items-center justify-content-center fw-bold">
+                        <i class="bi bi-person-fill fs-6"></i>
+                    </div>
+                    <span class="fw-bold text-dark small">Menú del Sistema</span>
+                </div>
+                <button type="button" class="btn-close" @onclick="ToggleMenuMas" aria-label="Close"></button>
+            </div>
+
+            @* Cuerpo con las opciones de escritorio adaptadas para el celular/notebook *@
+            <div class="sidebar-body">
+                <div class="list-group list-group-flush">
+                    
+                    <NavLink class="list-group-item list-group-item-action d-flex align-items-center py-3 px-3 border-0" href="productos" @onclick="ToggleMenuMas" Match="NavLinkMatch.All">
+                        <i class="bi bi-box-seam-fill text-muted fs-5 me-3"></i>
+                        <span class="flex-grow-1">Lista de productos</span>
+                        <i class="bi bi-chevron-right text-muted small"></i>
+                    </NavLink>
+
+                    <NavLink class="list-group-item list-group-item-action d-flex align-items-center py-3 px-3 border-0" href="producto/nuevo" @onclick="ToggleMenuMas">
+                        <i class="bi bi-plus-circle-fill text-muted fs-5 me-3"></i>
+                        <span class="flex-grow-1">Agregar producto</span>
+                        <i class="bi bi-chevron-right text-muted small"></i>
+                    </NavLink>
+                    @if(State.UsuarioRol=="admin")
+                    {
+                        <NavLink class="list-group-item list-group-item-action d-flex align-items-center py-3 px-3 border-0" href="producto/importar-excel" @onclick="ToggleMenuMas">
+                            <i class="bi bi-file-earmark-excel-fill text-success fs-5 me-3"></i>
+                            <span class="flex-grow-1 fw-bold text-success">Importar desde Excel</span>
+                            <i class="bi bi-chevron-right text-muted small"></i>
+                        </NavLink>
+                    }
+
+                   @*  <NavLink class="list-group-item list-group-item-action d-flex align-items-center py-3 px-3 border-0" href="categorias" @onclick="ToggleMenuMas">
+                        <i class="bi bi-tags-fill text-muted fs-5 me-3"></i>
+                        <span class="flex-grow-1">Categorías</span>
+                        <i class="bi bi-chevron-right text-muted small"></i>
+                    </NavLink> *@
+
+                   @*  <NavLink class="list-group-item list-group-item-action d-flex align-items-center py-3 px-3 border-0" href="proveedores" @onclick="ToggleMenuMas">
+                        <i class="bi bi-people-fill text-muted fs-5 me-3"></i>
+                        <span class="flex-grow-1">Proveedores</span>
+                        <i class="bi bi-chevron-right text-muted small"></i>
+                    </NavLink> *@
+
+                    @* <NavLink class="list-group-item list-group-item-action d-flex align-items-center py-3 px-3 border-0" href="compras" @onclick="ToggleMenuMas">
+                        <i class="bi bi-cart-check-fill text-muted fs-5 me-3"></i>
+                        <span class="flex-grow-1">Compras</span>
+                        <i class="bi bi-chevron-right text-muted small"></i>
+                    </NavLink> *@
+                   @*  @if (State.UsuarioRol == "admin")
+                    {
+                        <NavLink class="list-group-item list-group-item-action d-flex align-items-center py-3 px-3 border-0" href="reportebasico-recaudacion" @onclick="ToggleMenuMas">
+                            <i class="bi bi-bar-chart-line-fill text-muted fs-5 me-3"></i>
+                            <span class="flex-grow-1">Reportes</span>
+                            <i class="bi bi-chevron-right text-muted small"></i>
+                        </NavLink>
+                    } *@
+
+                    @if (State.UsuarioRol == "admin")
+{
+    <button type="button" 
+            class="list-group-item list-group-item-action d-flex align-items-center py-3 px-3 border-0 w-100 bg-transparent text-start" 
+            @onclick="ToggleSubmenuReportes">
+        <i class="bi bi-bar-chart-line-fill text-muted fs-5 me-3"></i>
+        <span class="flex-grow-1">Reportes</span>
+        <i class="bi @(mostrarSubmenuReportes ? "bi-chevron-down" : "bi-chevron-right") text-muted small"></i>
+    </button>
+
+    @if (mostrarSubmenuReportes)
+    {
+        <div class="ps-4 bg-light border-start ms-3 my-1 rounded-2">
+            <NavLink class="list-group-item list-group-item-action d-flex align-items-center py-2 px-3 border-0 bg-transparent small" 
+                     href="reportebasico-recaudacion" 
+                     @onclick="ToggleMenuMas">
+                <i class="bi bi-calendar-check text-primary me-2"></i>
+                <span>Reporte diario</span>
             </NavLink>
+
+            <NavLink class="list-group-item list-group-item-action d-flex align-items-center py-2 px-3 border-0 bg-transparent small" 
+                     href="reportedeudores" 
+                     @onclick="ToggleMenuMas">
+                <i class="bi bi-journal-text text-warning me-2"></i>
+                <span>Reporte fiados</span>
+            </NavLink>
+        </div>
+    }
+}
+
+
+
+
+                    @* <NavLink class="list-group-item list-group-item-action d-flex align-items-center py-3 px-3 border-0" href="ajustes" @onclick="ToggleMenuMas">
+                        <i class="bi bi-gear-fill text-muted fs-5 me-3"></i>
+                        <span class="flex-grow-1">Ajustes</span>
+                        <i class="bi bi-chevron-right text-muted small"></i>
+                    </NavLink> *@
+
+                    <div class="border-top my-2 mx-3"></div>
+
+                    @* <NavLink class="list-group-item list-group-item-action d-flex align-items-center py-3 px-3 text-danger border-0 mb-5" href="login" @onclick="ToggleMenuMas">
+                        <i class="bi bi-person-key-fill fs-5 me-3"></i>
+                        <span class="flex-grow-1">Cambiar Usuario</span>
+                        <i class="bi bi-chevron-right small"></i>
+                    </NavLink> *@
+                    <NavLink class="list-group-item list-group-item-action d-flex align-items-center py-3 px-3 text-danger border-0 mb-5" 
+         href="login" 
+         @onclick="CerrarSesionYCambiarUsuario">
+    <i class="bi bi-person-key-fill fs-5 me-3"></i>
+    <span class="flex-grow-1">Cambiar Usuario</span>
+    <i class="bi bi-chevron-right small"></i>
+</NavLink>
+
+                </div>
+            </div>
         </div>
     }
 </div>
 
+<style>
+    /* Fondo opaco detrás del menú lateral */
+    .mobile-sidebar-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background-color: rgba(0, 0, 0, 0.4);
+        z-index: 2000 !important;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.3s ease, visibility 0.3s ease;
+    }
+    .mobile-sidebar-overlay.active {
+        opacity: 1;
+        visibility: visible;
+    }
+
+    /* Contenedor lateral del menú deslizante */
+    .mobile-sidebar {
+        position: fixed;
+        top: 0;
+        right: -100%; /* Oculto a la derecha */
+        width: 85%;
+        max-width: 380px; /* Ancho cómodo e ideal para móvil y tablet */
+        height: 100vh;
+        background-color: #ffffff;
+        z-index: 2001 !important;
+        box-shadow: -4px 0 15px rgba(0, 0, 0, 0.15);
+        transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        display: flex;
+        flex-direction: column;
+    }
+    .mobile-sidebar.open {
+        right: 0; /* Lo despliega */
+    }
+
+    .avatar-menu {
+        width: 34px;
+        height: 34px;
+    }
+
+    .sidebar-body {
+        overflow-y: auto;
+        flex-grow: 1;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* Estilos táctiles para las opciones */
+    .list-group-item-action {
+        transition: background-color 0.15s ease;
+        font-size: 0.95rem;
+        color: #333333;
+    }
+    .list-group-item-action:active {
+        background-color: #f1f5f9 !important;
+    }
+    
+    /* Resaltado cuando estás parado en esa página exacta */
+    .list-group-item-action.active {
+        background-color: #e3f2fd !important;
+        color: #0d6efd !important;
+        font-weight: bold;
+    }
+
+    /* Ajuste para el botón de "Más" del footer para que herede la estética */
+    button.nav-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        font-size: inherit;
+    }
+
+    /* === RESPONSIVO PARA NOTEBOOK O CONFIGURACIÓN MÁS GRANDE === */
+    @@media (min-width: 992px) {
+        .mobile-sidebar {
+            width: 350px;
+            right: -360px;
+        }
+        .mobile-sidebar.open {
+            right: 0;
+        }
+    }
+</style>
+
 @code {
+    private bool mostrarMenuMas = false;
+    private bool mostrarSubmenuReportes = false;
+
+    private void ToggleSubmenuReportes()
+    {
+        mostrarSubmenuReportes = !mostrarSubmenuReportes;
+    }
+    private async Task ToggleMenuMas()
+    {
+        mostrarMenuMas = !mostrarMenuMas;
+    }
+
     private void IrAHome()
     {
         if (State.KioscoId != 0)
@@ -63,4 +287,16 @@
             Nav.NavigateTo("/");
         }
     }
+    
+    private async Task CerrarSesionYCambiarUsuario()
+{
+    await ToggleMenuMas();
+
+    // 1. Aquí debes limpiar el almacenamiento del usuario actual 
+    // (por ejemplo, remover token de localStorage/sessionStorage)
+    // await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "authToken");
+
+    // 2. Redirigir a login forzando la recarga de la página (forceLoad: true)
+    Navigation.NavigateTo("login", forceLoad: true);
+}
 }

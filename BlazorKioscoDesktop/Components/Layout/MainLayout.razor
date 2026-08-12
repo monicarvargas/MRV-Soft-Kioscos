@@ -1,0 +1,87 @@
+﻿@* @inherits LayoutComponentBase
+@inject BlazorKioscoCompartido.Services.AppState State
+@inject NavigationManager Nav
+
+<div class="page">
+    <div class="sidebar">
+        <NavMenu />
+    </div>
+
+    <main>
+        <nav class="navbar navbar-dark bg-primary px-3 shadow-sm" style="height: 3.5rem; display: flex; align-items: center;">
+            <div class="container-fluid">
+                <a class="navbar-brand fw-bold" @onclick="IrAHome" style="cursor: pointer; text-decoration: none;">
+                    @if (State.KioscoId == 0)
+                    {
+                        <span>MRV Soft</span>
+                    }
+                    else
+                    {
+                        <small class="text-white-50">MRV Soft | </small> <span>@State.NombreNegocio</span>
+                    }
+                </a>
+            </div>
+        </nav>
+
+        <article class="content px-4 py-3">
+            @Body
+        </article>
+    </main>
+</div>
+
+@code {
+    private void IrAHome()
+    {
+        Nav.NavigateTo("/");
+    }
+}
+ *@
+@inherits LayoutComponentBase
+@inject BlazorKioscoCompartido.Services.AppState State
+@inject NavigationManager Nav
+
+<div class="page">
+    @if (State.KioscoId != 0)
+    {
+        <div class="sidebar animate__animated animate__fadeInLeft">
+             <NavMenu /> 
+        </div>
+    }
+
+    <main>
+        @if (State.KioscoId != 0)
+        {
+            <nav class="navbar navbar-dark bg-primary px-3 shadow-sm" style="height: 3.5rem; display: flex; align-items: center;">
+                <div class="container-fluid">
+                    <a class="navbar-brand fw-bold" @onclick="IrAHome" style="cursor: pointer; text-decoration: none;">
+                        <small class="text-white-50">MRV Soft | </small> <span>@State.NombreNegocio</span>
+                    </a>
+                </div>
+            </nav>
+        }
+
+        <article class="@(State.KioscoId == 0 ? "content-login" : "content px-4 py-3")">
+            @Body
+        </article>
+    </main>
+</div>
+
+@code {
+    private void IrAHome()
+    {
+        Nav.NavigateTo("/");
+    }
+
+    protected override void OnInitialized()
+    {
+        // Nos suscribimos al cambio de estado para que el Layout se entere 
+        // en el momento exacto en que el usuario se loguea y dibuje el menú
+        State.OnChange += StateHasChanged;
+    }
+
+    public void Dispose()
+    {
+        // Buenas prácticas: nos desuscribimos al destruir el componente
+        State.OnChange -= StateHasChanged;
+    }
+}

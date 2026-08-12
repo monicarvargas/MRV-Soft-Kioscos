@@ -1,0 +1,8 @@
+﻿@page "/cobrar-deuda/{PersonaId:long}"
+
+<CobrarFiadoCompartido PersonaId="@PersonaId" />
+
+@code {
+    [Parameter]
+    public long PersonaId { get; set; }
+}

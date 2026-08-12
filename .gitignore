@@ -2,6 +2,11 @@
 .vs/
 [Bb]in/
 [Ob]j/
+[Dd]ebug/
+[Rr]elease/
+.vs/
+.vscode/
+*.suo
 *.user
 *.userosscache
 *.sln.docstates
@@ -18,3 +23,11 @@ Thumbs.db
 
 ## Vercel
 .vercel
+
+# Ignorar configuraciones con claves sensibles
+appsettings.json
+
+## Ignorar paquetes / librerías locales
+*.nupkg
+packages/
+

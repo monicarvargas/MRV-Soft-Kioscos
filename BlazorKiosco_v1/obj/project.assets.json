@@ -34,6 +34,35 @@
           }
         }
       },
+      "ExcelDataReader/3.9.0": {
+        "type": "package",
+        "compile": {
+          "lib/net8.0/ExcelDataReader.dll": {
+            "related": ".pdb;.xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/ExcelDataReader.dll": {
+            "related": ".pdb;.xml"
+          }
+        }
+      },
+      "ExcelDataReader.DataSet/3.9.0": {
+        "type": "package",
+        "dependencies": {
+          "ExcelDataReader": "3.9.0"
+        },
+        "compile": {
+          "lib/net8.0/ExcelDataReader.DataSet.dll": {
+            "related": ".pdb;.xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/ExcelDataReader.DataSet.dll": {
+            "related": ".pdb;.xml"
+          }
+        }
+      },
       "Microsoft.AspNetCore.Authorization/8.0.25": {
         "type": "package",
         "dependencies": {
@@ -527,13 +556,13 @@
           }
         }
       },
-      "Microsoft.NET.ILLink.Tasks/8.0.25": {
+      "Microsoft.NET.ILLink.Tasks/8.0.28": {
         "type": "package",
         "build": {
           "build/Microsoft.NET.ILLink.Tasks.props": {}
         }
       },
-      "Microsoft.NET.Sdk.WebAssembly.Pack/9.0.14": {
+      "Microsoft.NET.Sdk.WebAssembly.Pack/9.0.17": {
         "type": "package",
         "build": {
           "build/Microsoft.NET.Sdk.WebAssembly.Pack.props": {},
@@ -772,6 +801,22 @@
           "lib/net8.0/Websocket.Client.dll": {
             "related": ".xml"
           }
+        }
+      },
+      "BlazorKioscoCompartido/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v8.0",
+        "dependencies": {
+          "ExcelDataReader": "3.9.0",
+          "ExcelDataReader.DataSet": "3.9.0",
+          "Microsoft.AspNetCore.Components.Web": "8.0.25",
+          "Supabase": "1.1.1"
+        },
+        "compile": {
+          "bin/placeholder/BlazorKioscoCompartido.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/BlazorKioscoCompartido.dll": {}
         }
       }
     },
@@ -808,6 +853,35 @@
           }
         }
       },
+      "ExcelDataReader/3.9.0": {
+        "type": "package",
+        "compile": {
+          "lib/net8.0/ExcelDataReader.dll": {
+            "related": ".pdb;.xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/ExcelDataReader.dll": {
+            "related": ".pdb;.xml"
+          }
+        }
+      },
+      "ExcelDataReader.DataSet/3.9.0": {
+        "type": "package",
+        "dependencies": {
+          "ExcelDataReader": "3.9.0"
+        },
+        "compile": {
+          "lib/net8.0/ExcelDataReader.DataSet.dll": {
+            "related": ".pdb;.xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/ExcelDataReader.DataSet.dll": {
+            "related": ".pdb;.xml"
+          }
+        }
+      },
       "Microsoft.AspNetCore.Authorization/8.0.25": {
         "type": "package",
         "dependencies": {
@@ -1301,13 +1375,13 @@
           }
         }
       },
-      "Microsoft.NET.ILLink.Tasks/8.0.25": {
+      "Microsoft.NET.ILLink.Tasks/8.0.28": {
         "type": "package",
         "build": {
           "build/Microsoft.NET.ILLink.Tasks.props": {}
         }
       },
-      "Microsoft.NET.Sdk.WebAssembly.Pack/9.0.14": {
+      "Microsoft.NET.Sdk.WebAssembly.Pack/9.0.17": {
         "type": "package",
         "build": {
           "build/Microsoft.NET.Sdk.WebAssembly.Pack.props": {},
@@ -1546,6 +1620,22 @@
           "lib/net8.0/Websocket.Client.dll": {
             "related": ".xml"
           }
+        }
+      },
+      "BlazorKioscoCompartido/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v8.0",
+        "dependencies": {
+          "ExcelDataReader": "3.9.0",
+          "ExcelDataReader.DataSet": "3.9.0",
+          "Microsoft.AspNetCore.Components.Web": "8.0.25",
+          "Supabase": "1.1.1"
+        },
+        "compile": {
+          "bin/placeholder/BlazorKioscoCompartido.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/BlazorKioscoCompartido.dll": {}
         }
       }
     }
@@ -1585,6 +1675,56 @@
         "lib/net9.0/Blazor.Serialization.dll",
         "lib/net9.0/Blazor.Serialization.xml",
         "logo.png"
+      ]
+    },
+    "ExcelDataReader/3.9.0": {
+      "sha512": "3lEkUzG67UWPYj/xlX5Hua3MeQQktnK0B7WGzDjLpdJpBtct7szX0E4WB3Kl6C/8bNnbkyT2eO0FSPV+9CCemw==",
+      "type": "package",
+      "path": "exceldatareader/3.9.0",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "ExcelDataReader.png",
+        "README.md",
+        "exceldatareader.3.9.0.nupkg.sha512",
+        "exceldatareader.nuspec",
+        "lib/net462/ExcelDataReader.dll",
+        "lib/net462/ExcelDataReader.pdb",
+        "lib/net462/ExcelDataReader.xml",
+        "lib/net8.0/ExcelDataReader.dll",
+        "lib/net8.0/ExcelDataReader.pdb",
+        "lib/net8.0/ExcelDataReader.xml",
+        "lib/netstandard2.0/ExcelDataReader.dll",
+        "lib/netstandard2.0/ExcelDataReader.pdb",
+        "lib/netstandard2.0/ExcelDataReader.xml",
+        "lib/netstandard2.1/ExcelDataReader.dll",
+        "lib/netstandard2.1/ExcelDataReader.pdb",
+        "lib/netstandard2.1/ExcelDataReader.xml"
+      ]
+    },
+    "ExcelDataReader.DataSet/3.9.0": {
+      "sha512": "rOKCpr289dVorML/TK6vdWe8fLeWxFeqlzTYBnbi0Kz0nQ59vlQL4VozI3PcCOUWb8xVpB21g+Wiyp7zZG/OOQ==",
+      "type": "package",
+      "path": "exceldatareader.dataset/3.9.0",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "ExcelDataReader.png",
+        "README.md",
+        "exceldatareader.dataset.3.9.0.nupkg.sha512",
+        "exceldatareader.dataset.nuspec",
+        "lib/net462/ExcelDataReader.DataSet.dll",
+        "lib/net462/ExcelDataReader.DataSet.pdb",
+        "lib/net462/ExcelDataReader.DataSet.xml",
+        "lib/net8.0/ExcelDataReader.DataSet.dll",
+        "lib/net8.0/ExcelDataReader.DataSet.pdb",
+        "lib/net8.0/ExcelDataReader.DataSet.xml",
+        "lib/netstandard2.0/ExcelDataReader.DataSet.dll",
+        "lib/netstandard2.0/ExcelDataReader.DataSet.pdb",
+        "lib/netstandard2.0/ExcelDataReader.DataSet.xml",
+        "lib/netstandard2.1/ExcelDataReader.DataSet.dll",
+        "lib/netstandard2.1/ExcelDataReader.DataSet.pdb",
+        "lib/netstandard2.1/ExcelDataReader.DataSet.xml"
       ]
     },
     "Microsoft.AspNetCore.Authorization/8.0.25": {
@@ -2507,10 +2647,10 @@
         "microsoft.jsinterop.webassembly.nuspec"
       ]
     },
-    "Microsoft.NET.ILLink.Tasks/8.0.25": {
-      "sha512": "sqX4nmBft05ivqKvUT4nxaN8rT3apCLt9SWFkfRrQPwra1zPwFknQAw1lleuMCKOCLvVmOWwrC2iPSm9RiXZUg==",
+    "Microsoft.NET.ILLink.Tasks/8.0.28": {
+      "sha512": "XMqgVjlLxLqWmEh3c49haXLQwsMNtvo6YscUaqfvEGfg1iA8hnYgkUVq3i9Zu9gKeNKMWiiZKVwZExc/qyEAsQ==",
       "type": "package",
-      "path": "microsoft.net.illink.tasks/8.0.25",
+      "path": "microsoft.net.illink.tasks/8.0.28",
       "hasTools": true,
       "files": [
         ".nupkg.metadata",
@@ -2524,7 +2664,7 @@
         "build/Microsoft.NET.ILLink.Analyzers.props",
         "build/Microsoft.NET.ILLink.Tasks.props",
         "build/Microsoft.NET.ILLink.targets",
-        "microsoft.net.illink.tasks.8.0.25.nupkg.sha512",
+        "microsoft.net.illink.tasks.8.0.28.nupkg.sha512",
         "microsoft.net.illink.tasks.nuspec",
         "tools/net472/ILLink.Tasks.dll",
         "tools/net472/ILLink.Tasks.dll.config",
@@ -2558,10 +2698,10 @@
         "useSharedDesignerContext.txt"
       ]
     },
-    "Microsoft.NET.Sdk.WebAssembly.Pack/9.0.14": {
-      "sha512": "C69h2ZW0zQf5K389hwVP3oRccYvGaTueidbvsXXcjcLzpFG920Ut4DIF9OsE6AwxdxTGYumGF1kSjHT3VM6t/w==",
+    "Microsoft.NET.Sdk.WebAssembly.Pack/9.0.17": {
+      "sha512": "fxw4s6C1WVB8pWenm2Q9tRkh6Av3++0iRJqqQkjvqjHhtGjyS0XG60RuGiWEJVwYCIgPA8GCINDeShqLoHnc9g==",
       "type": "package",
-      "path": "microsoft.net.sdk.webassembly.pack/9.0.14",
+      "path": "microsoft.net.sdk.webassembly.pack/9.0.17",
       "hasTools": true,
       "files": [
         ".nupkg.metadata",
@@ -2592,7 +2732,7 @@
         "build/Microsoft.NET.Sdk.WebAssembly.Pack.targets",
         "build/Wasm.web.config",
         "build/browser.runtimeconfig.template.json",
-        "microsoft.net.sdk.webassembly.pack.9.0.14.nupkg.sha512",
+        "microsoft.net.sdk.webassembly.pack.9.0.17.nupkg.sha512",
         "microsoft.net.sdk.webassembly.pack.nuspec",
         "tools/net472/Microsoft.NET.Sdk.WebAssembly.Pack.Tasks.dll",
         "tools/net472/Microsoft.NET.WebAssembly.Webcil.dll",
@@ -2886,15 +3026,23 @@
         "websocket.client.5.1.1.nupkg.sha512",
         "websocket.client.nuspec"
       ]
+    },
+    "BlazorKioscoCompartido/1.0.0": {
+      "type": "project",
+      "path": "../BlazorKioscoCompartido/BlazorKioscoCompartido.csproj",
+      "msbuildProject": "../BlazorKioscoCompartido/BlazorKioscoCompartido.csproj"
     }
   },
   "projectFileDependencyGroups": {
     "net8.0": [
       "Blazor.LocalStorage >= 9.0.1",
+      "BlazorKioscoCompartido >= 1.0.0",
+      "ExcelDataReader >= 3.9.0",
+      "ExcelDataReader.DataSet >= 3.9.0",
       "Microsoft.AspNetCore.Components.WebAssembly >= 8.0.25",
       "Microsoft.AspNetCore.Components.WebAssembly.DevServer >= 8.0.25",
-      "Microsoft.NET.ILLink.Tasks >= 8.0.25",
-      "Microsoft.NET.Sdk.WebAssembly.Pack >= 9.0.14",
+      "Microsoft.NET.ILLink.Tasks >= 8.0.28",
+      "Microsoft.NET.Sdk.WebAssembly.Pack >= 9.0.17",
       "Supabase >= 1.1.1"
     ]
   },
@@ -2906,9 +3054,9 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Sistemas\\BlazorKioscos1.0\\BlazorKiosco_v1\\BlazorKioscos_v1.csproj",
-      "projectName": "BlazorKioscos_v1",
-      "projectPath": "C:\\Sistemas\\BlazorKioscos1.0\\BlazorKiosco_v1\\BlazorKioscos_v1.csproj",
+      "projectUniqueName": "C:\\Sistemas\\BlazorKioscos1.0\\BlazorKiosco_v1\\BlazorKioscoMobile.csproj",
+      "projectName": "BlazorKioscoMobile",
+      "projectPath": "C:\\Sistemas\\BlazorKioscos1.0\\BlazorKiosco_v1\\BlazorKioscoMobile.csproj",
       "packagesPath": "C:\\Users\\HP\\.nuget\\packages\\",
       "outputPath": "C:\\Sistemas\\BlazorKioscos1.0\\BlazorKiosco_v1\\obj\\",
       "projectStyle": "PackageReference",
@@ -2932,7 +3080,11 @@
       "frameworks": {
         "net8.0": {
           "targetAlias": "net8.0",
-          "projectReferences": {}
+          "projectReferences": {
+            "C:\\Sistemas\\BlazorKioscos1.0\\BlazorKioscoCompartido\\BlazorKioscoCompartido.csproj": {
+              "projectPath": "C:\\Sistemas\\BlazorKioscos1.0\\BlazorKioscoCompartido\\BlazorKioscoCompartido.csproj"
+            }
+          }
         }
       },
       "warningProperties": {
@@ -2955,6 +3107,14 @@
             "target": "Package",
             "version": "[9.0.1, )"
           },
+          "ExcelDataReader": {
+            "target": "Package",
+            "version": "[3.9.0, )"
+          },
+          "ExcelDataReader.DataSet": {
+            "target": "Package",
+            "version": "[3.9.0, )"
+          },
           "Microsoft.AspNetCore.Components.WebAssembly": {
             "target": "Package",
             "version": "[8.0.25, )"
@@ -2967,13 +3127,13 @@
           "Microsoft.NET.ILLink.Tasks": {
             "suppressParent": "All",
             "target": "Package",
-            "version": "[8.0.25, )",
+            "version": "[8.0.28, )",
             "autoReferenced": true
           },
           "Microsoft.NET.Sdk.WebAssembly.Pack": {
             "suppressParent": "All",
             "target": "Package",
-            "version": "[9.0.14, )",
+            "version": "[9.0.17, )",
             "autoReferenced": true
           },
           "Supabase": {
@@ -2995,7 +3155,7 @@
         "downloadDependencies": [
           {
             "name": "Microsoft.NETCore.App.Runtime.Mono.browser-wasm",
-            "version": "[8.0.26, 8.0.26]"
+            "version": "[8.0.28, 8.0.28]"
           }
         ],
         "frameworkReferences": {
@@ -3003,7 +3163,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.312/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.315/PortableRuntimeIdentifierGraph.json"
       }
     },
     "runtimes": {

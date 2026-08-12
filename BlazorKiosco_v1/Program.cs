@@ -1,11 +1,14 @@
-using BlazorKioscos_v1;
-using BlazorKioscos_v1.Services;
+using BlazorKioscoMobile;
+using BlazorKioscoCompartido.Services;
+using BlazorKioscoCompartido.Services.Reportes;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using Supabase;
 
 
-
+var culturaArg = new System.Globalization.CultureInfo("es-AR");
+System.Globalization.CultureInfo.DefaultThreadCurrentCulture = culturaArg;
+System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = culturaArg;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
 
@@ -15,6 +18,8 @@ builder.RootComponents.Add<HeadOutlet>("head::after");
 // Estado global
 builder.Services.AddSingleton<AppState>();
 builder.Services.AddSingleton<CarritoService>();
+builder.Services.AddScoped<ReporteRecaudacionDiariaService>();
+
 //builder.Services.AddSingleton<PrecioService>();
 
 // HttpClient
@@ -23,6 +28,7 @@ builder.Services.AddScoped(sp =>
 
 // Registrar un servicio de lógica de precios
 builder.Services.AddScoped<PrecioService>();
+builder.Services.AddScoped<ConsultasDB>();
 
 builder.Services.AddLocalStorageServices();
 

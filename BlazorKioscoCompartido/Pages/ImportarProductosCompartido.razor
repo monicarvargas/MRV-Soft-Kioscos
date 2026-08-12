@@ -1,0 +1,758 @@
+﻿@using Microsoft.AspNetCore.Components.Forms
+@using System.IO
+
+@using System.Data
+@using ExcelDataReader
+@* Agregá acá tus injects de servicios si los necesitás (ej. Supabase, Servicios de Productos, etc.) *@
+@inject NavigationManager Nav
+@inject BlazorKioscoCompartido.Services.AppState State
+@inject ConsultasDB Consultas
+
+<div class="importar-container mt-3 px-3">
+    @* --- ENCABEZADO --- *@
+    <div class="d-flex align-items-center mb-4">
+        <button class="btn btn-link text-dark p-0 me-3" @onclick="Volver">
+            <i class="bi bi-arrow-left fs-4"></i>
+        </button>
+        <div>
+            <h3 class="mb-1 fw-bold text-dark">Importar productos desde Excel</h3>
+            <p class="text-muted small mb-0">Subí un archivo Excel para masificar o actualizar el stock del sistema.</p>
+        </div>
+    </div>
+
+    @* --- PASOS DEL PROCESO (Stepper) --- *@
+    <div class="row justify-content-center mb-4 text-center g-0 position-relative target-ancho-maximo">
+        <div class="col-4 position-relative">
+            <div class="step-circle @(pasoActual >= 1 ? "step-active" : "step-inactive") mx-auto">1</div>
+            <span class="small fw-bold d-block mt-2 @(pasoActual == 1 ? "text-primary" : "text-muted")">Seleccionar archivo</span>
+        </div>
+        <div class="col-4 position-relative">
+            <div class="step-circle @(pasoActual >= 2 ? "step-active" : "step-inactive") mx-auto">2</div>
+            <span class="small fw-bold d-block mt-2 @(pasoActual == 2 ? "text-primary" : "text-muted")">Vista previa</span>
+        </div>
+        <div class="col-4 position-relative">
+            <div class="step-circle @(pasoActual >= 3 ? "step-active" : "step-inactive") mx-auto">3</div>
+            <span class="small fw-bold d-block mt-2 @(pasoActual == 3 ? "text-primary" : "text-muted")">Importar</span>
+        </div>
+    </div>
+
+    <div class="target-ancho-maximo mx-auto">
+        @* === PASO 1: SELECCIONAR ARCHIVO === *@
+        @if (pasoActual == 1)
+        {
+            <div class="card shadow-sm border-0 rounded-4 p-3 text-center mb-4 bg-white zone-drop-container">
+                <div class="py-2 structure-dropzone position-relative">
+                    <div class="excel-icon-wrapper mb-2">
+                        <i class="bi bi-file-earmark-excel-fill text-success fs-1"></i>
+                    </div>
+                    <h6 class="fw-bold text-dark mb-1">Seleccioná un archivo Excel</h6>
+                    <p class="text-muted small mb-2">Arrastrá y soltá el archivo aquí o hacé clic para buscar</p>
+
+                    @* Input nativo de Blazor oculto *@
+                    <InputFile OnChange="ProcesarArchivoSeleccionado" accept=".xlsx, .xls" class="input-file-overlay" />
+
+                    <button class="btn btn-primary btn-sm px-4 py-1.5 rounded-3 fw-bold shadow-sm">
+                        <i class="bi bi-upload me-2"></i> Seleccionar archivo
+                    </button>
+
+                    <div class="text-muted xsmall-font mt-2">
+                        Formatos permitidos: <strong>.xlsx, .xls</strong> | Máx: 10 MB
+                    </div>
+                </div>
+            </div>
+
+            @* NOMBRE DEL ARCHIVO SELECCIONADO *@
+            @if (!string.IsNullOrEmpty(nombreArchivo))
+            {
+                <div class="alert alert-success d-flex align-items-center justify-content-between rounded-3 border-0 shadow-sm mb-4 animate__animated animate__fadeIn">
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-check-circle-fill me-2 fs-5"></i>
+                        <span class="small fw-bold">@nombreArchivo</span>
+                    </div>
+                    <button class="btn btn-sm text-danger p-0" @onclick="LimpiarArchivo"><i class="bi bi-x-lg"></i></button>
+                </div>
+            }
+
+            @* REQUISITOS DE FORMATO (Formato Requerido) *@
+            <div class="card shadow-sm border-0 rounded-4 p-4 bg-white mb-4">
+                <h6 class="fw-bold text-dark mb-3 d-flex align-items-center">
+                    <i class="bi bi-info-circle text-primary me-2"></i> Formato requerido
+                </h6>
+                <div class="table-responsive rounded-3 border border-light">
+                    <table class="table table-sm table-striped mb-0 text-center align-middle xsmall-font">
+                        <thead class="bg-table-header text-white">
+                            <tr>
+                                <th class="py-2">CODIGO*</th>
+                                <th class="py-2">DESCRIPCION*</th>
+                                <th class="py-2">STOCK</th>
+                                <th class="py-2">P. COSTO</th>
+                                <th class="py-2">P. VENTA</th>
+                                <th class="py-2">P. LISTA2</th>
+                                <th class="py-2">P. LISTA3</th>
+                                <th class="py-2">FAMILIA</th>
+                                <th class="py-2">PROVEEDOR</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="text-success fw-bold">7790895001234</td>
+                                <td class="text-uppercase">GASEO COCA COLA 500ML</td>
+                                <td>10</td>
+                                <td>850.00</td>
+                                <td>1200.00</td>
+                                <td>1250.00</td>
+                                <td>1300.00</td>
+                                <td>Gaseosas</td>
+                                <td>Proveedor SA</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <span class="text-muted xsmall-font mt-2">* Columnas obligatorias</span>
+            </div>
+
+            @* NOTAS IMPORTANTES *@
+            <div class="card border-0 rounded-4 p-3 bg-warning-light shadow-sm mb-4">
+                <div class="d-flex align-items-start gap-2">
+                    <i class="bi bi-exclamation-triangle-fill text-warning fs-5"></i>
+                    <div>
+                        <h6 class="fw-bold text-warning-dark mb-1 small">Importante</h6>
+                        <ul class="mb-0 text-muted xsmall-font ps-3">
+                            <li>Los productos con código existente serán **actualizados** automáticamente.</li>
+                            <li>Los productos nuevos serán **agregados** de forma limpia al sistema.</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @* === PASO 2: VISTA PREVIA === *@
+        @if (pasoActual == 2)
+        {
+            <div class="alert alert-info border-0 shadow-sm rounded-3 d-flex align-items-center small py-2 mb-3 bg-warning-light text-warning-dark">
+                <i class="bi bi-info-circle-fill fs-5 me-2 text-warning"></i>
+                <div>
+                    Se detectaron <strong>@productosPreview.Count</strong> productos en el archivo. Revisá que la información sea correcta antes de confirmar.
+                </div>
+            </div>
+
+            <div class="card shadow-sm border-0 rounded-4 overflow-hidden mb-4">
+                <div class="table-responsive dynamic-preview-scroll">
+                    <table class="table table-hover align-middle mb-0 small text-nowrap">
+                        <thead class="bg-table-header text-white sticky-top">
+                            <tr>
+                                <th>CODIGO</th>
+                                <th>DESCRIPCION</th>
+                                <th class="text-center">STOCK</th>
+                                <th class="text-end">P. COSTO</th>
+                                <th class="text-end">P. VENTA</th>
+                                <th class="text-end">P. LISTA2</th>
+                                <th class="text-end">P. LISTA3</th>
+                                <th>FAMILIA</th>
+                                <th>PROVEEDOR</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var prod in productosPreview)
+                            {
+                                <tr class="@(prod.TieneError ? "table-danger" : "")">
+                                    <td>
+                                        @if (prod.TieneError)
+                                        {
+                                            <i class="bi bi-exclamation-triangle-fill text-danger me-1" title="@prod.MensajeError"></i>
+                                        }
+                                        <span class="fw-bold">@prod.Codigo</span>
+                                    </td>
+
+                                    <td>@prod.Descripcion</td>
+                                    <td class="text-center">
+                                        <span class="badge @(prod.Stock > 0 ? "bg-success-subtle text-success" : "bg-danger-subtle text-danger") px-2">
+                                            @prod.Stock
+                                        </span>
+                                    </td>
+                                    <td class="text-end fw-semibold text-secondary">$ @prod.PrecioCosto.ToString("N2")</td>
+                                    <td class="text-end fw-bold text-primary">$ @prod.PrecioVenta.ToString("N2")</td>
+                                    <td class="text-end fw-bold text-primary">$ @prod.PrecioLista2.ToString("N2")</td>
+                                    <td class="text-end fw-bold text-primary">$ @prod.PrecioLista3.ToString("N2")</td>
+                                    <td><span class="badge bg-light text-dark border">@prod.Familia</span></td>
+                                    <td><span class="text-muted">@prod.Proveedor</span></td>
+                                    <td><small class="text-muted font-monospace">@prod.Codigo</small></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        @* === PASO 3: ÉXITO / FINALIZACIÓN === *@
+        @if (pasoActual == 3)
+        {
+            <div class="card shadow-sm border-0 rounded-4 p-5 text-center bg-white mb-4 animate__animated animate__zoomIn">
+                <div class="success-checkmarkmb-3">
+                    <i class="bi bi-check-circle-fill text-success display-1"></i>
+                </div>
+                <h4 class="fw-bold text-dark mb-2">¡Importación Exitosa!</h4>
+                <p class="text-muted small mb-4">Los productos se procesaron y guardaron correctamente en la base de datos.</p>
+                <button class="btn btn-outline-primary px-4 py-2 rounded-3 fw-bold" @onclick="ReiniciarProceso">
+                    Cargar otro archivo
+                </button>
+            </div>
+        }
+
+        @* --- BARRA ACCIONES INFERIOR FIJA / ADAPTABLE --- *@
+        @if (pasoActual < 3)
+        {
+            <div class="fixed-bottom bg-white border-top shadow-lg p-3 seccion-acciones-importar">
+                <div class="d-flex justify-content-between align-items-center gap-3 contenedor-ancho-maximo-boton">
+                    <button class="btn btn-light btn-lg flex-grow-1 py-2 rounded-3 fw-bold border text-muted"
+                            style="font-size: 0.95rem;"
+                            @onclick="Cancelar">
+                        Cancelar
+                    </button>
+
+                    @if (pasoActual == 1)
+                    {
+                        <button class="btn btn-success btn-lg flex-grow-1 py-2 fw-bold rounded-3 d-flex align-items-center justify-content-center gap-2 shadow"
+                                style="background-color: #4CAF50; border: none; font-size: 0.95rem;"
+                                disabled="@(string.IsNullOrEmpty(nombreArchivo))"
+                                @onclick="() => pasoActual = 2">
+                            <span>Ver vista previa</span>
+                            <i class="bi bi-arrow-right-circle-fill"></i>
+                        </button>
+                    }
+                    @* @if (pasoActual == 2)
+                    {
+                        <button class="btn btn-success btn-lg flex-grow-1 py-2 fw-bold rounded-3 d-flex align-items-center justify-content-center gap-2 shadow"
+                                style="background-color: #4CAF50; border: none; font-size: 0.95rem;"
+                                @onclick="EjecutarImportacionBD">
+                            <i class="bi bi-cloud-arrow-up-fill"></i>
+                            <span>Procesar e Importar</span>
+                        </button>
+                    } *@
+                    @if (pasoActual == 2)
+                    {
+                        <button class="btn btn-secondary me-2" @onclick="() => pasoActual = 1" disabled="@procesandoBD">
+                            <i class="bi bi-arrow-left me-1"></i> Volver a cargar
+                        </button>
+
+                        <button class="btn btn-success fw-bold" @onclick="EjecutarImportacionBD" disabled="@procesandoBD">
+                            @if (procesandoBD)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                                <span>Guardando...</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-check-circle-fill me-1"></i>
+                                <span>Confirmar e Importar</span>
+                            }
+                        </button>
+                    }
+                </div>
+            </div>
+            <div class="espaciador-inferior-importar"></div>
+        }
+    </div>
+</div>
+
+<style>
+    .xsmall-font {
+        font-size: 0.72rem;
+    }
+
+    .bg-table-header {
+        background-color: #708090; /* Gris azulado institucional */
+    }
+
+    .bg-warning-light {
+        background-color: #FFF9E6;
+    }
+
+    .text-warning-dark {
+        color: #8A6D3B;
+    }
+
+    /* Ancho máximo del formulario para que en PC/Notebook no quede todo estirado gigante */
+    .target-ancho-maximo {
+        max-width: 800px;
+        margin: 0 auto;
+    }
+
+    /* --- STEPPER CIRCLES (Indicador de pasos) --- */
+    .step-circle {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        font-size: 0.9rem;
+        transition: all 0.3s ease;
+    }
+
+    .step-active {
+        background-color: #0d6efd;
+        color: white;
+        box-shadow: 0 0 10px rgba(13, 110, 253, 0.4);
+    }
+
+    .step-inactive {
+        background-color: #e9ecef;
+        color: #6c757d;
+    }
+
+    /* --- DROPZONE (Área de arrastrar archivo) --- */
+    /* --- DROPZONE INTELIGENTE COMPACTO --- */
+    .zone-drop-container {
+        border: 2px dashed #cbd5e1 !important;
+        background-color: #f8fafc !important;
+        transition: border-color 0.2s ease-in-out;
+    }
+
+        .zone-drop-container:hover {
+            border-color: #3b82f6 !important;
+        }
+
+    /* Reducimos el tamaño del ícono de Excel para que no sea gigante */
+    .excel-icon-wrapper i {
+        font-size: 2.5rem !important;
+        display: inline-block;
+    }
+
+    .input-file-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        opacity: 0;
+        cursor: pointer;
+        z-index: 10;
+    }
+
+    .dynamic-preview-scroll {
+        max-height: 40vh;
+        overflow-y: auto;
+    }
+
+    /* === DISEÑO ADAPTABLE PARA LA BOTONERA DE ACCIONES === */
+
+    /* Por defecto (Celulares y ventanas chicas de Notebook) */
+    .seccion-acciones-importar {
+        position: fixed !important;
+        bottom: 58px !important; /* Salta con seguridad la barra del menú inferior con los botones circulares */
+        left: 0;
+        right: 0;
+        z-index: 1040 !important;
+        border-radius: 16px 16px 0 0;
+        background-color: #ffffff;
+        padding: 16px !important;
+    }
+
+    .contenedor-ancho-maximo-boton {
+        max-width: 600px;
+        margin: 0 auto;
+    }
+
+    .espaciador-inferior-importar {
+        height: 140px; /* Evita que el contenido del fondo choque con los botones flotantes */
+    }
+
+    /* Cuando se visualiza en una Computadora / Notebook Maximizada (min-width: 992px) */
+    @@media (min-width: 992px) {
+        .seccion-acciones-importar
+
+    {
+        position: static !important; /* Deja de ser flotante, se vuelve un bloque normal de la página */
+        border-radius: 16px !important;
+        box-shadow: none !important;
+        border-top: none !important;
+        padding: 24px 0px 0px 0px !important; /* Se integra orgánicamente abajo del formulario */
+        margin-top: 15px;
+    }
+
+    .contenedor-ancho-maximo-boton {
+        max-width: 100% !important;
+        justify-content: flex-end !important; /* En PC alinea los botones a la derecha de forma prolija */
+    }
+
+        .contenedor-ancho-maximo-boton .btn {
+            flex-grow: 0 !important; /* En PC los botones no se estiran al 100% */
+            width: auto !important;
+            min-width: 180px; /* Tamaño estándar de botón de escritorio */
+        }
+
+    .espaciador-inferior-importar {
+        display: none !important; /* Desactivamos el colchón de espacio en PC porque ya no hay botones flotantes */
+    }
+
+    }
+</style>
+
+@code {
+    private List<ProductoImportarPreview> productosPreview = new();
+    private bool cargandoArchivo = false;
+    private string mensajeErrorGeneral = string.Empty;
+    private int pasoActual = 1;
+    private string? nombreArchivo;
+    private IBrowserFile? archivoSeleccionado;
+    
+    // private void ProcesarArchivoSeleccionado(InputFileChangeEventArgs e)
+    // {
+    //     archivoSeleccionado = e.File;
+    //     nombreArchivo = archivoSeleccionado.Name;
+    //     // Acá podés meter validaciones extras (ej: tamaño máximo, formato, etc.)
+    // }
+    // private async Task ProcesarArchivoSeleccionado(InputFileChangeEventArgs e)
+    // {
+    //     cargandoArchivo = true;
+    //     mensajeErrorGeneral = string.Empty;
+    //     productosPreview.Clear();
+
+    //     try
+    //     {
+    //         // 1. Validar el archivo
+    //         var archivo = e.File;
+    //         if (archivo == null) return;
+
+    //         // Limite de 10MB como definimos en la interfaz
+    //         if (archivo.Size > 10 * 1024 * 1024)
+    //         {
+    //             mensajeErrorGeneral = "El archivo excede el límite permitido de 10 MB.";
+    //             cargandoArchivo = false;
+    //             return;
+    //         }
+
+    //         // 2. Leer el archivo en un MemoryStream para no bloquear el servidor/hilo
+    //         using var stream = archivo.OpenReadStream(10 * 1024 * 1024);
+    //         using var ms = new MemoryStream();
+    //         await stream.CopyToAsync(ms);
+    //         ms.Position = 0;
+
+    //         // 3. Procesar el Excel (Ejemplo usando ExcelDataReader)
+    //         // Nota: Si usás EPPlus o ExcelDataReader, la lógica de lectura va acá:
+    //         System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+
+    //         using var reader = ExcelReaderFactory.CreateReader(ms);
+    //         var result = reader.AsDataSet(new ExcelDataSetConfiguration()
+    //         {
+    //             ConfigureDataTable = (_) => new ExcelDataTableConfiguration() { UseHeaderRow = true }
+    //         });
+
+    //         DataTable tablaProductos = result.Tables[0];
+
+    //         foreach (DataRow fila in tablaProductos.Rows)
+    //         {
+    //             // Validar que la fila no esté completamente vacía
+    //             if (fila[0] == DBNull.Value && fila[1] == DBNull.Value) continue;
+
+    //             var prod = new ProductoImportarPreview();
+
+    //             try
+    //             {
+    //                 // Mapeo defensivo controlando nulos y formatos numéricos
+    //                 prod.Codigo = fila["Codigo"]?.ToString()?.Trim() ?? fila[0]?.ToString()?.Trim() ?? "";
+    //                 prod.Descripcion = fila["Descripcion"]?.ToString()?.Trim() ?? fila[1]?.ToString()?.Trim() ?? "";
+    //                 if (int.TryParse(fila["Stock"]?.ToString(), out int stock)) prod.Stock = stock;
+
+    //                 // Conversiones seguras de montos
+    //                 if (decimal.TryParse(fila["Precio Costo"]?.ToString(), out decimal pCosto)) prod.PrecioCosto = pCosto;
+    //                 if (decimal.TryParse(fila["Precio Venta"]?.ToString(), out decimal pVenta)) prod.PrecioVenta = pVenta;
+    //                 if (decimal.TryParse(fila["Precio Lista2"]?.ToString(), out decimal pLista2)) prod.PrecioLista2 = pLista2;
+    //                 if (decimal.TryParse(fila["Precio Lista3"]?.ToString(), out decimal pLista3)) prod.PrecioLista3 = pLista3;
+
+    //                 prod.Proveedor = fila["Proveedor"]?.ToString()?.Trim() ?? "";
+
+    //                 // Validación de campos obligatorios
+    //                 if (string.IsNullOrEmpty(prod.Codigo)) prod.MensajeError += "Falta el Código. ";
+    //                 if (string.IsNullOrEmpty(prod.Descripcion)) prod.MensajeError += "Falta la Descripción. ";
+    //             }
+    //             catch (Exception ex)
+    //             {
+    //                 prod.MensajeError = $"Error de formato en la fila: {ex.Message}";
+    //             }
+
+    //             productosPreview.Add(prod);
+    //         }
+
+    //         if (productosPreview.Any())
+    //         {
+    //             // Pasamos automáticamente al Paso 2: Vista Previa
+    //             pasoActual = 2;
+    //         }
+    //         else
+    //         {
+    //             mensajeErrorGeneral = "No se encontraron filas válidas para importar en el archivo.";
+    //         }
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         mensajeErrorGeneral = $"Ocurrió un error al procesar el Excel: {ex.Message}";
+    //     }
+    //     finally
+    //     {
+    //         cargandoArchivo = false;
+    //     }
+    // }
+    private async Task ProcesarArchivoSeleccionado(InputFileChangeEventArgs e)
+    {
+        cargandoArchivo = true;
+        mensajeErrorGeneral = string.Empty;
+        productosPreview.Clear();
+
+        try
+        {
+            var archivo = e.File;
+            if (archivo == null) return;
+
+            // Validamos tamaño límite (10 MB)
+            if (archivo.Size > 10 * 1024 * 1024)
+            {
+                mensajeErrorGeneral = "El archivo excede el límite permitido de 10 MB.";
+                cargandoArchivo = false;
+                return;
+            }
+
+            // Cargamos el archivo en memoria de forma segura
+            using var stream = archivo.OpenReadStream(10 * 1024 * 1024);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            ms.Position = 0;
+
+            // --- ACÁ EMPIEZA EL CÓDIGO NUEVO QUE TE PASÉ ---
+            System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+
+            using var reader = ExcelReaderFactory.CreateReader(ms);
+            bool esPrimeraFila = true;
+
+            // Diccionario para mapear las cabeceras reales que traiga el Excel
+            var mapaColumnas = new Dictionary<string, int>();
+
+            while (reader.Read())
+            {
+                // Leer la primera fila (Cabeceras del Excel)
+                if (esPrimeraFila)
+                {
+                    for (int i = 0; i < reader.FieldCount; i++)
+                    {
+                        string cabecera = reader.GetValue(i)?.ToString()?.Trim().ToLower() ?? "";
+                        if (!string.IsNullOrEmpty(cabecera))
+                        {
+                            mapaColumnas[cabecera] = i;
+                        }
+                    }
+                    esPrimeraFila = false;
+                    continue;
+                }
+
+                // Evitar procesar filas que vengan totalmente vacías
+                if (reader.GetValue(0) == null && reader.GetValue(1) == null) continue;
+
+                var prod = new ProductoImportarPreview();
+                try
+                {
+                    // Función interna para obtener el dato por nombre o por el índice fijo (fallback)
+                    string ObtenerValor(string nombreCabecera, int indiceFallback)
+                    {
+                        string nombreLimpio = nombreCabecera.ToLower();
+                        int indiceFinal = mapaColumnas.ContainsKey(nombreLimpio) ? mapaColumnas[nombreLimpio] : indiceFallback;
+
+                        if (indiceFinal >= 0 && indiceFinal < reader.FieldCount)
+                        {
+                            return reader.GetValue(indiceFinal)?.ToString()?.Trim() ?? "";
+                        }
+                        return "";
+                    }
+
+                    // Asignación inteligente con fallback indexado automático
+                    prod.Codigo = ObtenerValor("CODIGO", 0);
+                    // if (string.IsNullOrEmpty(prod.Codigo)) prod.Codigo = ObtenerValor("CODIGO", 0);
+
+                    prod.Descripcion = ObtenerValor("DESCRIPCION", 1);
+                    // if (string.IsNullOrEmpty(prod.Descripcion)) prod.Descripcion = ObtenerValor("DESCRIPCION", 1);
+
+                    string stockRaw = ObtenerValor("STOCK", 2);
+                    if (int.TryParse(stockRaw, out int stock)) prod.Stock = stock;
+                   
+                    string pCompraRaw = ObtenerValor("P. COSTO", 3);
+                    if (decimal.TryParse(pCompraRaw, out decimal pCompra)) prod.PrecioCosto = pCompra;
+
+                    string pVentaRaw = ObtenerValor("P. VENTA", 4);
+                    if (decimal.TryParse(pVentaRaw, out decimal pVenta)) prod.PrecioVenta = pVenta;
+
+                    string pLista2Raw = ObtenerValor("P. LISTA2", 5);
+                    if (decimal.TryParse(pLista2Raw, out decimal pLista2)) prod.PrecioLista2 = pLista2;
+
+                    string pLista3Raw = ObtenerValor("P. LISTA3", 6);
+                    if (decimal.TryParse(pLista2Raw, out decimal pLista3)) prod.PrecioLista3 = pLista3;
+
+                    prod.Familia = ObtenerValor("FAMILIA", 2);
+                    // if (string.IsNullOrEmpty(prod.Familia)) prod.Familia = ObtenerValor("FAMILIA", 7);
+
+                    prod.Proveedor = ObtenerValor("PROVEEDOR", 8);
+                   
+
+                    // Validaciones obligatorias de negocio
+                    if (string.IsNullOrEmpty(prod.Codigo)) prod.MensajeError += "Falta el Código. ";
+                    if (string.IsNullOrEmpty(prod.Descripcion)) prod.MensajeError += "Falta la Descripción. ";
+                }
+                catch (Exception ex)
+                {
+                    prod.MensajeError = $"Error al procesar la fila: {ex.Message}";
+                }
+
+                productosPreview.Add(prod);
+            }
+            // --- ACÁ TERMINA EL CÓDIGO NUEVO ---
+
+            if (productosPreview.Any())
+            {
+                pasoActual = 2; // Avanza automáticamente al Paso 2 (Vista previa)
+            }
+            else
+            {
+                mensajeErrorGeneral = "No se encontraron filas válidas en el archivo.";
+            }
+        }
+        catch (Exception ex)
+        {
+            mensajeErrorGeneral = $"Error crítico al procesar el archivo: {ex.Message}";
+        }
+        finally
+        {
+            cargandoArchivo = false;
+        }
+    }
+    public class ProductoImportarPreview
+    {
+        public string Codigo { get; set; } = string.Empty;
+        public string Descripcion { get; set; } = string.Empty;
+        public string Familia { get; set; } = string.Empty;
+        public decimal PrecioCosto { get; set; }
+        public decimal PrecioVenta { get; set; }
+        public decimal PrecioLista2 { get; set; }
+        public decimal PrecioLista3 { get; set; }
+        public int Stock { get; set; }
+        public string Proveedor { get; set; } = string.Empty;
+
+        // Propiedades de control para avisarle al usuario si hay un error en la fila
+        public bool TieneError => string.IsNullOrWhiteSpace(Codigo) || string.IsNullOrWhiteSpace(Descripcion);
+        public string MensajeError { get; set; } = string.Empty;
+    }
+    private void LimpiarArchivo()
+    {
+        nombreArchivo = null;
+        archivoSeleccionado = null;
+    }
+
+    private bool procesandoBD = false;
+    private string mensajeExitoGeneral = string.Empty;
+
+    private async Task EjecutarImportacionBD()
+    {
+        // 1. Validaciones previas de seguridad
+        if (productosPreview == null || !productosPreview.Any())
+        {
+            mensajeErrorGeneral = "No hay productos válidos para importar.";
+            return;
+        }
+
+        // Si hay filas marcadas con error, podés frenar o avisar.
+        // Acá filtramos para guardar solo los que están perfectos.
+        var productosValidos = productosPreview.Where(p => !p.TieneError).ToList();
+
+        if (!productosValidos.Any())
+        {
+            mensajeErrorGeneral = "Todos los productos de la lista contienen errores de formato. Corregilos antes de continuar.";
+            return;
+        }
+
+        procesandoBD = true;
+        mensajeErrorGeneral = string.Empty;
+        mensajeExitoGeneral = string.Empty;
+
+        try
+        {
+            int creados = 0;
+            int actualizados = 0;
+
+            // 2. Iterar e impactar en la Base de Datos
+            foreach (var item in productosValidos)
+            {
+                
+                // 1. Guardamos o actualizamos el producto usando ese familiaId
+                await Consultas.GuardarOActualizarProductoAsync(item, State.KioscoId);
+            }
+
+            // 3. Notificar éxito y limpiar
+            mensajeExitoGeneral = $"¡Importación finalizada con éxito! Se crearon {creados} productos nuevos y se actualizaron {actualizados}.";
+
+            // Opcional: Limpiamos la lista y volvemos al paso 1 o mostramos pantalla de éxito
+            productosPreview.Clear();
+            pasoActual = 1;
+        }
+        catch (Exception ex)
+        {
+            mensajeErrorGeneral = $"Ocurrió un error al guardar en la base de datos: {ex.Message}";
+        }
+        finally
+        {
+            procesandoBD = false;
+        }
+    }
+    // private async Task<int> ObtenerOInsertarFamiliaIdAsync(string descripcionFamilia)
+    // {
+    //     // Si la descripción viene vacía, podemos asignar una familia por defecto o devolver 0
+    //     if (string.IsNullOrWhiteSpace(descripcionFamilia))
+    //     {
+    //         descripcionFamilia = "General";
+    //     }
+
+    //     string nombreLimpio = descripcionFamilia.Trim();
+    //     long kioscoIdActual = State.KioscoId;
+
+    //     try
+    //     {
+    //         // --- 1. BUSCAR SI YA EXISTE ---
+    //         // Buscamos una familia que coincida en nombre y pertenezca al mismo Kiosco
+    //         // (Usa tu DbContext o Servicio real aquí)
+    //         var familiaExistente = await _context.Familias
+    //             .FirstOrDefaultAsync(f => f.Descripcion.ToLower() == nombreLimpio.ToLower()
+    //                                    && f.KioscoId == kioscoIdActual);
+
+    //         if (familiaExistente != null)
+    //         {
+    //             // Si existe, devolvemos su ID inmediatamente
+    //             return familiaExistente.Id;
+    //         }
+
+    //         // --- 2. SI NO EXISTE, CREARLA ---
+    //         var nuevaFamilia = new Familia
+    //         {
+    //             Descripcion = nombreLimpio,
+    //             KioscoId = kioscoIdActual,
+    //             Estado = true // O las propiedades por defecto que tenga tu entidad
+    //         };
+
+    //         _context.Familias.Add(nuevaFamilia);
+    //         await _context.SaveChangesAsync(); // Al guardar, EF llena automáticamente el campo Id
+
+    //         return nuevaFamilia.Id;
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         // Manejo de errores por si falla la conexión a la base de datos
+    //         throw new Exception($"Error al procesar la familia '{descripcionFamilia}': {ex.Message}");
+    //     }
+    // }
+    private void ReiniciarProceso()
+    {
+        LimpiarArchivo();
+        pasoActual = 1;
+    }
+
+    private void Volver() => Nav.NavigateTo("/productos");
+    private void Cancelar() => Nav.NavigateTo("/productos");
+}

@@ -1,0 +1,142 @@
+﻿@page "/productos"
+@using BlazorKioscoCompartido.Models
+@using BlazorKioscoCompartido.Components
+@using Supabase.Postgrest
+@inject Supabase.Client SupaClient
+@inject NavigationManager Nav
+
+<div class="container mt-3">
+    @* --- CABECERA --- *@
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        @* <h3 class="mb-0 fw-bold">Gestión de Stock</h3> *@
+        <button class="btn btn-primary rounded-pill" @onclick="CrearNuevo">
+            <i class="bi bi-plus-lg"></i> Nuevo
+        </button>
+    </div>
+
+    @* --- COMPONENTE DE BÚSQUEDA --- *@
+    @* OnProductoEncontrado ahora dispara la navegación directa al editor *@
+    <div class="mb-4">
+@*         <BuscadorProducto CargarAlInicio="true"
+                          OnProductoEncontrado="RedirigirAEditar"
+                          MostrarPrimeraLista="true"
+                          MostrarSegundaLista="mostrarSegundaLista" />
+
+ *@    
+            <BuscadorProducto CargarAlInicio="true"
+                          OnProductoEncontrado="RedirigirAEditar"
+                          OnProductoNoEncontrado="RedirigirANuevo"
+                          MostrarPrimeraLista="true"
+                          MostrarSegundaLista="mostrarSegundaLista" />
+
+</div>
+
+    @* Mensaje de ayuda *@
+    <div class="alert alert-info border-0 shadow-sm small">
+        <i class="bi bi-info-circle-fill me-2"></i>
+        Buscá un producto y seleccionalo para modificar precios o stock.
+    </div>
+</div>
+
+@code {
+    private bool mostrarSegundaLista = false;
+    private long idNegocio;
+    // Este parámetro va a recibir "/producto/editar" desde el cel,
+    // o "/producto/editar-desktop" desde la PC
+    [Parameter] public string RutaEditar { get; set; } = "/producto/editar";
+    [Parameter] public string RutaNuevo { get; set; } = "/producto/nuevo";
+    
+    // CAMBIAMOS A OnInitializedAsync para que cargue ANTES de dibujar los componentes hijos
+    protected override async Task OnInitializedAsync()
+    {
+        // 1. Forzamos el ID del negocio (o lo traés de tu lógica)
+        idNegocio = 1;
+
+        if (idNegocio > 0)
+        {
+            try
+            {
+                
+                var res = await SupaClient.From<ListaPrecio>()
+                            .Where(x => x.KioscoId == idNegocio && x.NombreColumnaProductos == "precio_lista2")
+                            .Get();
+
+                var configuracionLista = res.Models.FirstOrDefault();
+
+                if (configuracionLista != null)
+                {
+                    // 3. Asignamos el valor directamente
+                    mostrarSegundaLista = configuracionLista.MostrarEnBuscador;
+                }
+                else
+                {
+                    // Log de respaldo en la consola del navegador por si no encuentra la fila
+                    Console.WriteLine("Alerta: No se encontró la configuración para 'precio_lista2' en la tabla listas_precios.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error al consultar listas_precios: {ex.Message}");
+            }
+        }
+    }
+    // Al tocar un producto en la lista del componente, este método recibe el objeto
+    // private void IrAEditar(Producto p)
+    // {
+    //     if (p != null)
+    //     {
+    //         Nav.NavigateTo($"/producto/editar/{p.Id}");
+    //     }
+    // }
+    // private void RedirigirAEditar(Producto p)
+    // {
+    //     if (p == null) return;
+    //     // Navega dinámicamente:
+    //     // En el celular irá a: /producto/editar/123
+    //     // En la PC irá a: /producto/editar-desktop/123
+    //     Nav.NavigateTo($"{RutaEditar}/{p.Id}");
+    // }
+    private void RedirigirAEditar(Producto p)
+    {
+        if (p != null)
+        {
+            // Console.WriteLine($"[NAVEGACIÓN] Redirigiendo1 a: {RutaEditar} | ID Producto: {p.Id}");
+            Nav.NavigateTo($"{RutaEditar}/{p.Id}");
+        }
+    }
+    private void RedirigirANuevo(string codigoNoEncontrado)
+    {
+        // Si no viene código (es un alta limpia), va a la ruta base
+        if (string.IsNullOrWhiteSpace(codigoNoEncontrado))
+        {
+            // Console.WriteLine($"[NAVEGACIÓN] Redirigiendo2 a: {RutaNuevo} | ID Producto: {codigoNoEncontrado}");
+            Nav.NavigateTo(RutaNuevo);
+        }
+        else
+        {
+            // Si viene un código que no existe, se lo pegamos a la URL
+            // En PC: /producto/nuevo-desktop/1122333
+            // En Móvil: /producto/nuevo/1122333
+            // Console.WriteLine($"[NAVEGACIÓN] Redirigiendo3 a: {RutaNuevo} | ID Producto: {codigoNoEncontrado}");
+            Nav.NavigateTo($"{RutaNuevo}/{codigoNoEncontrado}");
+        }
+    }
+    // Caso B: El buscador NO encontró el producto. Recibe el string directo desde el hijo.
+    // private void ManejarProductoNoEncontrado(string codigoEscaneado)
+    // {
+    //     if (!string.IsNullOrWhiteSpace(codigoEscaneado))
+    //     {
+    //         // Redirige al alta pasándole el código fallido por la URL limpiamente
+    //         Nav.NavigateTo($"{RutaNuevo}/{Uri.EscapeDataString(codigoEscaneado)}");
+    //     }
+    //     else
+    //     {
+    //         // Si por alguna razón buscaron vacío, va al alta limpio
+    //         Nav.NavigateTo($"{RutaNuevo}");
+    //     }
+    // }
+    private void CrearNuevo()
+    {
+        Nav.NavigateTo($"{RutaNuevo}");
+    }
+}

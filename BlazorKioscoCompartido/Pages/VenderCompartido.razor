@@ -1,0 +1,608 @@
+﻿@using BlazorKioscoCompartido.Components
+@using BlazorKioscoCompartido.Services
+@using BlazorKioscoCompartido.Models
+@using static Supabase.Postgrest.Constants
+@inject Supabase.Client SupaClient
+@inject CarritoService Carrito
+@inject NavigationManager Nav
+@inject PrecioService PrecioServ
+@inject BlazorKioscoCompartido.Services.AppState State
+@using static Supabase.Postgrest.QueryFilter;
+
+<div class="venta-container mt-3">
+    <div class="d-flex align-items-center justify-content-between mb-4">
+        <div class="d-flex align-items-center">
+            <button class="btn btn-link text-dark p-0 me-3" @onclick="Volver">
+                <i class="bi bi-arrow-left fs-4"></i>
+            </button>
+            <h3 class="mb-0">Vender</h3>
+        </div>
+
+        <!-- BOTONES DE ACCIÓN RÁPIDA -->
+        <div class="d-flex gap-2">
+            <!-- BOTÓN VENTA DE VARIOS -->
+            <button class="btn btn-outline-dark fw-bold shadow-sm d-flex align-items-center gap-2 px-3 py-2 rounded-pill bg-white" @onclick="AbrirModalVentaVarios">
+                <i class="bi bi-boxes fs-5 text-secondary"></i>
+                <span>Varios</span>
+            </button>
+
+            <!-- BOTÓN VENTA RÁPIDA -->
+            <button class="btn btn-warning fw-bold shadow-sm d-flex align-items-center gap-2 px-3 py-2 rounded-pill" @onclick="AbrirModalCategorias">
+                <i class="bi bi-lightning-fill fs-5"></i>
+                <span>Venta Rápida</span>
+            </button>
+        </div>
+    </div>
+
+    @* --- 1. SECCIÓN BÚSQUEDA --- *@
+    <div class="search-section p-3 bg-white shadow-sm sticky-top">
+        <div class="d-flex gap-2 align-items-start">
+            <div class="flex-grow-1">
+                <BuscadorProducto @ref="buscadorRef" OnProductoEncontrado="AgregarAlCarrito" CargarAlInicio="false" MostrarPrimeraLista="mostrarPrimeraLista" MostrarSegundaLista="mostrarSegundaLista" />
+            </div>
+        </div>
+    </div>
+
+    @* --- 2. SECCIÓN DEL CARRITO --- *@
+    <div class="container mt-3">
+        <div class="card shadow-sm border-0">
+            @* Encabezado del Carrito *@
+            <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
+                <div class="d-flex align-items-center">
+                    <i class="bi bi-cart3 text-primary fs-4 me-2"></i>
+                    <h5 class="mb-0 fw-bold">Carrito (@Carrito.Items.Count)</h5>
+                </div>
+                <button class="btn btn-link text-danger text-decoration-none p-0" @onclick="VaciarCarrito">
+                    Vaciar carrito <i class="bi bi-trash"></i>
+                </button>
+            </div>
+
+            @* Contenedor con la barra de desplazamiento interna *@
+            <div class="card-body p-0 carrito-body-scroll">
+                @if (!Carrito.Items.Any())
+                {
+                    <div class="text-center py-5 text-muted">
+                        <i class="bi bi-cart-plus display-1 opacity-25"></i>
+                        <p class="mt-2">No hay productos en la venta actual</p>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var item in Carrito.Items)
+                    {
+                        <div class="d-flex align-items-center p-3 border-bottom">
+                            <div class="flex-grow-1">
+                                <div class="fw-bold text-dark small text-uppercase">@item.Producto.Nombre</div>
+                                <div class="text-muted small">$ @item.PrecioUnitario.ToString("N2")</div>
+                            </div>
+
+                            <div class="d-flex align-items-center bg-light rounded-pill px-2 py-1 mx-2">
+                                <button class="btn btn-sm border-0" @onclick="() => DecrementarCantidad(item)">
+                                    <i class="bi bi-dash-lg"></i>
+                                </button>
+                                @* <span class="mx-2 fw-bold" style="min-width: 25px; text-align: center;">@item.Cantidad</span> *@
+
+
+                                <input type="number"
+                                       min="1"
+                                       class="form-control text-center mx-1 d-inline-block"
+                                       style="width: 60px;"
+                                       value="@item.Cantidad"
+                                       @onchange="@(e => ActualizarCantidadManual(item, e.Value))" />
+
+                                <button class="btn btn-sm border-0" @onclick="() => item.Cantidad++">
+                                    <i class="bi bi-plus-lg"></i>
+                                </button>
+                            </div>
+
+                            <div class="text-end" style="min-width: 100px;">
+                                <div class="fw-bold text-primary">$ @item.Subtotal.ToString("N2")</div>
+                            </div>
+
+                            <button class="btn btn-link text-danger ms-2" @onclick="() => Carrito.Eliminar(item.Producto.Id)">
+                                <i class="bi bi-trash3"></i>
+                            </button>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+
+    @* --- 3. TOTAL Y COBRO --- *@
+    @if (Carrito.Items.Any())
+    {
+        @if (RutaCobrar != "/producto/cobrar")
+        {
+            <div class="container mt-4 mb-5 d-none d-lg-block">
+                <div class="card shadow-sm border-0 rounded-4 overflow-hidden">
+                    <div class="card-body p-4 bg-white">
+                        <hr class="text-muted opacity-25" />
+                        <div class="d-flex justify-content-between align-items-center mt-3 mb-4">
+                            <span class="fs-4 fw-bold text-dark">TOTAL</span>
+                            <span class="fs-3 fw-bold text-primary">$ @Carrito.Total.ToString("N2")</span>
+                        </div>
+                        <button class="btn btn-success btn-lg w-100 py-3 fw-bold rounded-4 shadow-sm d-flex align-items-center justify-content-center gap-2"
+                                style="background-color: #4CAF50; border: none;"
+                                @onclick="FinalizarVenta">
+                            <i class="bi bi-check-lg fs-4"></i>
+                            <span>Finalizar venta</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="fixed-bottom bg-white border-top shadow-lg p-3 seccion-pago-celular animate__animated animate__slideInUp">
+                <div class="contenedor-ancho-maximo-boton">
+                    <div class="d-flex justify-content-between align-items-center mb-2 px-1">
+                        <span class="fw-bold text-muted small-font text-uppercase">Total a Cobrar</span>
+                        <span class="fs-4 fw-black text-primary font-monospace">$ @Carrito.Total.ToString("N2")</span>
+                    </div>
+                    <button class="btn btn-success btn-lg w-100 py-2 fw-black rounded-3 d-flex align-items-center justify-content-center gap-2 shadow"
+                            style="background-color: #4CAF50; border: none; font-size: 1rem;"
+                            @onclick="FinalizarVenta">
+                        <span>CONTINUAR A COBRAR</span>
+                        <i class="bi bi-arrow-right-circle-fill"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="espaciador-inferior-movil"></div>
+        }
+    }
+</div>
+
+<!-- ========================================== -->
+<!-- MODAL: VENTA DE VARIOS -->
+<!-- ========================================== -->
+@if (mostrarModalVarios)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content rounded-4 border-0 shadow-lg">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold">📦 Venta de Varios</h5>
+                    <button type="button" class="btn-close" @onclick="CerrarModales"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Cantidad:</label>
+                        <input type="number" class="form-control form-control-lg text-center fw-bold fs-3" @bind="cantidadVarios" min="1" autofocus />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Precio Unitario ($):</label>
+                        <input type="number" class="form-control form-control-lg text-center fw-bold fs-3 text-success" @bind="precioVarios" placeholder="Ej: 500" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Descripción (opcional):</label>
+                        <input type="text" class="form-control" @bind="descripcionVarios" placeholder="Ej: Varios varios / Varios mercadería" />
+                    </div>
+
+                    <button class="btn btn-success btn-lg w-100 py-3 fw-bold rounded-3 shadow-sm mt-3" @onclick="ConfirmarVentaVarios">
+                        Agregar al Carrito
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ========================================== -->
+<!-- MODAL 1: SELECCIÓN DE CATEGORÍAS RÁPIDAS -->
+<!-- ========================================== -->
+@if (mostrarModalCategorias)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content rounded-4 border-0 shadow-lg">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold">⚡ Venta Rápida - Categorías</h5>
+                    <button type="button" class="btn-close" @onclick="CerrarModales"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="d-grid gap-3">
+                        @foreach (var cat in listaCategorias)
+                        {
+                            <button class="btn btn-outline-primary btn-lg py-3 fw-bold d-flex align-items-center justify-content-center gap-2 shadow-sm rounded-3"
+                                    @onclick="() => SeleccionarCategoria(cat)">
+                                <i class="@(string.IsNullOrEmpty(cat.Icono) ? "bi bi-tag" : cat.Icono) fs-4"></i>
+                                <span class="fs-5">@cat.Nombre</span>
+                            </button>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ========================================== -->
+<!-- MODAL 2: GRILLA DE PRODUCTOS DE LA CATEGORÍA -->
+<!-- ========================================== -->
+@if (mostrarModalProductos)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content rounded-4 border-0 shadow-lg">
+                <div class="modal-header border-0 pb-0">
+                    <div class="d-flex align-items-center gap-2">
+                        <button class="btn btn-light btn-sm rounded-circle" @onclick="VolverACategorias">
+                            <i class="bi bi-arrow-left"></i>
+                        </button>
+                        <h5 class="modal-title fw-bold">@categoriaSeleccionada?.Nombre</h5>
+                    </div>
+                    <button type="button" class="btn-close" @onclick="CerrarModales"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <!-- Buscador interno en el modal -->
+                    <div class="mb-3">
+                        <input type="text" class="form-control form-control-lg rounded-pill px-3" placeholder="Buscar producto en esta categoría..."
+                               @bind="filtroBusquedaRapida" @bind:event="oninput" />
+                    </div>
+
+                    <div class="row g-3">
+                        @foreach (var prod in ProductosFiltrados)
+                        {
+                            <div class="col-6 col-md-4">
+                                <button class="btn btn-light border w-100 p-3 h-100 d-flex flex-column justify-content-between rounded-4 shadow-sm text-start producto-card-btn"
+                                        @onclick="() => SeleccionarProductoRapido(prod)">
+                                    <div class="fw-bold text-dark text-uppercase small">@prod.Nombre</div>
+                                    <div class="text-primary fw-bold mt-2">$ @ObtenerPrecioProducto(prod).ToString("N2")</div>
+                                </button>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ========================================== -->
+<!-- MODAL 3: INGRESO DE CANTIDAD O IMPORTE EN DINERO -->
+<!-- ========================================== -->
+@if (mostrarModalCantidad && productoSeleccionadoParaVenta != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content rounded-4 border-0 shadow-lg">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold text-uppercase">@productoSeleccionadoParaVenta.Nombre</h5>
+                    <button type="button" class="btn-close" @onclick="CerrarModales"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <p class="text-muted small mb-3">Precio unitario: <strong>$ @ObtenerPrecioProducto(productoSeleccionadoParaVenta).ToString("N2")</strong></p>
+
+                    <!-- Pestañas para elegir cantidad o importe -->
+                    <ul class="nav nav-pills nav-fill mb-3 bg-light p-1 rounded-3">
+                        <li class="nav-item">
+                            <button class="nav-link @(modoIngreso == "cantidad" ? "active bg-primary text-white" : "text-dark")"
+                                    @onclick='() => modoIngreso = "cantidad"'>
+                                Por Cantidad
+                            </button>
+                        </li>
+                        @if (productoSeleccionadoParaVenta.AdmiteImporte)
+                        {
+                            <li class="nav-item">
+                                <button class="nav-link @(modoIngreso == "importe" ? "active bg-primary text-white" : "text-dark")"
+                                        @onclick='() => modoIngreso = "importe"'>
+                                    Por Dinero ($)
+                                </button>
+                            </li>
+                        }
+                    </ul>
+
+                    @if (modoIngreso == "cantidad")
+                    {
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Cantidad de unidades:</label>
+                            <input type="number" class="form-control form-control-lg text-center fw-bold fs-3" @bind="cantidadIngresada" min="1" autofocus />
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">¿Cuánto dinero paga el cliente? ($):</label>
+                            <input type="number" class="form-control form-control-lg text-center fw-bold fs-3 text-success" @bind="importeIngresado" placeholder="Ej: 1000" autofocus />
+                            <div class="form-text text-muted text-center mt-2">
+                                El sistema calculará automáticamente las unidades equivalentes.
+                            </div>
+                        </div>
+                    }
+
+                    <button class="btn btn-success btn-lg w-100 py-3 fw-bold rounded-3 shadow-sm mt-3" @onclick="ConfirmarAgregarDesdeModal">
+                        Agregar al Carrito
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .fw-black {
+        font-weight: 850;
+    }
+
+    .small-font {
+        font-size: 0.75rem;
+    }
+
+    .producto-card-btn:hover {
+        background-color: #f8f9fa !important;
+        border-color: #0d6efd !important;
+        transform: translateY(-2px);
+        transition: all 0.2s ease;
+    }
+
+    @@media (min-width: 992px) {
+        .venta-container:not(:has(.seccion-pago-celular)) .carrito-body-scroll
+
+    {
+        max-height: none !important;
+        overflow-y: visible !important;
+        padding-bottom: 0px !important;
+    }
+
+    }
+
+    .seccion-pago-celular {
+        bottom: 58px !important;
+        z-index: 1050 !important;
+        border-radius: 16px 16px 0 0;
+        padding: 12px 16px !important;
+    }
+
+    .contenedor-ancho-maximo-boton {
+        max-width: 600px;
+        margin: 0 auto;
+    }
+
+    .carrito-body-scroll {
+        max-height: calc(100vh - 350px) !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: 110px !important;
+    }
+
+    .espaciador-inferior-movil {
+        height: 180px;
+    }
+
+    @@media (min-width: 992px) {
+        .carrito-body-scroll
+
+    {
+        max-height: calc(100vh - 380px) !important;
+        padding-bottom: 120px !important;
+    }
+
+    }
+</style>
+
+@code {
+    private bool mostrarPrimeraLista = true;
+    private bool mostrarSegundaLista = false;
+    private BuscadorProducto? buscadorRef;
+    private List<ItemCarrito> carrito = new();
+    private TimeSpan horaInicioVenta;
+    private string columnaPrecioActiva = "precio_venta";
+
+    [Parameter] public string RutaCobrar { get; set; } = "/producto/cobrar";
+
+    // Variables de Venta Rápida
+    private bool mostrarModalCategorias = false;
+    private bool mostrarModalProductos = false;
+    private bool mostrarModalCantidad = false;
+
+    // Variables de Venta de Varios
+    private bool mostrarModalVarios = false;
+    private int cantidadVarios = 1;
+    private decimal precioVarios = 0;
+    private string descripcionVarios = "Varios";
+
+    private List<CategoriaVentaRapida> listaCategorias = new();
+    private List<Producto> listaProductosRapidos = new();
+    private CategoriaVentaRapida? categoriaSeleccionada;
+    private Producto? productoSeleccionadoParaVenta;
+
+    private string filtroBusquedaRapida = "";
+    private string modoIngreso = "cantidad"; // "cantidad" o "importe"
+    private int cantidadIngresada = 1;
+    private decimal importeIngresado = 0;
+
+    private IEnumerable<Producto> ProductosFiltrados =>
+        string.IsNullOrWhiteSpace(filtroBusquedaRapida)
+            ? listaProductosRapidos
+            : listaProductosRapidos.Where(p => p.Nombre.Contains(filtroBusquedaRapida, StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await IniciarNuevaVenta();
+    }
+
+    private async Task IniciarNuevaVenta()
+    {
+        carrito.Clear();
+        horaInicioVenta = DateTime.Now.TimeOfDay;
+        columnaPrecioActiva = await PrecioServ.ObtenerColumnaPrecioActivaAsync(1, horaInicioVenta);
+        if (columnaPrecioActiva == "precio_lista2")
+        {
+            mostrarSegundaLista = true;
+            mostrarPrimeraLista = false;
+        }
+    }
+
+    private void AbrirModalVentaVarios()
+    {
+        cantidadVarios = 1;
+        precioVarios = 0;
+        descripcionVarios = "Varios";
+        mostrarModalVarios = true;
+    }
+
+    private void ConfirmarVentaVarios()
+    {
+        if (precioVarios <= 0 || cantidadVarios <= 0) return;
+
+        // Creamos un producto genérico/temporal para "Varios"
+        var productoVarios = new Producto
+        {
+            Id = -Guid.NewGuid().GetHashCode(), // ID temporal único negativo para evitar colisiones
+            Nombre = string.IsNullOrWhiteSpace(descripcionVarios) ? "Varios" : descripcionVarios,
+            PrecioVenta = precioVarios,
+            
+        };
+
+        for (int i = 0; i < cantidadVarios; i++)
+        {
+            Carrito.Agregar(productoVarios, columnaPrecioActiva, true);
+        }
+
+        CerrarModales();
+        StateHasChanged();
+    }
+
+    private async Task AbrirModalCategorias()
+    {
+        try
+        {
+            var response = await SupaClient.From<CategoriaVentaRapida>()
+                .Where(x => x.Habilitado == true)
+                .Order("orden", Ordering.Ascending)
+                .Get();
+
+            listaCategorias = response.Models;
+            mostrarModalCategorias = true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error al cargar categorías de venta rápida: {ex.Message}");
+        }
+    }
+
+    private async Task SeleccionarCategoria(CategoriaVentaRapida cat)
+    {
+        categoriaSeleccionada = cat;
+        mostrarModalCategorias = false;
+        filtroBusquedaRapida = "";
+
+        try
+        {
+            var response = await SupaClient.From<Producto>()
+               .Where(x => x.CategoriaVentaRapidaId == cat.Id && x.MostrarEnVentaRapida == true)
+               .Order("orden_venta_rapida", Ordering.Ascending)
+               .Get();
+
+            listaProductosRapidos = response.Models;
+            mostrarModalProductos = true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error al cargar productos rápidos: {ex.Message}");
+        }
+    }
+
+    private void VolverACategorias()
+    {
+        mostrarModalProductos = false;
+        mostrarModalCategorias = true;
+    }
+
+    private void SeleccionarProductoRapido(Producto prod)
+    {
+        productoSeleccionadoParaVenta = prod;
+        cantidadIngresada = 1;
+        importeIngresado = ObtenerPrecioProducto(prod);
+        modoIngreso = "cantidad";
+        mostrarModalProductos = false;
+        mostrarModalCantidad = true;
+    }
+
+    private decimal ObtenerPrecioProducto(Producto prod)
+    {
+        return columnaPrecioActiva switch
+        {
+            "precio_lista2" => prod.PrecioLista2 ?? prod.PrecioVenta ?? 0,
+            "precio_lista3" => prod.PrecioLista3 ?? prod.PrecioVenta ?? 0,
+            _ => prod.PrecioVenta ?? 0
+        };
+    }
+
+    private void ConfirmarAgregarDesdeModal()
+    {
+        if (productoSeleccionadoParaVenta == null) return;
+
+        decimal precioUnitario = ObtenerPrecioProducto(productoSeleccionadoParaVenta);
+        int cantidadFinal = 1;
+
+        if (modoIngreso == "importe" && productoSeleccionadoParaVenta.AdmiteImporte && precioUnitario > 0)
+        {
+            cantidadFinal = (int)(importeIngresado / precioUnitario);
+            if (cantidadFinal < 1) cantidadFinal = 1;
+        }
+        else
+        {
+            cantidadFinal = cantidadIngresada > 0 ? cantidadIngresada : 1;
+        }
+
+        for (int i = 0; i < cantidadFinal; i++)
+        {
+            Carrito.Agregar(productoSeleccionadoParaVenta, columnaPrecioActiva);
+        }
+
+        CerrarModales();
+        StateHasChanged();
+    }
+
+    private void CerrarModales()
+    {
+        mostrarModalCategorias = false;
+        mostrarModalProductos = false;
+        mostrarModalCantidad = false;
+        mostrarModalVarios = false;
+        productoSeleccionadoParaVenta = null;
+    }
+
+    private void AgregarAlCarrito(Producto prod)
+    {
+        Carrito.Agregar(prod, columnaPrecioActiva);
+        StateHasChanged();
+    }
+
+    private void DecrementarCantidad(ItemCarrito item)
+    {
+        if (item.Cantidad > 1) item.Cantidad--;
+        else Carrito.Eliminar(item.Producto.Id);
+    }
+    private void ActualizarCantidadManual(ItemCarrito item, object? value)
+    {
+        if (int.TryParse(value?.ToString(), out int nuevaCantidad) && nuevaCantidad > 0)
+        {
+            Carrito.AgregarManual(item.Producto, columnaPrecioActiva, false, nuevaCantidad);
+            StateHasChanged();
+        }
+    }
+    private void Volver() => Nav.NavigateTo("/productos");
+
+    private void FinalizarVenta()
+    {
+        if (Carrito == null || !Carrito.Items.Any()) return;
+
+        State.TotalVentaActual = Carrito.Total;
+        State.CarritoActual = Carrito.Items.ToList();
+
+        if (!string.IsNullOrEmpty(RutaCobrar))
+        {
+            Nav.NavigateTo(RutaCobrar);
+        }
+    }
+
+    private void VaciarCarrito()
+    {
+        Carrito.Vaciar();
+        buscadorRef?.LimpiarTodo();
+        StateHasChanged();
+    }
+}

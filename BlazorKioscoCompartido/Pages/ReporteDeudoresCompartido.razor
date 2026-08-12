@@ -1,0 +1,173 @@
+﻿@using BlazorKioscoCompartido.Services
+@using BlazorKioscoCompartido.Models
+@using BlazorKioscoCompartido.Models.DTO
+@inject AppState State
+@inject Supabase.Client SupaClient
+@inject NavigationManager Nav
+
+<div class="container py-3">
+    <div class="card shadow-sm border-0 rounded-4 max-width-card mx-auto">
+
+        @* === ENCABEZADO === *@
+        <div class="card-header bg-danger text-white text-center py-3 rounded-top-4">
+            <h5 class="mb-0 fw-bold">
+                <i class="bi bi-person-exclamation me-2"></i>Estado de Cuentas Corrientes (Deudores)
+            </h5>
+        </div>
+
+        <div class="card-body p-3 p-md-4">
+
+            @* === BOTÓN DE ACTUALIZAR / BUSCAR === *@
+            <div class="row g-3 align-items-end mb-3">
+                <div class="col-12">
+                    <button class="btn btn-outline-danger w-100 py-2 fw-bold rounded-3 shadow-sm d-flex align-items-center justify-content-center gap-2"
+                            @onclick="CargarDeudores"
+                            disabled="@cargando">
+                        @if (cargando)
+                        {
+                            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                            <span>Cargando deudores...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-arrow-clockwise"></i>
+                            <span>Actualizar Lista de Deudores</span>
+                        }
+                    </button>
+                </div>
+            </div>
+
+            @* === RESULTADOS (TOTAL ADEUDADO Y LISTA DE DEUDORES) === *@
+            @if (busquedaRealizada)
+            {
+                <div class="mt-4">
+
+                    @* Tarjeta Destacada de Total General Adeudado *@
+                    <div class="bg-danger text-white rounded-4 p-3 text-center mb-4 shadow-sm">
+                        <span class="d-block text-white-50 text-uppercase fw-bold small mb-1">
+                            Total General Pendiente de Cobro
+                        </span>
+                        <h2 class="display-6 fw-bold mb-0">
+                            $ @totalDeudaGeneralPrecioActual.ToString("N2")
+                        </h2>
+                    </div>
+
+                    @* Listado de Deudores *@
+                    <h6 class="fw-bold text-secondary mb-3 d-flex align-items-center gap-2">
+                        <i class="bi bi-people-fill text-danger"></i>
+                        <span>Detalle por Deudor:</span>
+                    </h6>
+
+                    @if (listaDeudores != null && listaDeudores.Any())
+                    {
+                        <div class="list-group list-group-flush border rounded-3 overflow-hidden shadow-sm">
+                            @foreach (var deudor in listaDeudores)
+                            {
+                                <div class="list-group-item d-flex justify-content-between align-items-center py-3 px-3">
+
+                                    @* Nombre e Ícono del Deudor *@
+                                    <div class="d-flex align-items-center gap-2">
+                                        <i class="bi bi-person-circle text-danger fs-4"></i>
+                                        <div>
+                                            <span class="fw-bold text-dark d-block fs-6">@deudor.NombrePersona</span>
+                                            <small class="text-muted d-block" style="font-size: 0.75rem;">
+                                                Cuenta Corriente Activa
+                                            </small>
+                                        </div>
+                                    </div>
+
+                                    @* Monto + Botón Saldar Deuda *@
+                                    <div class="d-flex align-items-center gap-2">
+                                        @* === DEUDA HISTÓRICA (GRIS) === *@
+                                        <span class="badge bg-secondary bg-opacity-10 text-secondary fw-bold fs-6 px-3 py-2 rounded-pill border border-secondary border-opacity-25">
+                                            $ @deudor.DeudaPrecioHistorico.ToString("N2")
+                                        </span>
+
+                                        @* === DEUDA ACTUALIZADA (ROJO) === *@
+                                        <span class="badge bg-danger bg-opacity-10 text-danger fw-bold fs-6 px-3 py-2 rounded-pill border border-danger border-opacity-25">
+                                            $ @deudor.DeudaPrecioActual.ToString("N2")
+                                        </span>
+                                        <button class="btn btn-sm btn-success rounded-3 px-2 py-1 shadow-sm d-flex align-items-center gap-1"
+                                                title="Saldar o cobrar deuda"
+                                                @onclick="() => SaldarDeuda(deudor.PersonaId)">
+                                            <i class="bi bi-cash-coin"></i>
+                                            <span class="d-none d-sm-inline">Saldar</span>
+                                        </button>
+                                    </div>
+
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-success text-center border rounded-3 py-3 text-success mb-0">
+                            <i class="bi bi-check-circle-fill me-2"></i> ¡Excelente! No hay clientes ni empleados con deudas pendientes.
+                        </div>
+                    }
+
+                </div>
+            }
+
+        </div>
+    </div>
+</div>
+
+<style>
+    .max-width-card {
+        max-width: 550px;
+    }
+</style>
+
+@code {
+    private decimal totalDeudaGeneralPrecioActual = 0m;
+    private decimal totalDeudaGeneralPrecioHistorico = 0m;
+    private List<DeudorDto> listaDeudores = new();
+    private bool cargando = false;
+    private bool busquedaRealizada = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarDeudores();
+    }
+
+    private async Task CargarDeudores()
+    {
+        cargando = true;
+        busquedaRealizada = false;
+
+        try
+        {
+            long kioscoId = State.KioscoId;
+            if (kioscoId == 0) kioscoId = 1;
+
+            // Consultamos la vista de deudores en Supabase filtrando por Kiosco
+            var respuesta = await SupaClient
+                .From<DeudorDto>()
+                .Where(x => x.KioscoId == kioscoId)
+                .Get();
+
+            listaDeudores = respuesta.Models ?? new List<DeudorDto>();
+
+            // Calculamos el Total General de la suma de todas las deudas
+            totalDeudaGeneralPrecioActual = listaDeudores.Sum(x => x.DeudaPrecioActual);
+            totalDeudaGeneralPrecioHistorico = listaDeudores.Sum(x => x.DeudaPrecioHistorico);
+
+            busquedaRealizada = true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error al cargar el listado de deudores: {ex.Message}");
+        }
+        finally
+        {
+            cargando = false;
+        }
+    }
+
+    private void SaldarDeuda(long personaId)
+    {
+        // Redirige a la pantalla de cobro enviando el ID del deudor
+        Nav.NavigateTo($"/cobrar-deuda/{personaId}");
+    }
+}

@@ -1,0 +1,8 @@
+﻿@page "/producto/nuevo-desktop"
+@page "/producto/nuevo-desktop/{CodigoPrecargado}"
+
+<NuevoProductoCompartido CodigoPrecargado="@CodigoPrecargado" />
+
+@code {
+    [Parameter] public string? CodigoPrecargado { get; set; }
+}

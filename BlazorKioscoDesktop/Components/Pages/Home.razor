@@ -1,0 +1,10 @@
+﻿@page "/"
+@inject NavigationManager Nav
+
+@code {
+    protected override void OnInitialized()
+    {
+        // Apenas arranca la app de escritorio, la mandamos al Login compartido
+        Nav.NavigateTo("/login");
+    }
+}
