@@ -12,3 +12,4 @@ C:\Sistemas\BlazorKioscos1.0\BlazorKioscoCompartido\obj\Release\net8.0\staticweb
 C:\Sistemas\BlazorKioscos1.0\BlazorKioscoCompartido\obj\Release\net8.0\staticwebassets.build.json
 C:\Sistemas\BlazorKioscos1.0\BlazorKioscoCompartido\obj\Release\net8.0\staticwebassets.build.json
 C:\Sistemas\BlazorKioscos1.0\BlazorKioscoCompartido\obj\Release\net8.0\staticwebassets.build.json
+C:\Sistemas\BlazorKioscos1.0\BlazorKioscoCompartido\obj\Release\net8.0\staticwebassets.build.json
