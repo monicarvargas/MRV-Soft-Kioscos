@@ -1,0 +1,218 @@
+@using BlazorKioscoCompartido.Components
+@using BlazorKioscoCompartido.Models
+@using BlazorKioscoCompartido.Services
+@inject Supabase.Client SupaClient
+@inject AppState State
+
+<PedidosEstilos />
+
+<div class="container-fluid px-3 py-2 min-vh-100 style-notebook gp-scope gp-page">
+    <EncabezadoPagina Titulo="Compras al Mayorista"
+                      Subtitulo="Cargá lo que llevás y después actualizá stock y precios"
+                      IconoClass="bi-shop"
+                      ColorBorde="success"
+                      ColorIcono="success"
+                      MostrarBotonAyuda="false"
+                      RutaVolver="/productos" />
+
+    <!-- PESTAÑAS -->
+    <div class="gp-tabs" role="tablist">
+        <button type="button" role="tab" aria-selected="@(pestana == "calculadora")"
+                class="gp-tab @(pestana == "calculadora" ? "is-active" : "")" @onclick='() => CambiarPestana("calculadora")'>
+            <i class="bi bi-calculator-fill"></i> <span>Calculadora</span>
+        </button>
+        <button type="button" role="tab" aria-selected="@(pestana == "recibir")"
+                class="gp-tab @(pestana == "recibir" ? "is-active" : "")" @onclick='() => CambiarPestana("recibir")'>
+            <i class="bi bi-box-arrow-in-down"></i> <span>Recibir mercadería</span>
+            @if (pendientes > 0)
+            {
+                <span class="gp-count">@pendientes</span>
+            }
+        </button>
+        <button type="button" role="tab" aria-selected="@(pestana == "historial")"
+                class="gp-tab @(pestana == "historial" ? "is-active" : "")" @onclick='() => CambiarPestana("historial")'>
+            <i class="bi bi-journal-text"></i> <span>Historial</span>
+        </button>
+    </div>
+
+    <!-- La calculadora queda siempre montada (solo oculta) para no perder lo que se está cargando -->
+    <div class="@(pestana == "calculadora" ? "" : "gp-hidden")">
+        <CalculadoraMayoristaCompartido OnListaCerrada="IrARecibirLista" OnCambioPendientes="RefrescarPendientesAsync" />
+    </div>
+
+    @if (pestana == "recibir")
+    {
+        <RecibirMercaderiaCompartido @key="claveRecibir"
+                                     PedidoIdInicial="pedidoParaRecibir"
+                                     CompraIdInicial="compraParaRecibir"
+                                     OnConfirmada="RefrescarPendientesAsync" />
+    }
+    else if (pestana == "historial")
+    {
+        <HistorialComprasCompartido OnConfirmar="IrARecibirLista" OnCambio="RefrescarPendientesAsync" />
+    }
+</div>
+
+<style>
+    /* ===== Compras al mayorista (prefijo cm-) ===== */
+    .cm-wrap { max-width: 760px; margin: 0 auto; }
+
+    .cm-scan { display: flex; gap: .6rem; }
+    .cm-scan .gp-control { height: 3.1rem; font-size: 1.05rem; font-weight: 800; }
+    .cm-scan .gp-btn { height: 3.1rem; padding: 0 1.2rem; }
+
+    .cm-list { display: flex; flex-direction: column; gap: .5rem; margin: 0; padding: 0; list-style: none; }
+    .cm-item {
+        display: flex; align-items: center; gap: .8rem; width: 100%; padding: .7rem .8rem; text-align: left;
+        background: #fff; border: 1px solid var(--gp-line); border-radius: 14px; color: inherit; font: inherit; cursor: pointer;
+        transition: border-color .15s, box-shadow .15s;
+    }
+    .cm-item:hover { border-color: var(--gp-primary-line); box-shadow: 0 2px 10px rgba(22,33,72,.08); }
+    .cm-item:focus-visible { outline: 0; box-shadow: 0 0 0 3px var(--gp-primary-line); }
+    .cm-item-qty { flex: none; display: inline-flex; align-items: center; justify-content: center; min-width: 2.7rem; height: 2.7rem; padding: 0 .5rem; border-radius: 12px; background: var(--gp-primary-soft); color: var(--gp-primary); font-weight: 900; }
+    .cm-item-info { flex: 1 1 auto; min-width: 0; }
+    .cm-item-name { font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cm-item-sub { color: var(--gp-muted); font-size: .82rem; font-weight: 600; }
+    .cm-item-total { flex: none; font-weight: 900; color: var(--gp-text); }
+    .cm-tag { display: inline-block; margin-left: .4rem; padding: .05rem .5rem; border-radius: 999px; background: var(--gp-warn-soft); color: var(--gp-warn); font-size: .7rem; font-weight: 800; }
+
+    .cm-total-inner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; max-width: 760px; margin: 0 auto; padding: 0 .5rem; }
+    .cm-total-label { display: block; color: var(--gp-muted); font-size: .72rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+    .cm-total-num { display: block; color: var(--gp-ok); font-size: 1.6rem; font-weight: 900; line-height: 1.1; }
+
+    /* Ventana de cantidad / costo */
+    .cm-modal-name { margin: 0 0 .15rem; font-size: 1.15rem; font-weight: 900; line-height: 1.25; }
+    .cm-modal-name-input { font-weight: 900; text-transform: uppercase; }
+    .cm-modal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; }
+    .cm-stepper { display: flex; align-items: center; gap: .4rem; }
+    .cm-stepper .gp-control { text-align: center; font-size: 1.2rem; font-weight: 900; padding: .3rem; }
+    .cm-stepper .gp-btn { flex: none; width: 2.75rem; padding: 0; font-size: 1.3rem; }
+    .cm-money { position: relative; }
+    .cm-money > span { position: absolute; left: .85rem; top: 50%; transform: translateY(-50%); color: var(--gp-muted); font-weight: 800; }
+    .cm-money .gp-control { padding-left: 1.7rem; font-size: 1.2rem; font-weight: 900; color: var(--gp-ok); }
+    .cm-delta { display: inline-flex; align-items: center; gap: .3rem; margin-top: .45rem; padding: .15rem .6rem; border-radius: 999px; font-size: .78rem; font-weight: 800; }
+    .cm-delta.up { background: var(--gp-danger-soft); color: var(--gp-danger); }
+    .cm-delta.down { background: var(--gp-ok-soft); color: var(--gp-ok); }
+    .cm-modal-sub { display: flex; justify-content: space-between; align-items: baseline; margin-top: 1rem; padding: .75rem 1rem; background: #f6f8fc; border: 1px solid var(--gp-line); border-radius: 12px; font-weight: 700; color: var(--gp-muted); }
+    .cm-modal-sub strong { color: var(--gp-ok); font-size: 1.3rem; font-weight: 900; }
+
+    /* Procesar */
+    .cm-compras { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: .6rem; }
+    .cm-compra { display: flex; flex-direction: column; gap: .15rem; padding: .75rem .9rem; text-align: left; background: #fff; border: 1px solid var(--gp-line); border-radius: 14px; font: inherit; color: inherit; cursor: pointer; transition: border-color .15s, background .15s; }
+    .cm-compra:hover { border-color: var(--gp-primary-line); }
+    .cm-compra.is-active { background: var(--gp-primary-soft); border-color: var(--gp-primary); box-shadow: 0 0 0 2px var(--gp-primary-soft); }
+    .cm-compra b { font-size: 1.05rem; font-weight: 900; color: var(--gp-ok); }
+    .cm-compra span { color: var(--gp-muted); font-size: .82rem; font-weight: 700; }
+    .cm-cell { display: flex; flex-direction: column; align-items: center; gap: .3rem; }
+    .cm-ant { padding: .05rem .5rem; border: 1px solid var(--gp-danger-line); border-radius: 999px; background: var(--gp-danger-soft); color: var(--gp-danger); font-size: .7rem; font-weight: 800; white-space: nowrap; }
+    .cm-input { width: 6.5rem; height: 2.3rem; padding: .2rem .4rem; border: 1px solid var(--gp-line); border-radius: 9px; background: #fff; color: var(--gp-text); font: inherit; font-weight: 800; text-align: center; }
+    .cm-input:focus { outline: 0; border-color: var(--gp-primary); box-shadow: 0 0 0 3px var(--gp-primary-soft); }
+    .cm-input:disabled { background: #f3f5fa; color: #9aa3bd; }
+    .cm-input.cost { color: var(--gp-primary); }
+    .cm-input.sale { color: var(--gp-ok); }
+    .cm-actionbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1.2rem; padding: 1rem 1.1rem; background: #f6f8fc; border: 1px solid var(--gp-line); border-radius: var(--gp-radius-md); }
+    .cm-actionbar b { color: var(--gp-text); }
+    .cm-actionbar .meta { color: var(--gp-muted); font-size: .9rem; font-weight: 700; line-height: 1.5; }
+
+    @@media (max-width: 767.98px) {
+        .cm-input { width: 7.5rem; }
+        .cm-actionbar .gp-btn { width: 100%; }
+        .cm-compras { grid-template-columns: 1fr 1fr; }
+    }
+    @@media (max-width: 420px) {
+        .cm-compras { grid-template-columns: 1fr; }
+        .cm-modal-grid { grid-template-columns: 1fr; }
+    }
+</style>
+
+@code {
+    /// <summary>Si la página se abre con ?pedido=ID (botón "Recibir" del Gestor de pedidos), arranca recibiendo ese pedido.</summary>
+    [Parameter] public long? PedidoIdInicial { get; set; }
+
+    [Inject] private NavigationManager Nav { get; set; } = default!;
+
+    private string pestana = "calculadora";
+    private int pendientes = 0;
+    private long? compraParaRecibir;
+    private long? pedidoParaRecibir;
+    private int claveRecibir = 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var idPedido = PedidoIdInicial ?? LeerNumeroDeLaUrl("pedido");
+        var idCompra = LeerNumeroDeLaUrl("compra");   // ?compra=ID: viene del importador de Excel
+        if (idPedido.HasValue)
+        {
+            pedidoParaRecibir = idPedido;
+            pestana = "recibir";
+        }
+        else if (idCompra.HasValue)
+        {
+            compraParaRecibir = idCompra;
+            pestana = "recibir";
+        }
+        await RefrescarPendientesAsync();
+    }
+
+    private long? LeerNumeroDeLaUrl(string nombre)
+    {
+        try
+        {
+            var query = new Uri(Nav.Uri).Query.TrimStart('?');
+            foreach (var par in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var kv = par.Split('=', 2);
+                if (kv.Length == 2 && kv[0] == nombre && long.TryParse(kv[1], out var id)) return id;
+            }
+        }
+        catch { /* sin parámetro */ }
+        return null;
+    }
+
+    private async Task CambiarPestana(string nueva)
+    {
+        pestana = nueva;
+        if (nueva == "recibir")
+        {
+            compraParaRecibir = null;
+            pedidoParaRecibir = null;
+            claveRecibir++;
+        }
+        await RefrescarPendientesAsync();
+    }
+
+    // Una lista cerrada (de la calculadora o del historial) se abre directo para confirmarla
+    private async Task IrARecibirLista(long compraId)
+    {
+        compraParaRecibir = compraId > 0 ? compraId : null;
+        pedidoParaRecibir = null;
+        claveRecibir++;
+        pestana = "recibir";
+        await RefrescarPendientesAsync();
+    }
+
+    // Cuenta lo que espera ser recibido: listas cerradas + pedidos enviados
+    private async Task RefrescarPendientesAsync()
+    {
+        try
+        {
+            long kiosco = State.KioscoId;
+            var listas = await SupaClient.From<CompraMayorista>()
+                .Where(c => c.KioscoId == kiosco)
+                .Where(c => c.Estado == CompraEstado.Cerrada)
+                .Get();
+
+            var peds = await SupaClient.From<ListaPedido>()
+                .Where(p => p.KioscoId == kiosco)
+                .Where(p => p.Estado == "Enviado")
+                .Get();
+
+            pendientes = (listas?.Models?.Count ?? 0) + (peds?.Models?.Count ?? 0);
+        }
+        catch
+        {
+            // el contador es solo informativo
+        }
+        StateHasChanged();
+    }
+}

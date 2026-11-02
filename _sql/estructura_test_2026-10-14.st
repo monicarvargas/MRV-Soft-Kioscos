@@ -1,0 +1,722 @@
+-- Estructura de la base generada el 14/10/2026 23:55
+-- Correr en una base VACÍA (Supabase > SQL Editor).
+
+set check_function_bodies = off;  -- permite crear las funciones antes que las tablas
+
+-- 1) Extensiones
+create extension if not exists btree_gin;
+create extension if not exists pg_stat_statements;
+create extension if not exists pg_trgm;
+create extension if not exists pgcrypto;
+create extension if not exists supabase_vault;
+create extension if not exists unaccent;
+create extension if not exists "uuid-ossp";
+
+-- 2) Secuencias
+create sequence if not exists public.asistencias_id_seq;
+create sequence if not exists public.categorias_venta_rapida_id_seq;
+create sequence if not exists public.secuencia_movimientos_ventas;
+create sequence if not exists public.turnos_id_seq;
+
+-- 3) Funciones (van antes: algunas columnas calculadas las usan)
+CREATE OR REPLACE FUNCTION public.cerrar_asistencias_vencidas(p_kiosco bigint)
+ RETURNS void
+ LANGUAGE plpgsql
+AS $function$
+declare
+    tz text := 'America/Argentina/Buenos_Aires';
+    r record;
+    fin_ts timestamptz;
+begin
+    for r in select id, entrada from asistencias where kiosco_id = p_kiosco and salida is null loop
+        select min(e) into fin_ts
+        from (
+            select (((r.entrada at time zone tz)::date + d) + t.hora_fin) at time zone tz as e
+            from turnos t, generate_series(0, 1) d
+            where t.kiosco_id = p_kiosco and t.activo
+        ) x
+        where e >= r.entrada + interval '1 hour';
+
+        if fin_ts is null then fin_ts := r.entrada + interval '12 hours'; end if;
+
+        if fin_ts <= now() then
+            update asistencias set salida = fin_ts, cierre = 'fin_turno' where id = r.id;
+        end if;
+    end loop;
+end $function$
+;
+
+CREATE OR REPLACE FUNCTION public.editar_asistencia(p_id bigint, p_entrada text, p_salida text)
+ RETURNS void
+ LANGUAGE plpgsql
+AS $function$
+declare tz text := 'America/Argentina/Buenos_Aires';
+begin
+    update asistencias
+    set entrada = (p_entrada::timestamp at time zone tz),
+        salida  = case when coalesce(p_salida, '') = '' then null else (p_salida::timestamp at time zone tz) end,
+        cierre  = 'manual'
+    where id = p_id;
+end $function$
+;
+
+CREATE OR REPLACE FUNCTION public.f_sin_acentos(text)
+ RETURNS text
+ LANGUAGE sql
+ IMMUTABLE PARALLEL SAFE STRICT
+AS $function$ select lower(public.unaccent('public.unaccent'::regdictionary, $1)) $function$
+;
+
+CREATE OR REPLACE FUNCTION public.fichar_entrada(p_kiosco bigint, p_usuario uuid, p_dispositivo text)
+ RETURNS bigint
+ LANGUAGE plpgsql
+AS $function$
+declare v_id bigint;
+begin
+    perform public.cerrar_asistencias_vencidas(p_kiosco);
+
+    -- otro empleado estaba en este equipo: se le marca la salida ahora
+    update asistencias set salida = now(), cierre = 'otro_usuario'
+    where kiosco_id = p_kiosco and dispositivo = p_dispositivo and salida is null and usuario_id <> p_usuario;
+
+    -- si ya estaba trabajando (volvió a abrir la app), sigue la misma entrada
+    select id into v_id from asistencias
+    where kiosco_id = p_kiosco and usuario_id = p_usuario and salida is null
+    order by entrada desc limit 1;
+    if v_id is not null then
+        update asistencias set dispositivo = p_dispositivo where id = v_id;
+        return v_id;
+    end if;
+
+    insert into asistencias (kiosco_id, usuario_id, dispositivo) values (p_kiosco, p_usuario, p_dispositivo)
+    returning id into v_id;
+    return v_id;
+end $function$
+;
+
+CREATE OR REPLACE FUNCTION public.fichar_salida(p_id bigint)
+ RETURNS void
+ LANGUAGE sql
+AS $function$
+    update asistencias set salida = now(), cierre = 'salio' where id = p_id and salida is null;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.obtener_proximo_movimiento()
+ RETURNS bigint
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+    RETURN nextval('secuencia_movimientos_ventas');
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.tg_productos_fecha_precio()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+begin
+    if new.precio_venta is distinct from old.precio_venta
+       or new.precio_lista2 is distinct from old.precio_lista2 then
+        new.fecha_actualizacion := now();
+    end if;
+    return new;
+end $function$
+;
+
+CREATE OR REPLACE FUNCTION public.update_modified_column()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+    -- Si la fecha que viene (NEW) es igual a la que estaba (OLD),
+    -- significa que el usuario no la tocó manualmente, entonces ponemos NOW().
+    IF (NEW.fecha_actualizacion = OLD.fecha_actualizacion) THEN
+        NEW.fecha_actualizacion = timezone('America/Argentina/Buenos_Aires', now());
+    END IF;
+    
+    RETURN NEW;
+END;
+$function$
+;
+
+-- 4) Tablas
+create table if not exists public.asistencias (
+    id bigint default nextval('asistencias_id_seq'::regclass) not null,
+    kiosco_id bigint not null,
+    usuario_id uuid not null,
+    dispositivo text,
+    entrada timestamp with time zone default now() not null,
+    salida timestamp with time zone,
+    cierre text,
+    nota text
+);
+
+create table if not exists public.categorias_venta_rapida (
+    id bigint generated always as identity,
+    nombre character varying(100) not null,
+    icono character varying(50),
+    orden integer default 0 not null,
+    habilitado boolean default true not null,
+    kiosco_id bigint
+);
+
+create table if not exists public.combo_detalle (
+    id bigint generated by default as identity,
+    combo_id bigint not null,
+    producto_hijo_id bigint not null,
+    cantidad integer default 1 not null,
+    created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+    kiosco_id bigint
+);
+
+create table if not exists public.compra_mayorista_detalles (
+    id bigint generated by default as identity,
+    compra_id bigint not null,
+    producto_id bigint,
+    codigo_barras character varying(100),
+    nombre_producto character varying(255) not null,
+    precio_costo numeric(10,2) default 0 not null,
+    cantidad integer default 1 not null,
+    subtotal numeric(12,2) default 0 not null,
+    es_nuevo boolean default false not null,
+    procesado boolean default false not null,
+    codigo_barras_proveedor text,
+    costo_anterior numeric(14,2),
+    cantidad_pedida integer,
+    unidades_por_bulto integer default 1 not null
+);
+
+create table if not exists public.compras_mayoristas (
+    id bigint generated by default as identity,
+    kiosco_id bigint not null,
+    fecha timestamp with time zone default now() not null,
+    total_compra numeric(12,2) default 0 not null,
+    procesado boolean default false not null,
+    observaciones text,
+    origen text default 'calculadora'::text not null,
+    estado text default 'en_curso'::text not null,
+    proveedor_id bigint,
+    pedido_id bigint,
+    numero_comprobante text,
+    fecha_confirmada timestamp with time zone,
+    fecha_compra date,
+    total_boleta numeric(14,2),
+    foto_url text
+);
+
+create table if not exists public.configuracion_negocio (
+    id bigint generated by default as identity,
+    kiosco_id bigint not null,
+    comision_global numeric(5,2) default 0,
+    descuento_global numeric(5,2) default 0
+);
+
+create table if not exists public.familias (
+    id bigint generated by default as identity,
+    kiosco_id bigint not null,
+    nombre character varying(100) not null,
+    descripcion text,
+    created_at timestamp with time zone default now()
+);
+
+create table if not exists public.formas_pago (
+    id bigint generated by default as identity,
+    nombre text not null,
+    activo boolean default true,
+    pide_comprobante boolean default false,
+    orden integer,
+    created_at timestamp with time zone default now(),
+    kiosco_id bigint
+);
+
+create table if not exists public.horarios_ventas (
+    id bigint generated by default as identity,
+    kiosco_id bigint not null,
+    hora_inicio time without time zone not null,
+    hora_fin time without time zone not null,
+    tipo_ajuste text not null,
+    lista_precio_id integer,
+    porcentaje_comision numeric(5,2) default 0,
+    porcentaje_descuento numeric(5,2) default 0
+);
+
+create table if not exists public.importaciones_excel (
+    id bigint generated by default as identity,
+    kiosco_id bigint not null,
+    fecha timestamp with time zone default now() not null,
+    nombre_archivo text not null,
+    hash_archivo text,
+    tipo text not null,
+    proveedor_id bigint,
+    filas_total integer default 0 not null,
+    creados integer default 0 not null,
+    actualizados integer default 0 not null,
+    omitidos integer default 0 not null,
+    errores integer default 0 not null,
+    stock_modo text,
+    regla_precios text,
+    compra_id bigint,
+    mapeo text,
+    estado text default 'ok'::text not null,
+    observaciones text,
+    detalle text
+);
+
+create table if not exists public.kioscos (
+    id bigint generated by default as identity,
+    nombre_negocio character varying(255) not null,
+    cuit_dni character varying(20),
+    fecha_alta timestamp with time zone default now(),
+    estado boolean default true,
+    fecha_vencimiento_abono date,
+    dias_anticipacion_aviso integer,
+    notas_administrativas text,
+    codigo_vinculacion text,
+    usar_redondeo boolean,
+    multiplo_redondeo integer,
+    color_tema text default 'azul'::text not null
+);
+
+create table if not exists public.lista_pedido_detalles (
+    id bigint generated by default as identity,
+    pedido_id bigint not null,
+    producto_id bigint not null,
+    codigo_barras_proveedor text,
+    nombre_producto text not null,
+    stock_actual numeric(10,2) default 0,
+    precio_costo numeric(12,2) default 0,
+    cantidad_comprar numeric(10,2) default 1 not null,
+    subtotal_estimado numeric(12,2) default 0 not null,
+    unidades_por_bulto integer default 1 not null
+);
+
+create table if not exists public.lista_pedidos (
+    id bigint generated by default as identity,
+    kiosco_id bigint not null,
+    proveedor_id bigint not null,
+    fecha timestamp with time zone default now() not null,
+    monto_estimado numeric(12,2) default 0 not null,
+    estado text default 'Pendiente'::text not null,
+    observaciones text,
+    nombre_listado text
+);
+
+create table if not exists public.listas_precios (
+    id bigint generated by default as identity,
+    kiosco_id bigint not null,
+    nombre_columna_productos text,
+    nombre_lista text,
+    mostrar_en_buscador boolean default true
+);
+
+create table if not exists public.personas (
+    id bigint generated by default as identity,
+    kiosco_id bigint not null,
+    nombre character varying(255) not null,
+    cuit character varying(20),
+    telefono character varying(50),
+    email character varying(255),
+    direccion text,
+    created_at timestamp with time zone default now(),
+    habilitado boolean default true not null,
+    es_empleado boolean default false not null,
+    nota text
+);
+
+create table if not exists public.productos (
+    id bigint generated by default as identity,
+    kiosco_id bigint,
+    familia_id bigint,
+    proveedor_id bigint,
+    codigo_barras character varying(100),
+    nombre character varying(255) not null,
+    marca character varying(100),
+    precio_costo numeric(12,2) default 0,
+    iva numeric(5,2) default 21.00,
+    utilidad_pv numeric(12,2),
+    precio_venta numeric(12,2),
+    utilidad_lista2 numeric(12,2),
+    precio_lista2 numeric(12,2),
+    utilidad_lista3 numeric(12,2),
+    precio_lista3 numeric(12,2),
+    utilidad_lista4 numeric(12,2),
+    precio_lista4 numeric(12,2),
+    utilidad_lista5 numeric(12,2),
+    precio_lista5 numeric(12,2),
+    utilidad_x_mayor numeric(12,2),
+    precio_venta_por_mayor numeric(12,2),
+    cant_por_mayor integer,
+    venta_por_peso boolean default false,
+    unidad character varying(10) default 'U'::character varying,
+    stock_actual integer default 0,
+    stock_ideal integer default 0,
+    stock_minimo integer default 0,
+    nota_producto character varying(255),
+    imagen_url character varying(255),
+    fecha_actualizacion timestamp with time zone default now(),
+    activo boolean default true,
+    es_combo boolean,
+    fecha_vigencia_desde_combo timestamp with time zone,
+    fecha_vigencia_hasta_combo timestamp with time zone,
+    limite_unidades_combo integer,
+    categoria_venta_rapida_id bigint,
+    mostrar_en_venta_rapida boolean default false not null,
+    orden_venta_rapida integer default 0,
+    admite_importe boolean default false,
+    sin_stock boolean generated always as (((COALESCE(es_combo, false) = false) AND (COALESCE(stock_actual, 0) <= 0))) stored,
+    stock_bajo boolean generated always as (((COALESCE(es_combo, false) = false) AND (COALESCE(stock_minimo, 0) > 0) AND (COALESCE(stock_actual, 0) > 0) AND (stock_actual <= stock_minimo))) stored,
+    nombre_busqueda text generated always as (f_sin_acentos((COALESCE(nombre, ''::character varying))::text)) stored
+);
+
+create table if not exists public.productos_proveedores (
+    id bigint generated by default as identity,
+    id_producto bigint not null,
+    id_proveedor bigint not null,
+    id_kiosco bigint not null,
+    habilitado boolean default true not null,
+    codigo_barras_proveedor character varying(100),
+    created_at timestamp with time zone default now(),
+    es_principal boolean default false,
+    unidades_por_bulto integer default 1 not null,
+    descripcion_proveedor text
+);
+
+create table if not exists public.productos_ruta25 (
+    codigo character varying(50),
+    descripcion character varying(150),
+    grupo character varying(150),
+    venta numeric(10,2),
+    bloqueado character varying(15)
+);
+
+create table if not exists public.productos_varios_ventas (
+    id bigint generated by default as identity,
+    kiosco_id bigint,
+    numero_unico_identificatorio_movimiento bigint,
+    nombre_producto text not null,
+    preciounitario numeric(12,2) not null,
+    cantidad integer default 1 not null,
+    subtotal numeric(12,2) not null,
+    created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+create table if not exists public.proveedores (
+    id bigint generated by default as identity,
+    kiosco_id bigint not null,
+    nombre character varying(255) not null,
+    cuit character varying(20),
+    telefono character varying(50),
+    email character varying(255),
+    direccion text,
+    created_at timestamp with time zone default now(),
+    columnas_pedido text
+);
+
+create table if not exists public.turnos (
+    id bigint default nextval('turnos_id_seq'::regclass) not null,
+    kiosco_id bigint not null,
+    nombre text not null,
+    hora_inicio time without time zone not null,
+    hora_fin time without time zone not null,
+    orden integer default 0 not null,
+    activo boolean default true not null
+);
+
+create table if not exists public.usuarios (
+    id uuid default gen_random_uuid() not null,
+    username text not null,
+    password text not null,
+    id_kiosco bigint not null,
+    rol text default 'empleado'::text,
+    created_at timestamp with time zone default now()
+);
+
+create table if not exists public.venta_detalles (
+    id bigint generated by default as identity,
+    producto_id bigint,
+    cantidad integer default 1 not null,
+    precio_unitario numeric(12,2) not null,
+    subtotal numeric(12,2) not null,
+    created_at timestamp with time zone default now(),
+    numero_unico_identificatorio_movimiento bigint
+);
+
+create table if not exists public.venta_pagos (
+    id bigint generated by default as identity,
+    venta_id bigint not null,
+    monto numeric(10,2) default 0.00 not null,
+    created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+    forma_pago_id integer not null
+);
+
+create table if not exists public.ventas (
+    id bigint generated by default as identity,
+    fecha timestamp with time zone default now(),
+    total numeric(12,2) not null,
+    usuario_operador_id uuid,
+    forma_pago_id bigint,
+    kiosco_id bigint,
+    persona_id bigint,
+    numero_unico_identificatorio_movimiento bigint,
+    pagado boolean default true,
+    es_ajuste_precio boolean default false not null,
+    hora_venta timestamp with time zone default now()
+);
+
+-- 5) Claves y reglas
+alter table public.asistencias add constraint asistencias_pkey PRIMARY KEY (id);
+alter table public.categorias_venta_rapida add constraint categorias_venta_rapida_pkey PRIMARY KEY (id);
+alter table public.combo_detalle add constraint combo_detalle_pkey PRIMARY KEY (id);
+alter table public.compra_mayorista_detalles add constraint compra_mayorista_detalles_pkey PRIMARY KEY (id);
+alter table public.compras_mayoristas add constraint compras_mayoristas_pkey PRIMARY KEY (id);
+alter table public.configuracion_negocio add constraint configuracion_negocio_pkey PRIMARY KEY (id);
+alter table public.familias add constraint familias_pkey PRIMARY KEY (id);
+alter table public.formas_pago add constraint formas_pago_pkey PRIMARY KEY (id);
+alter table public.horarios_ventas add constraint horarios_ventas_pkey PRIMARY KEY (id);
+alter table public.importaciones_excel add constraint importaciones_excel_pkey PRIMARY KEY (id);
+alter table public.kioscos add constraint kioscos_pkey PRIMARY KEY (id);
+alter table public.lista_pedido_detalles add constraint lista_pedido_detalles_pkey PRIMARY KEY (id);
+alter table public.lista_pedidos add constraint lista_pedidos_pkey PRIMARY KEY (id);
+alter table public.listas_precios add constraint listas_precios_pkey PRIMARY KEY (id);
+alter table public.personas add constraint clientes_pkey PRIMARY KEY (id);
+alter table public.productos add constraint productos_pkey PRIMARY KEY (id);
+alter table public.productos_proveedores add constraint productos_proveedores_pkey PRIMARY KEY (id);
+alter table public.productos_varios_ventas add constraint productos_varios_ventas_pkey PRIMARY KEY (id);
+alter table public.proveedores add constraint proveedores_pkey PRIMARY KEY (id);
+alter table public.turnos add constraint turnos_pkey PRIMARY KEY (id);
+alter table public.usuarios add constraint usuarios_pkey PRIMARY KEY (id);
+alter table public.venta_detalles add constraint venta_detalles_pkey PRIMARY KEY (id);
+alter table public.venta_pagos add constraint venta_pagos_pkey PRIMARY KEY (id);
+alter table public.ventas add constraint ventas_pkey PRIMARY KEY (id);
+alter table public.configuracion_negocio add constraint configuracion_negocio_kiosco_id_key UNIQUE (kiosco_id);
+alter table public.kioscos add constraint kioscos_codigo_vinculacion_key UNIQUE (codigo_vinculacion);
+alter table public.combo_detalle add constraint check_cantidad_positiva CHECK ((cantidad > 0));
+alter table public.compras_mayoristas add constraint compras_mayoristas_estado_chk CHECK ((estado = ANY (ARRAY['en_curso'::text, 'cerrada'::text, 'confirmada'::text])));
+alter table public.compras_mayoristas add constraint compras_mayoristas_origen_chk CHECK ((origen = ANY (ARRAY['calculadora'::text, 'pedido'::text, 'boleta'::text, 'excel'::text])));
+alter table public.horarios_ventas add constraint horarios_ventas_tipo_ajuste_check CHECK ((tipo_ajuste = ANY (ARRAY['LISTA'::text, 'AJUSTE'::text])));
+alter table public.importaciones_excel add constraint importaciones_excel_tipo_chk CHECK ((tipo = ANY (ARRAY['factura'::text, 'precios'::text, 'carga'::text])));
+alter table public.categorias_venta_rapida add constraint fk_kiosco FOREIGN KEY (kiosco_id) REFERENCES kioscos(id);
+alter table public.combo_detalle add constraint fk_cdkiosco FOREIGN KEY (kiosco_id) REFERENCES kioscos(id);
+alter table public.combo_detalle add constraint fk_combo_padre FOREIGN KEY (combo_id) REFERENCES productos(id) ON DELETE CASCADE;
+alter table public.combo_detalle add constraint fk_producto_hijo FOREIGN KEY (producto_hijo_id) REFERENCES productos(id) ON DELETE RESTRICT;
+alter table public.compra_mayorista_detalles add constraint compra_mayorista_detalles_compra_id_fkey FOREIGN KEY (compra_id) REFERENCES compras_mayoristas(id) ON DELETE CASCADE;
+alter table public.configuracion_negocio add constraint fk_kiosco_config FOREIGN KEY (kiosco_id) REFERENCES kioscos(id) ON DELETE CASCADE;
+alter table public.familias add constraint familias_kiosco_id_fkey FOREIGN KEY (kiosco_id) REFERENCES kioscos(id) ON DELETE CASCADE;
+alter table public.formas_pago add constraint fk_formaspago_kiosco FOREIGN KEY (kiosco_id) REFERENCES kioscos(id) ON DELETE SET NULL;
+alter table public.horarios_ventas add constraint fk_kiosco FOREIGN KEY (kiosco_id) REFERENCES kioscos(id) ON DELETE CASCADE;
+alter table public.horarios_ventas add constraint fk_lista_precio FOREIGN KEY (lista_precio_id) REFERENCES listas_precios(id) ON DELETE CASCADE;
+alter table public.lista_pedido_detalles add constraint lista_pedido_detalles_pedido_id_fkey FOREIGN KEY (pedido_id) REFERENCES lista_pedidos(id) ON DELETE CASCADE;
+alter table public.lista_pedido_detalles add constraint lista_pedido_detalles_producto_id_fkey FOREIGN KEY (producto_id) REFERENCES productos(id);
+alter table public.lista_pedidos add constraint lista_pedidos_proveedor_id_fkey FOREIGN KEY (proveedor_id) REFERENCES proveedores(id);
+alter table public.listas_precios add constraint fk_kiosco FOREIGN KEY (kiosco_id) REFERENCES kioscos(id) ON DELETE CASCADE;
+alter table public.personas add constraint clientes_kiosco_id_fkey FOREIGN KEY (kiosco_id) REFERENCES kioscos(id) ON DELETE CASCADE;
+alter table public.productos add constraint fk_familia_producto FOREIGN KEY (familia_id) REFERENCES familias(id) ON DELETE SET NULL;
+alter table public.productos add constraint fk_producto_categoria_venta_rapida FOREIGN KEY (categoria_venta_rapida_id) REFERENCES categorias_venta_rapida(id);
+alter table public.productos add constraint productos_kiosco_id_fkey FOREIGN KEY (kiosco_id) REFERENCES kioscos(id);
+alter table public.productos_proveedores add constraint productos_proveedores_id_producto_fkey FOREIGN KEY (id_producto) REFERENCES productos(id) ON DELETE CASCADE;
+alter table public.productos_proveedores add constraint productos_proveedores_id_proveedor_fkey FOREIGN KEY (id_proveedor) REFERENCES proveedores(id) ON DELETE CASCADE;
+alter table public.productos_varios_ventas add constraint fk_pvv_kiosco FOREIGN KEY (kiosco_id) REFERENCES kioscos(id) ON DELETE SET NULL;
+alter table public.proveedores add constraint proveedores_kiosco_id_fkey FOREIGN KEY (kiosco_id) REFERENCES kioscos(id) ON DELETE CASCADE;
+alter table public.usuarios add constraint fk_usuarios_kioscos FOREIGN KEY (id_kiosco) REFERENCES kioscos(id);
+alter table public.venta_detalles add constraint venta_detalles_producto_id_fkey FOREIGN KEY (producto_id) REFERENCES productos(id);
+alter table public.venta_pagos add constraint fk_venta_pagos_forma_pago FOREIGN KEY (forma_pago_id) REFERENCES formas_pago(id) ON DELETE RESTRICT;
+alter table public.venta_pagos add constraint fk_venta_pagos_venta FOREIGN KEY (venta_id) REFERENCES ventas(id) ON DELETE CASCADE;
+alter table public.ventas add constraint fk_ventas_forma_pago FOREIGN KEY (forma_pago_id) REFERENCES formas_pago(id) ON DELETE SET NULL;
+alter table public.ventas add constraint fk_ventas_kiosco FOREIGN KEY (kiosco_id) REFERENCES kioscos(id) ON DELETE SET NULL;
+alter table public.ventas add constraint fk_ventas_persona FOREIGN KEY (persona_id) REFERENCES personas(id) ON DELETE SET NULL;
+alter table public.ventas add constraint fk_ventas_usuario FOREIGN KEY (usuario_operador_id) REFERENCES usuarios(id) ON DELETE SET NULL;
+
+-- 6) Índices
+CREATE INDEX IF NOT EXISTS ix_asistencias_abiertas ON public.asistencias USING btree (kiosco_id, usuario_id) WHERE (salida IS NULL);
+CREATE INDEX IF NOT EXISTS ix_asistencias_kiosco_entrada ON public.asistencias USING btree (kiosco_id, entrada);
+CREATE INDEX IF NOT EXISTS idx_combo_detalle_combo_id ON public.combo_detalle USING btree (combo_id);
+CREATE INDEX IF NOT EXISTS idx_combo_detalle_producto_hijo ON public.combo_detalle USING btree (producto_hijo_id);
+CREATE INDEX IF NOT EXISTS idx_combodetalle_kiosco_id ON public.combo_detalle USING btree (kiosco_id);
+CREATE INDEX IF NOT EXISTS ix_combo_detalle_combo ON public.combo_detalle USING btree (combo_id);
+CREATE INDEX IF NOT EXISTS idx_compras_comprobante ON public.compras_mayoristas USING btree (kiosco_id, proveedor_id, numero_comprobante) WHERE (numero_comprobante IS NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_compras_kiosco_estado ON public.compras_mayoristas USING btree (kiosco_id, estado);
+CREATE INDEX IF NOT EXISTS idx_compras_pedido ON public.compras_mayoristas USING btree (pedido_id) WHERE (pedido_id IS NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_familias_kiosco ON public.familias USING btree (kiosco_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_familia_nombre_kiosco ON public.familias USING btree (kiosco_id, nombre);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_familias_nombre ON public.familias USING btree (kiosco_id, upper((nombre)::text));
+CREATE UNIQUE INDEX IF NOT EXISTS ux_formas_pago_nombre ON public.formas_pago USING btree (kiosco_id, upper(nombre));
+CREATE INDEX IF NOT EXISTS idx_horarios_rango ON public.horarios_ventas USING btree (hora_inicio, hora_fin);
+CREATE INDEX IF NOT EXISTS idx_import_excel_hash ON public.importaciones_excel USING btree (kiosco_id, hash_archivo) WHERE (hash_archivo IS NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_import_excel_kiosco_fecha ON public.importaciones_excel USING btree (kiosco_id, fecha DESC);
+CREATE INDEX IF NOT EXISTS idx_import_excel_proveedor ON public.importaciones_excel USING btree (kiosco_id, proveedor_id, fecha DESC) WHERE (mapeo IS NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_cliente_kiosco ON public.personas USING btree (kiosco_id) WITH (fillfactor='100', deduplicate_items='true');
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_cliente_nombre_kiosco ON public.personas USING btree (kiosco_id, nombre) WITH (fillfactor='100', deduplicate_items='true');
+CREATE INDEX IF NOT EXISTS ix_personas_kiosco ON public.personas USING btree (kiosco_id);
+CREATE INDEX IF NOT EXISTS idx_productos_codigo_barras ON public.productos USING btree (codigo_barras);
+CREATE INDEX IF NOT EXISTS idx_productos_kiosco_codigo ON public.productos USING btree (kiosco_id, codigo_barras);
+CREATE INDEX IF NOT EXISTS idx_productos_kiosco_id ON public.productos USING btree (kiosco_id);
+CREATE INDEX IF NOT EXISTS idx_productos_kiosco_nombre_trgm ON public.productos USING gin (kiosco_id, nombre gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_productos_nombre ON public.productos USING btree (nombre);
+CREATE INDEX IF NOT EXISTS idx_productos_nombre_trgm ON public.productos USING gin (nombre gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS ix_productos_codigo_trgm ON public.productos USING gin (codigo_barras gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS ix_productos_kiosco_codigo ON public.productos USING btree (kiosco_id, codigo_barras);
+CREATE INDEX IF NOT EXISTS ix_productos_kiosco_familia ON public.productos USING btree (kiosco_id, familia_id);
+CREATE INDEX IF NOT EXISTS ix_productos_kiosco_fecha_act ON public.productos USING btree (kiosco_id, fecha_actualizacion);
+CREATE INDEX IF NOT EXISTS ix_productos_kiosco_nombre ON public.productos USING btree (kiosco_id, activo, nombre);
+CREATE INDEX IF NOT EXISTS ix_productos_kiosco_sin_stock ON public.productos USING btree (kiosco_id) WHERE (sin_stock AND activo);
+CREATE INDEX IF NOT EXISTS ix_productos_kiosco_stock_bajo ON public.productos USING btree (kiosco_id) WHERE (stock_bajo AND activo);
+CREATE INDEX IF NOT EXISTS ix_productos_nombre_busqueda_trgm ON public.productos USING gin (nombre_busqueda gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS ix_productos_nombre_trgm ON public.productos USING gin (nombre gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_prod_prov_codigo ON public.productos_proveedores USING btree (id_kiosco, codigo_barras_proveedor);
+CREATE INDEX IF NOT EXISTS idx_prod_prov_producto ON public.productos_proveedores USING btree (id_producto);
+CREATE INDEX IF NOT EXISTS idx_prod_prov_proveedor ON public.productos_proveedores USING btree (id_proveedor);
+CREATE INDEX IF NOT EXISTS ix_prod_prov_kiosco_proveedor ON public.productos_proveedores USING btree (id_kiosco, id_proveedor);
+CREATE INDEX IF NOT EXISTS ix_prod_prov_producto ON public.productos_proveedores USING btree (id_producto);
+CREATE INDEX IF NOT EXISTS ix_prod_prov_proveedor ON public.productos_proveedores USING btree (id_proveedor);
+CREATE INDEX IF NOT EXISTS ix_varios_ventas_mov ON public.productos_varios_ventas USING btree (numero_unico_identificatorio_movimiento);
+CREATE INDEX IF NOT EXISTS idx_proveedores_kiosco ON public.proveedores USING btree (kiosco_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_proveedor_nombre_kiosco ON public.proveedores USING btree (kiosco_id, nombre);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_proveedores_nombre ON public.proveedores USING btree (kiosco_id, upper((nombre)::text));
+CREATE INDEX IF NOT EXISTS ix_turnos_kiosco ON public.turnos USING btree (kiosco_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_usuarios_username ON public.usuarios USING btree (username);
+CREATE INDEX IF NOT EXISTS ix_venta_detalles_mov ON public.venta_detalles USING btree (numero_unico_identificatorio_movimiento);
+CREATE INDEX IF NOT EXISTS ix_venta_detalles_producto ON public.venta_detalles USING btree (producto_id);
+CREATE INDEX IF NOT EXISTS idx_venta_pagos_forma_pago_id ON public.venta_pagos USING btree (forma_pago_id);
+CREATE INDEX IF NOT EXISTS idx_venta_pagos_venta_id ON public.venta_pagos USING btree (venta_id);
+CREATE INDEX IF NOT EXISTS ix_ventas_kiosco_fecha ON public.ventas USING btree (kiosco_id, fecha);
+CREATE INDEX IF NOT EXISTS ix_ventas_movimiento ON public.ventas USING btree (numero_unico_identificatorio_movimiento);
+CREATE INDEX IF NOT EXISTS ix_ventas_persona_pendiente ON public.ventas USING btree (persona_id) WHERE (pagado = false);
+
+-- 7) Vistas
+create or replace view public.vw_resumen_formas_pago as
+ SELECT v.kiosco_id,
+    v.forma_pago_id,
+    fp.nombre AS forma_pago,
+    date(v.fecha) AS fecha,
+    count(*) AS cantidad_ventas,
+    sum(v.total) AS total_recaudado
+   FROM ventas v
+     JOIN formas_pago fp ON fp.id = v.forma_pago_id
+  GROUP BY v.kiosco_id, v.forma_pago_id, fp.nombre, (date(v.fecha));
+
+create or replace view public.vw_pagos_parciales_x_deudas as
+ SELECT v.persona_id,
+    v.kiosco_id,
+    sum(v.total) AS pago_entregado,
+    v.forma_pago_id,
+    v.numero_unico_identificatorio_movimiento,
+    fp.nombre AS fp_nombre,
+    max(v.fecha) AS fecha
+   FROM ventas v
+     JOIN formas_pago fp ON fp.id = v.forma_pago_id
+  WHERE (EXISTS ( SELECT 1
+           FROM ventas vp
+          WHERE vp.numero_unico_identificatorio_movimiento = v.numero_unico_identificatorio_movimiento AND vp.total < 0::numeric))
+  GROUP BY v.persona_id, v.kiosco_id, v.forma_pago_id, v.numero_unico_identificatorio_movimiento, fp.nombre
+ HAVING sum(v.total) < 0::numeric;
+
+create or replace view public.vw_deudas_pendientes_detallado as
+ SELECT v.kiosco_id,
+    p.id AS persona_id,
+    p.nombre,
+    v.numero_unico_identificatorio_movimiento,
+    v.fecha,
+    prod.id AS producto_id,
+    prod.codigo_barras,
+    prod.nombre AS producto,
+    vd.cantidad,
+    vd.precio_unitario AS precio_historico,
+    prod.precio_venta AS precio_actual,
+    vd.subtotal AS subtotal_historico,
+        CASE
+            WHEN lower(TRIM(BOTH FROM prod.unidad)) = ANY (ARRAY['gr'::text, 'grs'::text, 'gramos'::text, 'kg'::text, 'kilo'::text, 'kilos'::text]) THEN prod.precio_venta / 1000::numeric * vd.cantidad::numeric
+            ELSE prod.precio_venta * vd.cantidad::numeric
+        END AS subtotal_actual
+   FROM ventas v
+     JOIN venta_detalles vd ON vd.numero_unico_identificatorio_movimiento = v.numero_unico_identificatorio_movimiento
+     JOIN personas p ON p.id = v.persona_id
+     JOIN productos prod ON prod.id = vd.producto_id
+  WHERE v.pagado = false
+  ORDER BY p.nombre;
+
+create or replace view public.vw_resumen_deudores as
+ WITH pagos AS (
+         SELECT v.persona_id,
+            v.kiosco_id,
+            sum(v.total) AS pago_entregado
+           FROM ventas v
+          WHERE (EXISTS ( SELECT 1
+                   FROM ventas vp
+                  WHERE vp.numero_unico_identificatorio_movimiento = v.numero_unico_identificatorio_movimiento AND vp.total < 0::numeric))
+          GROUP BY v.persona_id, v.kiosco_id
+        ), movs AS (
+         SELECT DISTINCT ventas.numero_unico_identificatorio_movimiento AS mov
+           FROM ventas
+          WHERE ventas.pagado = false
+        ), items AS (
+         SELECT vd.numero_unico_identificatorio_movimiento AS mov,
+            sum(vd.subtotal) AS hist,
+            sum(GREATEST(vd.subtotal,
+                CASE
+                    WHEN lower(TRIM(BOTH FROM prod.unidad)) = ANY (ARRAY['gr'::text, 'grs'::text, 'gramos'::text, 'kg'::text, 'kilo'::text, 'kilos'::text]) THEN prod.precio_venta / 1000::numeric * vd.cantidad::numeric
+                    ELSE prod.precio_venta * vd.cantidad::numeric
+                END)) AS hoy
+           FROM venta_detalles vd
+             JOIN productos prod ON prod.id = vd.producto_id
+          WHERE (vd.numero_unico_identificatorio_movimiento IN ( SELECT movs.mov
+                   FROM movs))
+          GROUP BY vd.numero_unico_identificatorio_movimiento
+        ), varios AS (
+         SELECT productos_varios_ventas.numero_unico_identificatorio_movimiento AS mov,
+            sum(productos_varios_ventas.subtotal) AS total
+           FROM productos_varios_ventas
+          WHERE (productos_varios_ventas.numero_unico_identificatorio_movimiento IN ( SELECT movs.mov
+                   FROM movs))
+          GROUP BY productos_varios_ventas.numero_unico_identificatorio_movimiento
+        ), deudas AS (
+         SELECT v.kiosco_id,
+            v.persona_id,
+            sum(v.total) AS historico,
+            sum(
+                CASE
+                    WHEN v.es_ajuste_precio THEN 0::numeric
+                    WHEN (COALESCE(i.hist, 0::numeric) + COALESCE(va.total, 0::numeric)) > 0::numeric THEN v.total * (COALESCE(i.hoy, 0::numeric) + COALESCE(va.total, 0::numeric)) / (COALESCE(i.hist, 0::numeric) + COALESCE(va.total, 0::numeric))
+                    ELSE v.total
+                END) AS actual
+           FROM ventas v
+             LEFT JOIN items i ON i.mov = v.numero_unico_identificatorio_movimiento
+             LEFT JOIN varios va ON va.mov = v.numero_unico_identificatorio_movimiento
+          WHERE v.pagado = false AND v.persona_id IS NOT NULL
+          GROUP BY v.kiosco_id, v.persona_id
+        )
+ SELECT d.kiosco_id,
+    d.persona_id,
+    p.nombre,
+    COALESCE(pg.pago_entregado, 0::numeric) AS total_pago_entregado,
+    round(d.actual, 2) AS deuda_precio_actual,
+    d.historico AS deuda_precio_historico
+   FROM deudas d
+     JOIN personas p ON p.id = d.persona_id
+     LEFT JOIN pagos pg ON pg.persona_id = d.persona_id AND pg.kiosco_id = d.kiosco_id
+  ORDER BY p.nombre;
+
+create or replace view public.vw_asistencias as
+ SELECT a.id,
+    a.kiosco_id,
+    a.usuario_id,
+    u.username,
+    u.rol,
+    a.dispositivo,
+    a.cierre,
+    to_char((a.entrada AT TIME ZONE 'America/Argentina/Buenos_Aires'::text), 'YYYY-MM-DD'::text) AS dia,
+    to_char((a.entrada AT TIME ZONE 'America/Argentina/Buenos_Aires'::text), 'YYYY-MM-DD HH24:MI'::text) AS entrada_local,
+    to_char((a.salida AT TIME ZONE 'America/Argentina/Buenos_Aires'::text), 'YYYY-MM-DD HH24:MI'::text) AS salida_local,
+    a.salida IS NULL AS abierta,
+    round(EXTRACT(epoch FROM COALESCE(a.salida, now()) - a.entrada) / 60::numeric)::integer AS minutos
+   FROM asistencias a
+     LEFT JOIN usuarios u ON u.id = a.usuario_id;
+
+-- 8) Triggers
+CREATE TRIGGER trg_productos_fecha_precio BEFORE UPDATE ON public.productos FOR EACH ROW EXECUTE FUNCTION tg_productos_fecha_precio();
+CREATE TRIGGER update_producto_modtime BEFORE UPDATE ON public.productos FOR EACH ROW EXECUTE FUNCTION update_modified_column();
+
+-- 9) Seguridad (RLS)
+
+

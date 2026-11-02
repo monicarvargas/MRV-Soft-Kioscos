@@ -1,0 +1,393 @@
+﻿@page "/carteles"
+@using BlazorKioscoCompartido.Models
+@using BlazorKioscoCompartido.Components
+@using static Supabase.Postgrest.Constants
+@inject Supabase.Client SupaClient
+@inject AppState State
+@inject PrecioService PrecioServ
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+<PedidosEstilos />
+<VentasEstilos />
+<AvisosPagina @ref="avisos" />
+
+<div class="container-fluid px-3 py-2 min-vh-100 style-notebook gp-scope gp-page ct-pantalla">
+    <EncabezadoPagina Titulo="@(EsCodigos ? "Códigos de barras" : "Carteles de precios")"
+                      Subtitulo="@(EsCodigos ? "Etiquetas para pegar en potes, frascos y bolsitas" : "Para imprimir y poner en las góndolas")"
+                      IconoClass="@(EsCodigos ? "bi-upc-scan" : "bi-tags-fill")"
+                      ColorBorde="primary"
+                      ColorIcono="primary"
+                      MostrarBotonAyuda="false"
+                      RutaVolver="/productos" />
+
+    @* ================= SOLAPAS ================= *@
+    <div class="vt-wrap ct-solapas">
+        <div class="gp-seg" role="tablist">
+            <button type="button" class="@(EsCodigos ? "" : "is-active")" @onclick='() => CambiarSolapa("carteles")'><i class="bi bi-tags-fill"></i> Carteles de precios</button>
+            <button type="button" class="@(EsCodigos ? "is-active" : "")" @onclick='() => CambiarSolapa("codigos")'><i class="bi bi-upc-scan"></i> Códigos de barras</button>
+        </div>
+    </div>
+
+    @if (EsCodigos)
+    {
+        <EtiquetasCodigos />
+    }
+    else
+    {
+    <div class="vt-wrap" style="display:flex; flex-direction:column; gap:1rem">
+
+        @* ================= ELEGIR PRODUCTOS ================= *@
+        <section class="gp-card gp-card-pad">
+            <div class="gp-card-head">
+                <span class="gp-bubble"><i class="bi bi-plus-square-fill"></i></span>
+                <div class="vt-head-text">
+                    <h2>¿Qué carteles imprimís?</h2>
+                    <p>Buscá y tildá los productos (o pasá el lector de códigos), o traé de una vez los que cambiaron de precio.</p>
+                </div>
+            </div>
+
+            <BuscadorMultiple EstaElegido="@(id => items.Any(i => i.Producto.Id == id))" OnAlternar="Alternar" OnAgregarTodos="AgregarVarios" />
+
+            <div class="ct-rapido">
+                <span class="cf-lbl" style="margin:0">Los que cambiaron de precio desde</span>
+                <input type="date" class="gp-control" @bind="desde" />
+                <button type="button" class="gp-btn gp-btn-soft" disabled="@trayendo" @onclick="AgregarModificados">
+                    <i class="bi bi-clock-history"></i> @(trayendo ? "Buscando..." : "Agregar")
+                </button>
+            </div>
+        </section>
+
+        @* ================= OPCIONES ================= *@
+        <section class="gp-card gp-card-pad">
+            <div class="ct-opciones">
+                @if (!string.IsNullOrEmpty(nombreLista2))
+                {
+                    <label class="gp-switch">
+                        <input type="checkbox" checked="@mostrarLista2" @onchange="e => CambiarLista2Todos((bool)e.Value!)" />
+                        <span class="gp-switch-track"></span>
+                        <span class="gp-switch-text">Mostrar precio @nombreLista2 (ej: $ 1.300|1.600)</span>
+                    </label>
+                }
+                <div class="gp-seg" role="group">
+                    <button type="button" class="@(tamano == "grande" ? "is-active" : "")" @onclick='() => tamano = "grande"'>Grandes (2 por fila)</button>
+                    <button type="button" class="@(tamano == "chico" ? "is-active" : "")" @onclick='() => tamano = "chico"'>Chicos (3 por fila)</button>
+                </div>
+            </div>
+        </section>
+
+        @* ================= VISTA PREVIA ================= *@
+        <section class="gp-card gp-card-pad">
+            <div class="gp-card-head">
+                <span class="gp-bubble"><i class="bi bi-printer-fill"></i></span>
+                <div class="vt-head-text">
+                    <h2>@(items.Count == 1 ? "1 cartel" : $"{items.Count} carteles")</h2>
+                    <p>Así se van a imprimir. Tocá la ✕ para sacar uno.</p>
+                </div>
+                <div class="vt-head-right" style="display:flex; gap:.4rem">
+                    @if (items.Any())
+                    {
+                        <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm" @onclick="Vaciar"><i class="bi bi-trash3"></i> Vaciar</button>
+                    }
+                    <button type="button" class="gp-btn gp-btn-soft gp-btn-sm" title="Descargar en Word para modificarlo" disabled="@(!items.Any() || descargando)" @onclick="DescargarWord"><i class="bi bi-file-earmark-word-fill" style="color:#2b579a"></i> Word</button>
+                    <button type="button" class="gp-btn gp-btn-soft gp-btn-sm" title="Descargar en PDF" disabled="@(!items.Any() || descargando)" @onclick="DescargarPdf"><i class="bi bi-file-earmark-pdf-fill" style="color:#d93025"></i> PDF</button>
+                    <button type="button" class="gp-btn gp-btn-primary gp-btn-sm" disabled="@(!items.Any())" @onclick="Imprimir"><i class="bi bi-printer-fill"></i> Imprimir</button>
+                </div>
+            </div>
+
+            @if (!items.Any())
+            {
+                <div class="gp-empty">
+                    <span class="gp-bubble"><i class="bi bi-tags"></i></span>
+                    <strong>Todavía no agregaste productos</strong>
+                    <span>Buscalos arriba o usá "Los que cambiaron de precio".</span>
+                </div>
+            }
+        </section>
+    </div>
+    }
+</div>
+
+@* ===== HOJA: es lo único que sale en la impresión ===== *@
+@if (!EsCodigos && items.Any())
+{
+    <div class="ct-hoja @(tamano == "chico" ? "is-chico" : "")">
+        @foreach (var it in items)
+        {
+            <div class="ct-cartel">
+                <button type="button" class="ct-quitar" title="Sacar" @onclick="() => items.Remove(it)">✕</button>
+                <div class="ct-nombre">@it.Producto.Nombre</div>
+                <div class="ct-precio">
+                    $ @Monto(it.Producto.PrecioVenta ?? 0)@(MuestraLista2(it) ? "|" + Monto(Lista2(it.Producto)) : "")@(it.Producto.EsVentaPorPeso() ? " kg" : "")
+                </div>
+                <div class="ct-pie">
+                    <span>@it.Producto.CodigoBarras</span>
+                    <span>@(it.Producto.FechaActualizacion?.ToString("d/M/yyyy") ?? "")</span>
+                </div>
+                @if (!string.IsNullOrEmpty(nombreLista2) && TieneLista2(it.Producto))
+                {
+                    <label class="ct-l2" title="Mostrar el precio @nombreLista2 en este cartel">
+                        <input type="checkbox" checked="@it.ConLista2" @onchange="e => it.ConLista2 = (bool)e.Value!" /> @nombreLista2
+                    </label>
+                }
+            </div>
+        }
+    </div>
+}
+
+<style>
+    .ct-solapas { margin-bottom: 1rem; }
+    .ct-solapas .gp-seg { display: flex; width: 100%; }
+    .ct-solapas .gp-seg button { flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: .45rem; }
+    .ct-rapido { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-top: .9rem; }
+    .ct-rapido .gp-control { width: auto; min-width: 10rem; }
+    .ct-pantalla .vt-head-right { flex-wrap: wrap; justify-content: flex-end; }
+    .ct-opciones { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .8rem; }
+
+    /* ---- hoja de carteles (en pantalla: vista previa) ---- */
+    .ct-hoja { display: grid; grid-template-columns: repeat(2, 95mm); gap: 4mm; justify-content: center; padding: 1rem 0 5rem; }
+    .ct-hoja.is-chico { grid-template-columns: repeat(3, 63mm); }
+    .ct-cartel { position: relative; display: flex; flex-direction: column; height: 32mm; padding: 2.5mm 3mm 2mm; border: 1px solid #222; background: #fff; color: #000; font-family: Verdana, Tahoma, Arial, sans-serif; overflow: hidden; break-inside: avoid; page-break-inside: avoid; }
+    .ct-nombre { font-size: 11pt; text-transform: uppercase; line-height: 1.15; max-height: 2.4em; overflow: hidden; }
+    .ct-precio { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; font-family: "Arial Narrow", Arial, sans-serif; font-weight: 900; font-size: 25pt; letter-spacing: -.5px; white-space: nowrap; }
+    .ct-pie { display: flex; justify-content: space-around; font-size: 7.5pt; }
+    .is-chico .ct-cartel { height: 28mm; padding: 2mm 2.5mm 1.5mm; }
+    .is-chico .ct-nombre { font-size: 8.5pt; }
+    .is-chico .ct-precio { font-size: 17pt; }
+    .is-chico .ct-pie { font-size: 6.5pt; }
+
+    .ct-quitar { position: absolute; top: 1px; right: 2px; width: 1.4rem; height: 1.4rem; border: 0; border-radius: 50%; background: #fdebee; color: #cf2f4b; font-size: .75rem; font-weight: 900; cursor: pointer; }
+    .ct-l2 { position: absolute; bottom: 1px; right: 4px; display: inline-flex; align-items: center; gap: .2rem; font-family: inherit; font-size: .65rem; font-weight: 700; color: #667291; cursor: pointer; }
+
+    @@media (max-width: 767.98px) {
+        /* en el celular la vista previa se achica para que entre */
+        .ct-hoja, .ct-hoja.is-chico { grid-template-columns: 1fr; padding-left: .8rem; padding-right: .8rem; }
+        .ct-cartel { width: 100%; }
+    }
+
+    /* ---- impresión: solo los carteles ---- */
+    @@media print {
+        @@page { size: A4; margin: 8mm; }
+        body * { visibility: hidden !important; }
+        .ct-hoja, .ct-hoja * { visibility: visible !important; }
+        .ct-hoja { position: absolute; left: 0; top: 0; width: 100%; padding: 0 !important; grid-template-columns: repeat(2, 95mm) !important; }
+        .ct-hoja.is-chico { grid-template-columns: repeat(3, 63mm) !important; }
+        .ct-cartel { width: auto !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        .ct-quitar, .ct-l2 { display: none !important; }
+    }
+</style>
+
+@code {
+    public sealed class ItemCartel
+    {
+        public Producto Producto { get; set; } = new();
+        public bool ConLista2 { get; set; }
+    }
+
+    // la lista se recuerda mientras la app está abierta (si sale y vuelve, sigue armada)
+    private static List<ItemCartel> items = new();
+    private static string tamano = "grande";
+    private static bool mostrarLista2 = true;
+
+    /// <summary>Solapa: "carteles" o "codigos" (/carteles?tab=codigos abre directo en códigos de barras).</summary>
+    [SupplyParameterFromQuery(Name = "tab")] public string? Tab { get; set; }
+    private bool EsCodigos => string.Equals(Tab, "codigos", StringComparison.OrdinalIgnoreCase);
+    private void CambiarSolapa(string t) => Nav.NavigateTo(t == "codigos" ? "/carteles?tab=codigos" : "/carteles", replace: true);
+
+    private AvisosPagina avisos = default!;
+    private string nombreLista2 = "";
+    private DateTime desde = DateTime.Today;
+    private bool trayendo;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (State.KioscoId == 0) { Nav.NavigateTo("/login"); return; }
+        if (items.Any(i => i.Producto.KioscoId != State.KioscoId)) items.Clear();   // otro negocio
+        await PrecioServ.AsegurarReglasAsync(State.KioscoId);   // recargos de la Lista 2 del negocio
+
+        try
+        {
+            long k = State.KioscoId;
+            var res = await SupaClient.From<ListaPrecio>().Where(x => x.KioscoId == k).Get();
+            var l2 = (res.Models ?? new()).FirstOrDefault(x => x.NombreColumnaProductos == "precio_lista2");
+            nombreLista2 = l2 == null ? "" : (string.IsNullOrWhiteSpace(l2.NombreLista) ? "Lista 2" : l2.NombreLista!);
+        }
+        catch { nombreLista2 = ""; }
+    }
+
+    // ===================== PRECIOS =====================
+    private decimal Lista2(Producto p) => PrecioService.PrecioSegunLista(p, "precio_lista2", State.KioscoId);
+    private bool TieneLista2(Producto p) => Lista2(p) > 0 && Lista2(p) != (p.PrecioVenta ?? 0);
+    private bool MuestraLista2(ItemCartel it) => !string.IsNullOrEmpty(nombreLista2) && it.ConLista2 && TieneLista2(it.Producto);
+
+    /// <summary>1300 → "1.300"; 1300,5 → "1.300,50".</summary>
+    private static string Monto(decimal v)
+    {
+        var c = System.Globalization.CultureInfo.GetCultureInfo("es-AR");
+        return v == Math.Truncate(v) ? v.ToString("N0", c) : v.ToString("N2", c);
+    }
+
+    // ===================== AGREGAR / SACAR =====================
+    /// <summary>Tildar / destildar en el buscador: agrega o saca el cartel.</summary>
+    private void Alternar(Producto p)
+    {
+        var ya = items.FirstOrDefault(i => i.Producto.Id == p.Id);
+        if (ya != null) { items.Remove(ya); return; }
+        items.Add(new ItemCartel { Producto = p, ConLista2 = mostrarLista2 });
+    }
+
+    private void AgregarVarios(List<Producto> productos)
+    {
+        int antes = items.Count;
+        foreach (var p in productos)
+            if (!items.Any(i => i.Producto.Id == p.Id))
+                items.Add(new ItemCartel { Producto = p, ConLista2 = mostrarLista2 });
+        int nuevos = items.Count - antes;
+        if (nuevos > 0) avisos.Toast($"Se agregaron {nuevos} carteles", "exito", 1800);
+    }
+
+    /// <summary>Desde otra pantalla (ej: Cambiar precios en grupo): deja estos productos listos para imprimir.</summary>
+    public static void Precargar(IEnumerable<Producto> productos)
+    {
+        foreach (var p in productos)
+        {
+            var ya = items.FirstOrDefault(i => i.Producto.Id == p.Id);
+            if (ya != null) ya.Producto = p;   // con el precio nuevo
+            else items.Add(new ItemCartel { Producto = p, ConLista2 = mostrarLista2 });
+        }
+    }
+
+    private async Task AgregarModificados()
+    {
+        trayendo = true;
+        try
+        {
+            long k = State.KioscoId;
+            var d = desde.Date;
+            var res = await SupaClient.From<Producto>()
+                .Select("id, kiosco_id, nombre, codigo_barras, precio_venta, precio_lista2, unidad, fecha_actualizacion, activo, es_combo")
+                .Where(p => p.KioscoId == k)
+                .Where(p => p.Activo == true)
+                .Filter("fecha_actualizacion", Operator.GreaterThanOrEqual, d.ToString("yyyy-MM-dd"))
+                .Order("nombre", Ordering.Ascending)
+                .Limit(500)
+                .Get();
+
+            int antes = items.Count;
+            foreach (var p in res.Models ?? new())
+                if (!items.Any(i => i.Producto.Id == p.Id))
+                    items.Add(new ItemCartel { Producto = p, ConLista2 = mostrarLista2 });
+
+            int nuevos = items.Count - antes;
+            avisos.Toast(nuevos == 0 ? "No hay productos nuevos modificados desde esa fecha" : $"Se agregaron {nuevos} carteles", nuevos == 0 ? "info" : "exito");
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudieron traer los productos", ex.Message, "peligro");
+        }
+        finally { trayendo = false; }
+    }
+
+    private void CambiarLista2Todos(bool valor)
+    {
+        mostrarLista2 = valor;
+        foreach (var i in items) i.ConLista2 = valor;
+    }
+
+    private async Task Vaciar()
+    {
+        if (await avisos.ConfirmarAsync("¿Vaciar la lista?", "Se sacan todos los carteles de la vista previa.", "Vaciar", "aviso"))
+            items.Clear();
+    }
+
+    // ===================== DESCARGAR (Word / PDF) =====================
+    private bool descargando;
+
+    /// <summary>"$ 1.300|1.600 kg": el mismo texto de precio que sale en el cartel.</summary>
+    private string TextoPrecio(ItemCartel it) =>
+        "$ " + Monto(it.Producto.PrecioVenta ?? 0) + (MuestraLista2(it) ? "|" + Monto(Lista2(it.Producto)) : "") + (it.Producto.EsVentaPorPeso() ? " kg" : "");
+
+    private string NombreArchivo => $"Carteles {DateTime.Now:yyyy-MM-dd HH.mm}";
+
+    private async Task<IJSObjectReference> ModuloDescargas() =>
+        await JS.InvokeAsync<IJSObjectReference>("import", "./_content/BlazorKioscoCompartido/js/descargas.js?v=5");
+
+    /// <summary>Word (.doc): una tabla con los carteles del mismo tamaño que la impresión. Se puede abrir y modificar.</summary>
+    private async Task DescargarWord()
+    {
+        if (!items.Any()) return;
+        descargando = true;
+        try
+        {
+            bool chico = tamano == "chico";
+            int porFila = chico ? 3 : 2;
+            string ancho = chico ? "6.3cm" : "9.5cm", alto = chico ? "2.8cm" : "3.2cm";
+            string fNombre = chico ? "8.5pt" : "11pt", fPrecio = chico ? "17pt" : "25pt", fPie = chico ? "6.5pt" : "7.5pt";
+            static string H(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
+
+            var sb = new System.Text.StringBuilder();
+            sb.Append("<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>");
+            sb.Append("<head><meta charset='utf-8'><title>Carteles</title><style>");
+            sb.Append("@page Section1 { size: 21cm 29.7cm; margin: 0.8cm; } div.Section1 { page: Section1; }");
+            sb.Append("table { border-collapse: separate; } ");
+            sb.Append($"td.c {{ width: {ancho}; height: {alto}; border: 1pt solid #222; padding: 0.15cm 0.2cm; vertical-align: top; font-family: Verdana, Arial, sans-serif; }}");
+            sb.Append($"p.n {{ margin: 0; font-size: {fNombre}; text-transform: uppercase; }}");
+            sb.Append($"p.p {{ margin: 0.1cm 0; font-family: 'Arial Narrow', Arial, sans-serif; font-weight: bold; font-size: {fPrecio}; text-align: center; white-space: nowrap; }}");
+            sb.Append($"p.f {{ margin: 0; font-size: {fPie}; text-align: center; }}");
+            sb.Append("</style></head><body><div class='Section1'>");
+            sb.Append("<table cellspacing='8' cellpadding='0'>");
+            for (int i = 0; i < items.Count; i += porFila)
+            {
+                sb.Append("<tr style='page-break-inside:avoid'>");
+                foreach (var it in items.Skip(i).Take(porFila))
+                {
+                    sb.Append("<td class='c'>");
+                    sb.Append($"<p class='n'>{H(it.Producto.Nombre?.ToUpper())}</p>");
+                    sb.Append($"<p class='p'>{H(TextoPrecio(it))}</p>");
+                    sb.Append($"<p class='f'>{H(it.Producto.CodigoBarras)}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{H(it.Producto.FechaActualizacion?.ToString("d/M/yyyy"))}</p>");
+                    sb.Append("</td>");
+                }
+                sb.Append("</tr>");
+            }
+            sb.Append("</table></div></body></html>");
+
+            var js = await ModuloDescargas();
+            await js.InvokeVoidAsync("descargarArchivo", NombreArchivo + ".doc", "application/msword", sb.ToString());
+            avisos.Toast("Word descargado: lo podés abrir y modificar antes de imprimir.", "exito", 3000);
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo descargar el Word", ex.Message, "peligro"); }
+        finally { descargando = false; }
+    }
+
+    /// <summary>PDF: los carteles en hojas A4, del mismo tamaño que la impresión.</summary>
+    private async Task DescargarPdf()
+    {
+        if (!items.Any()) return;
+        descargando = true;
+        try
+        {
+            var datos = new
+            {
+                archivo = NombreArchivo + ".pdf",
+                chico = tamano == "chico",
+                carteles = items.Select(it => new
+                {
+                    nombre = (it.Producto.Nombre ?? "").ToUpper(),
+                    precio = TextoPrecio(it),
+                    codigo = it.Producto.CodigoBarras ?? "",
+                    fecha = it.Producto.FechaActualizacion?.ToString("d/M/yyyy") ?? ""
+                }).ToList()
+            };
+            var js = await ModuloDescargas();
+            await js.InvokeVoidAsync("generarCartelesPdf", datos);
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo armar el PDF", ex.Message, "peligro"); }
+        finally { descargando = false; }
+    }
+
+    private async Task Imprimir()
+    {
+        try { await JS.InvokeVoidAsync("print"); }
+        catch { await avisos.InformarAsync("No se pudo abrir la impresión", "Probá desde la computadora o con Ctrl+P.", "aviso"); }
+    }
+}

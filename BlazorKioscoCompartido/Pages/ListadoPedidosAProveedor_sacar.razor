@@ -1,0 +1,527 @@
+﻿@using BlazorKioscoCompartido.Models
+@using BlazorKioscoCompartido.Models.DTO
+@inject BlazorKioscoCompartido.Services.AppState State
+@using Supabase.Postgrest
+@inject PrecioService PrecioServ
+@inject Supabase.Client SupaClient
+@inject IJSRuntime JSRuntime
+
+<div class="container-fluid p-3 p-md-4 bg-light min-vh-100">
+    <div class="card border-0 shadow-sm rounded-4 bg-white p-3 p-md-4 mb-4">
+        <EncabezadoPagina Titulo="Listado de Pedido a Proveedores"
+                          Subtitulo="Cargar todos los productos que se tienen que encargar en el mayorista"
+                          IconoClass="bi-box-arrow-in-down"
+                          RutaVolver="/productos" />
+        <!-- FILTROS SUPERIORES -->
+        <div class="row g-3 align-items-center mb-3">
+            <div class="col-12 col-md-4">
+                <label class="form-label small fw-bold text-secondary mb-1">Proveedor</label>
+                <select class="form-select border-light-subtle rounded-3 shadow-none fw-semibold" value="@proveedorSeleccionadoId" @onchange="OnProveedorChanged">
+                    <option value="0">-- Sin proveedor --</option>
+                    @foreach (var p in proveedoresVisibles)
+                    {
+                        <option value="@p.Id">@p.Nombre</option>
+                    }
+                </select>
+            </div>
+
+            <div class="col-12 col-md-3">
+                <label class="form-label small fw-bold text-secondary mb-1">Stock actual hasta</label>
+                <input type="number" class="form-control border-light-subtle rounded-3 shadow-none fw-semibold text-center"
+                       @bind="filtroStockMax" @bind:event="oninput" @onchange="AplicarFiltros" />
+            </div>
+
+            <div class="col-12 col-md-5 d-flex align-items-center justify-content-md-start pt-md-4">
+                <div class="form-check form-switch d-flex align-items-center gap-2 cursor-pointer">
+                    <input class="form-check-input fs-4 my-0" type="checkbox" id="chkMinimo"
+                           @bind="soloStockMinimo" @bind:after="AplicarFiltros" style="cursor: pointer;" />
+                    <label class="form-check-label fw-bold text-dark fs-6 user-select-none" for="chkMinimo" style="cursor: pointer;">
+                        Solo stock mínimo
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- BUSCADOR DE PRODUCTOS INTEGRADOR -->
+       @*  <div class="row mb-3">
+            <div class="col-12">
+                <div class="input-group input-group-lg border rounded-3 bg-white overflow-hidden shadow-2xs">
+                    <span class="input-group-text bg-transparent border-0 text-muted pe-1">
+                        <i class="bi bi-search fs-5"></i>
+                    </span>
+                    <input type="text" class="form-control border-0 shadow-none fs-6"
+                           placeholder="Buscar por código o nombre del producto..."
+                           @bind="textoBusqueda" @bind:event="oninput" @onkeyup="AplicarFiltros" />
+                    @if (!string.IsNullOrWhiteSpace(textoBusqueda))
+                    {
+                        <button class="btn btn-link text-muted pe-3 text-decoration-none" @onclick="LimpiarBusqueda">
+                            <i class="bi bi-x-circle-fill"></i>
+                        </button>
+                    }
+                    <span class="input-group-text bg-light border-0 text-muted small fw-semibold d-none d-md-flex align-items-center gap-1 me-2 rounded-2 my-1 px-2">
+                        ⌘ Buscar productos
+                    </span>
+                </div>
+            </div>
+        </div> *@
+
+        <!-- Bloque 1: Búsqueda por Escáner / Código de Barras -->
+        <BuscadorProducto CargarAlInicio="false"
+                          MostrarPrimeraLista="false"
+                          MostrarSegundaLista="false"
+                          OnProductoEncontrado="AgregarAlListado" />
+
+        <!-- CARTEL INFORMATIVO Y TOTAL ESTIMADO -->
+        <div class="alert alert-primary bg-primary bg-opacity-10 border-0 rounded-3 d-flex flex-column flex-md-row align-items-md-center justify-content-between p-3 mb-4">
+            <div class="d-flex align-items-center gap-2 mb-2 mb-md-0 text-primary">
+                <i class="bi bi-info-circle-fill fs-5"></i>
+                <span class="small fw-semibold">
+                    Los valores de costo y totales son estimativos basados en la última compra cargada. Pueden variar al recibir la mercadería.
+                </span>
+            </div>
+            <div class="text-md-end border-start-md border-primary border-opacity-25 ps-md-4 pt-2 pt-md-0">
+                <span class="fw-bold text-dark fs-6 me-2">Total estimado</span>
+                <span class="fw-black fs-4 text-success">$@MontoTotalEstimado.ToString("N2")</span>
+            </div>
+        </div>
+
+        <!-- TABLA DE PRODUCTOS -->
+        <div class="table-responsive rounded-3 border border-light-subtle">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="bg-light border-bottom text-secondary small fw-bold">
+                    <tr>
+                        <th class="ps-3" style="width: 40px;">
+                            <input class="form-check-input rounded-2" type="checkbox" @onchange="ToggleSeleccionarTodos" checked />
+                        </th>
+                        <th style="width: 130px;">Código</th>
+                        <th>Producto</th>
+                        <th class="text-center" style="width: 110px;">Stock actual</th>
+                        <th class="text-center" style="width: 90px;">Stock mín.</th>
+                        <th class="text-center" style="width: 90px;">Stock ideal</th>
+                        <th class="text-end" style="width: 120px;">Costo estimado</th>
+                        <th class="text-center" style="width: 100px;">Comprar</th>
+                        <th class="text-end" style="width: 140px;">Subtotal estimado</th>
+                        <th class="text-center pe-3" style="width: 140px;">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody class="fs-6">
+                    @if (!itemsFiltrados.Any())
+                    {
+                        <tr>
+                            <td colspan="10" class="text-center py-5 text-muted">
+                                <i class="bi bi-box-seam fs-1 d-block mb-2 text-black-50"></i>
+                                @(proveedorSeleccionadoId == 0
+                                    ? "Seleccioná un proveedor o buscá productos para armar el pedido."
+                                    : "No se encontraron productos con los filtros seleccionados.")
+                            </td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var item in itemsFiltrados)
+                        {
+                            <tr class="@(item.IncluirEnPedido ? "" : "bg-light text-muted opacity-75")">
+                                <td class="ps-3">
+                                    <input class="form-check-input rounded-2" type="checkbox" @bind="item.IncluirEnPedido" />
+                                </td>
+                                <td class="fw-semibold text-secondary small">
+                                    @(string.IsNullOrEmpty(item.Producto.CodigoBarras) ? "-" : item.Producto.CodigoBarras)
+                                </td>
+                                <td class="fw-bold text-dark">
+                                    @item.Producto.Nombre
+                                    @{ var codProv = ObtenerCodigoProveedor(item.Producto); }
+                                    @if (codProv != null)
+                                    {
+                                        <div class="small fw-normal text-muted font-monospace">
+                                            <i class="bi bi-upc-scan me-1"></i>@codProv
+                                        </div>
+                                    }
+                                </td>
+
+                                <!-- Stock Actual Editable -->
+                                <td class="text-center">
+                                    <input type="number" class="form-control form-control-sm text-center fw-bold border-light-subtle rounded-2 shadow-none mx-auto"
+                                           style="max-width: 80px;"
+                                           @bind="item.StockActualLocal" @bind:event="oninput" @onchange="() => RecalcularSugerencia(item)" />
+                                </td>
+
+                                <td class="text-center text-secondary fw-semibold">@(item.Producto.StockMinimo ?? 0)</td>
+                                <td class="text-center text-secondary fw-semibold">@(item.Producto.StockIdeal ?? 0)</td>
+
+                                <!-- Costo Estimado -->
+                                <td class="text-end fw-semibold text-secondary">
+                                    $@item.PrecioCostoLocal.ToString("N2")
+                                </td>
+
+                                <!-- Cantidad a Comprar (Fondo Amarillo Pastel como la imagen) -->
+                                <td class="text-center">
+                                    <input type="number" class="form-control form-control-sm text-center fw-bold border-warning border-opacity-50 rounded-2 shadow-none mx-auto"
+                                           style="max-width: 80px; background-color: #fef9c3;"
+                                           @bind="item.CantidadAComprar" min="1" />
+                                </td>
+
+                                <!-- Subtotal Estimado -->
+                                <td class="text-end fw-bold text-dark">
+                                    $@item.SubtotalEstimado.ToString("N2")
+                                </td>
+
+                                <!-- Botón Actualizar Stock -->
+                                <td class="text-center pe-3">
+                                    <button class="btn btn-sm btn-outline-primary fw-semibold rounded-3 d-inline-flex align-items-center gap-1"
+                                            @onclick="() => CorregirStockEnBD(item)">
+                                        <i class="bi bi-arrow-repeat"></i> Actualizar stock
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <!-- MENSAJES DE GUARDADO -->
+        @if (!string.IsNullOrEmpty(mensajeError))
+        {
+            <div class="alert alert-danger border-0 rounded-3 py-2 mt-3 mb-0 small fw-semibold">
+                <i class="bi bi-exclamation-triangle-fill me-1"></i> @mensajeError
+            </div>
+        }
+        @if (!string.IsNullOrEmpty(mensajeOk))
+        {
+            <div class="alert alert-success border-0 rounded-3 py-2 mt-3 mb-0 d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2">
+                <span class="small fw-semibold"><i class="bi bi-check-circle-fill me-1"></i> @mensajeOk</span>
+                <button class="btn btn-sm btn-outline-success fw-bold rounded-3" @onclick="NuevoPedido">
+                    <i class="bi bi-plus-circle me-1"></i> Nuevo pedido
+                </button>
+            </div>
+        }
+
+        <!-- BOTONES INFERIORES DE ACCIÓN -->
+        <div class="d-flex flex-column flex-sm-row justify-content-end gap-2 mt-4 pt-2">
+            <button class="btn btn-outline-success border-2 fw-bold px-4 py-2 rounded-3 d-inline-flex align-items-center justify-content-center gap-2"
+                    @onclick="CopiarListaParaWhatsapp">
+                <i class="bi bi-clipboard-check fs-5"></i> Copiar para WhatsApp
+            </button>
+            <button class="btn btn-primary fw-bold px-4 py-2 rounded-3 d-inline-flex align-items-center justify-content-center gap-2 shadow-sm"
+                    @onclick="GuardarListaPedidoAsync"
+                    disabled="@(guardando || !itemsFiltrados.Any(i => i.IncluirEnPedido))">
+                @if (guardando)
+                {
+                    <span class="spinner-border spinner-border-sm"></span> <span>Guardando...</span>
+                }
+                else
+                {
+                    <i class="bi bi-floppy-fill fs-5"></i> <span>Guardar lista de pedido</span>
+                }
+            </button>
+        </div>
+
+    </div>
+</div>
+
+@code {
+    private List<Proveedor> proveedores = new();
+    private List<ItemPedidoViewModelDTO> todosLosItems = new();
+    private List<ItemPedidoViewModelDTO> itemsFiltrados = new();
+
+    private long proveedorSeleccionadoId = 0;
+    private int filtroStockMax = 5;
+    private bool soloStockMinimo = false;
+    private string textoBusqueda = string.Empty;
+
+    // Productos agregados a mano desde el buscador (se muestran siempre, sin importar proveedor ni filtros de stock)
+    private HashSet<long> idsAgregadosManualmente = new();
+
+    // Código de barras que usa el proveedor seleccionado: id de producto -> código
+    private Dictionary<long, string?> codigosProveedor = new();
+
+    private const string NombreSinProveedor = "SIN PROVEEDOR";
+
+    private IEnumerable<Proveedor> proveedoresVisibles => proveedores.Where(p => !EsSinProveedor(p));
+
+    private static bool EsSinProveedor(Proveedor p) =>
+        string.Equals(p.Nombre?.Trim(), NombreSinProveedor, StringComparison.OrdinalIgnoreCase);
+
+    private string? ObtenerCodigoProveedor(Producto p) =>
+        codigosProveedor.TryGetValue(p.Id, out var cod) && !string.IsNullOrWhiteSpace(cod) ? cod : null;
+
+    private bool guardando = false;
+    private string? mensajeOk;
+    private string? mensajeError;
+
+    private decimal MontoTotalEstimado => itemsFiltrados
+        .Where(i => i.IncluirEnPedido)
+        .Sum(i => i.SubtotalEstimado);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var res = await SupaClient.From<Proveedor>().Where(p => p.KioscoId == State.KioscoId).Get();
+        proveedores = res.Models ?? new List<Proveedor>();
+
+    }
+
+    private async Task OnProveedorChanged(ChangeEventArgs e)
+    {
+        proveedorSeleccionadoId = long.TryParse(e.Value?.ToString(), out long provId) ? provId : 0;
+        await CargarProductosPorProveedorAsync();
+    }
+
+    private async Task CargarProductosPorProveedorAsync()
+    {
+        // Los productos agregados a mano con el buscador se conservan al cambiar de proveedor
+        var manuales = todosLosItems.Where(i => idsAgregadosManualmente.Contains(i.Producto.Id)).ToList();
+        var idsManuales = manuales.Select(i => i.Producto.Id).ToHashSet();
+
+        codigosProveedor = new();
+
+        var delProveedor = new List<ItemPedidoViewModelDTO>();
+        if (proveedorSeleccionadoId > 0)
+        {
+            var productos = await ObtenerProductosDelProveedorAsync(proveedorSeleccionadoId);
+            delProveedor = productos
+                .Where(p => !idsManuales.Contains(p.Id))
+                .Select(CrearItem)
+                .ToList();
+        }
+
+        todosLosItems = manuales.Concat(delProveedor).ToList();
+        AplicarFiltros();
+    }
+
+    /// <summary>
+    /// Productos del proveedor según la tabla productos_proveedores (un producto puede tener varios proveedores).
+    /// </summary>
+    private async Task<List<Producto>> ObtenerProductosDelProveedorAsync(long proveedorId)
+    {
+        // 1. Relaciones habilitadas de este proveedor
+        var resRel = await SupaClient.From<ProductoProveedor>()
+            .Where(r => r.IdProveedor == proveedorId)
+            .Where(r => r.IdKiosco == State.KioscoId)
+            .Where(r => r.Habilitado == true)
+            .Get();
+
+        // Guardamos el código de barras que usa el proveedor para cada producto
+        codigosProveedor = resRel.Models
+            .GroupBy(r => r.IdProducto)
+            .ToDictionary(g => g.Key, g => g.First().CodigoBarrasProveedor);
+
+        var idsProductos = resRel.Models.Select(r => r.IdProducto).Distinct().ToList();
+        var productos = new List<Producto>();
+
+        // 2. Traer los productos de a tandas (para no armar una URL demasiado larga)
+        foreach (var tanda in idsProductos.Chunk(100))
+        {
+            var criterio = tanda.Cast<object>().ToList();
+
+            var res = await SupaClient.From<Producto>()
+                .Where(p => p.KioscoId == State.KioscoId)
+                .Where(p => p.Activo == true)
+                .Filter(p => p.Id, Constants.Operator.In, criterio)
+                .Get();
+
+            productos.AddRange(res.Models);
+        }
+
+        return productos;
+    }
+
+    private ItemPedidoViewModelDTO CrearItem(Producto p)
+    {
+        decimal stkActual = (decimal)(p.StockActual ?? 0);
+        decimal stkIdeal = (decimal)(p.StockIdeal ?? 0);
+        decimal sugerido = stkIdeal > stkActual ? stkIdeal - stkActual : 1;
+
+        return new ItemPedidoViewModelDTO
+        {
+            Producto = p,
+            StockActualLocal = stkActual,
+            PrecioCostoLocal = p.PrecioCosto ?? 0,
+            CantidadAComprar = sugerido < 1 ? 1 : sugerido,
+            IncluirEnPedido = true
+        };
+    }
+
+    private void AplicarFiltros()
+    {
+        itemsFiltrados = todosLosItems.Where(item =>
+        {
+            // Lo agregado a mano desde el buscador se muestra siempre
+            if (idsAgregadosManualmente.Contains(item.Producto.Id)) return true;
+
+            // Filtro por límite de Stock Actual
+            bool cumpleStockMax = item.StockActualLocal <= filtroStockMax;
+
+            // Filtro por Stock Mínimo
+            bool cumpleMinimo = !soloStockMinimo || (item.StockActualLocal <= (decimal)(item.Producto.StockMinimo ?? 0));
+
+            // Filtro por Buscador de texto/código
+            bool cumpleBusqueda = string.IsNullOrWhiteSpace(textoBusqueda) ||
+                item.Producto.Nombre.Contains(textoBusqueda, StringComparison.OrdinalIgnoreCase) ||
+                (!string.IsNullOrEmpty(item.Producto.CodigoBarras) && item.Producto.CodigoBarras.Contains(textoBusqueda, StringComparison.OrdinalIgnoreCase));
+
+            return cumpleStockMax && cumpleMinimo && cumpleBusqueda;
+        }).ToList();
+    }
+
+    private void LimpiarBusqueda()
+    {
+        textoBusqueda = string.Empty;
+        AplicarFiltros();
+    }
+
+    private void RecalcularSugerencia(ItemPedidoViewModelDTO item)
+    {
+        decimal stkIdeal = (decimal)(item.Producto.StockIdeal ?? 0);
+        decimal sugerido = stkIdeal > item.StockActualLocal ? stkIdeal - item.StockActualLocal : 1;
+        item.CantidadAComprar = sugerido < 1 ? 1 : sugerido;
+    }
+
+    private async Task CorregirStockEnBD(ItemPedidoViewModelDTO item)
+    {
+        item.Producto.StockActual = (int)item.StockActualLocal;
+        await SupaClient.From<Producto>()
+            .Where(p => p.Id == item.Producto.Id)
+            .Set(p => p.StockActual, item.Producto.StockActual)
+            .Update();
+
+        await JSRuntime.InvokeVoidAsync("alert", $"Stock de '{item.Producto.Nombre}' actualizado a {item.StockActualLocal}.");
+    }
+
+    private void ToggleSeleccionarTodos(ChangeEventArgs e)
+    {
+        bool checkedValue = (bool)(e.Value ?? false);
+        foreach (var item in itemsFiltrados)
+        {
+            item.IncluirEnPedido = checkedValue;
+        }
+    }
+
+    private async Task GuardarListaPedidoAsync()
+    {
+        mensajeOk = null;
+        mensajeError = null;
+
+        var seleccionados = itemsFiltrados.Where(i => i.IncluirEnPedido).ToList();
+        if (!seleccionados.Any()) return;
+
+        // Si no se eligió proveedor se usa el registro especial "SIN PROVEEDOR"
+        long proveedorIdPedido = proveedorSeleccionadoId;
+        if (proveedorIdPedido <= 0)
+        {
+            var sinProveedor = proveedores.FirstOrDefault(EsSinProveedor);
+            if (sinProveedor == null)
+            {
+                mensajeError = $"No existe el proveedor '{NombreSinProveedor}'. Crealo en la tabla de proveedores para poder guardar pedidos sin proveedor.";
+                return;
+            }
+            proveedorIdPedido = sinProveedor.Id;
+        }
+
+        if (seleccionados.Any(i => i.CantidadAComprar <= 0))
+        {
+            mensajeError = "Hay productos con cantidad a comprar en 0. Corregilos o destildalos.";
+            return;
+        }
+
+        guardando = true;
+        ListaPedido? pedidoCreado = null;
+
+        try
+        {
+            // 1. Cabecera del pedido
+            var pedido = new ListaPedido
+            {
+                KioscoId = State.KioscoId,
+                ProveedorId = proveedorIdPedido,
+                Fecha = DateTime.UtcNow,
+                MontoEstimado = MontoTotalEstimado,
+                Estado = "Pendiente"
+            };
+
+            var resPedido = await SupaClient.From<ListaPedido>().Insert(pedido);
+            pedidoCreado = resPedido.Models.First();
+
+            // 2. Detalle (un renglón por producto tildado)
+            var detalles = seleccionados.Select(i => new ListaPedidoDetalle
+            {
+                PedidoId = pedidoCreado.Id,
+                ProductoId = i.Producto.Id,
+                // CodigoBarras = i.Producto.CodigoBarras,
+                CodigoBarrasProveedor = ObtenerCodigoProveedor(i.Producto),
+                NombreProducto = i.Producto.Nombre,
+                StockActual = i.StockActualLocal,
+                PrecioCosto = i.PrecioCostoLocal,
+                CantidadComprar = i.CantidadAComprar,
+                SubtotalEstimado = i.SubtotalEstimado
+            }).ToList();
+
+            await SupaClient.From<ListaPedidoDetalle>().Insert(detalles);
+
+            mensajeOk = $"Pedido guardado correctamente: {seleccionados.Count} productos, total estimado ${MontoTotalEstimado.ToString("N2")}.";
+        }
+        catch (Exception ex)
+        {
+            // Si falló el detalle, borramos la cabecera para no dejar un pedido vacío
+            if (pedidoCreado != null)
+            {
+                try
+                {
+                    var idPedido = pedidoCreado.Id;
+                    await SupaClient.From<ListaPedido>().Where(p => p.Id == idPedido).Delete();
+                }
+                catch { /* si tampoco se pudo borrar, el error original es el importante */ }
+            }
+
+            mensajeError = "No se pudo guardar el pedido: " + ex.Message;
+        }
+        finally
+        {
+            guardando = false;
+        }
+    }
+
+    private void NuevoPedido()
+    {
+        todosLosItems.Clear();
+        itemsFiltrados.Clear();
+        idsAgregadosManualmente.Clear();
+        codigosProveedor = new();
+        proveedorSeleccionadoId = 0;
+        mensajeOk = null;
+        mensajeError = null;
+    }
+
+    private void AgregarAlListado(Producto prod)
+    {
+        // Se marca como "agregado a mano" para que los filtros de stock no lo oculten
+        idsAgregadosManualmente.Add(prod.Id);
+
+        var existente = todosLosItems.FirstOrDefault(i => i.Producto.Id == prod.Id);
+        if (existente == null)
+        {
+            existente = CrearItem(prod);
+            todosLosItems.Insert(0, existente);   // arriba de todo para verlo enseguida
+        }
+
+        existente.IncluirEnPedido = true;
+        AplicarFiltros();
+    }
+
+    private async Task CopiarListaParaWhatsapp()
+    {
+        var seleccionados = itemsFiltrados.Where(i => i.IncluirEnPedido).ToList();
+        if (!seleccionados.Any()) return;
+
+        var texto = $"*PEDIDO DE REPOSICIÓN*\n\n";
+        foreach (var item in seleccionados)
+        {
+            var codProv = ObtenerCodigoProveedor(item.Producto);
+            var codTxt = codProv != null ? $" (cód. {codProv})" : "";
+            texto += $"• {item.Producto.Nombre}{codTxt} x {item.CantidadAComprar} un.\n";
+        }
+        texto += $"\n*Total Estimado:* ${MontoTotalEstimado.ToString("N2")}";
+
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", texto);
+        await JSRuntime.InvokeVoidAsync("alert", "Lista copiada al portapapeles para WhatsApp.");
+    }
+}

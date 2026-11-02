@@ -1,0 +1,30 @@
+﻿@inject NavigationManager Nav
+
+@* Pestañas que unen "Venta rápida" y "Combos": son dos páginas, pero se configuran juntas. *@
+<div class="gp-tabs" role="tablist">
+    <button type="button" role="tab" aria-selected="@(Activa == "rapida")"
+            class="gp-tab @(Activa == "rapida" ? "is-active" : "")" @onclick='() => Ir(RutaVentaRapida, Activa == "rapida")'>
+        <i class="bi bi-lightning-charge-fill"></i> <span>Venta rápida</span>
+    </button>
+    <button type="button" role="tab" aria-selected="@(Activa == "combos")"
+            class="gp-tab @(Activa == "combos" ? "is-active" : "")" @onclick='() => Ir(RutaCombos, Activa == "combos")'>
+        <i class="bi bi-gift-fill"></i> <span>Combos y promos</span>
+    </button>
+</div>
+
+@code {
+    /// <summary>"rapida" o "combos".</summary>
+    [Parameter] public string Activa { get; set; } = "rapida";
+    [Parameter] public string RutaVentaRapida { get; set; } = "/gestion-venta-rapida";
+    [Parameter] public string RutaCombos { get; set; } = "/gestion-combo";
+
+    /// <summary>Si la página tiene cambios sin guardar, puede frenar el cambio de pestaña.</summary>
+    [Parameter] public Func<Task<bool>>? AntesDeSalir { get; set; }
+
+    private async Task Ir(string ruta, bool esLaActual)
+    {
+        if (esLaActual) return;
+        if (AntesDeSalir != null && !await AntesDeSalir()) return;
+        Nav.NavigateTo(ruta);
+    }
+}

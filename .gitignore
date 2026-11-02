@@ -1,7 +1,7 @@
 ## Visual Studio
 .vs/
 [Bb]in/
-[Ob]j/
+[Oo]bj/
 [Dd]ebug/
 [Rr]elease/
 .vs/
@@ -31,3 +31,20 @@ appsettings.json
 *.nupkg
 packages/
 
+
+# copia de seguridad: este archivo tiene la clave de la base de PRODUCCION (nunca subirlo)
+_backup_base/config_backup.bat
+
+# carpeta donde se arma la version para Vercel (publicar_vercel.bat)
+_publicar/
+
+# datos de acceso a Supabase (claves): nunca subirlo
+_datos_aplicaciones x mrv/
+
+# copias de los archivos que se fueron cambiando (respaldo local, no hace falta en GitHub)
+_backup_configuracion/
+
+# copias de la base (si alguna vez se guardan aca)
+*.dump
+*.backup
+*.sql.gz

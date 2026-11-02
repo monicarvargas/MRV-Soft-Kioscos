@@ -1,0 +1,232 @@
+@* Avisos modernos para toda la página: confirmaciones, mensajes y toasts.
+   100% Razor (sin JS ni CDN), funciona igual en web, celular y escritorio.
+   Uso: <AvisosPagina @ref="avisos" />
+        if (await avisos.ConfirmarAsync("¿Eliminar?", "No se puede deshacer.", "Eliminar")) { ... }
+        await avisos.InformarAsync("Atención", "Falta elegir proveedor.", "aviso");
+        avisos.Toast("Pedido guardado", "exito");
+        _ = avisos.GuardadoAsync("Proveedor guardado");   // cartel grande de "¡Se guardó con éxito!" que se cierra solo
+   Tipos: "peligro", "exito", "aviso", "info" *@
+@implements IDisposable
+
+@if (dialogo != null)
+{
+    <div class="av-backdrop" @onclick="CerrarPorFondo" @onkeydown="OnKeyDown" tabindex="-1" @ref="refBackdrop">
+        <div class="av-dialog av-@dialogo.Tipo" role="alertdialog" aria-modal="true" aria-labelledby="av-titulo" @onclick:stopPropagation="true">
+            <div class="av-icon"><i class="bi @IconoDe(dialogo.Tipo)"></i></div>
+            <h3 id="av-titulo" class="av-title">@dialogo.Titulo</h3>
+            @if (!string.IsNullOrWhiteSpace(dialogo.Mensaje))
+            {
+                <p class="av-text">@dialogo.Mensaje</p>
+            }
+            @if (dialogo.AutoCierreMs > 0)
+            {
+                <div class="av-barra"><span style="animation-duration:@(dialogo.AutoCierreMs)ms"></span></div>
+            }
+            <div class="av-buttons">
+                @if (dialogo.EsConfirmacion)
+                {
+                    <button type="button" class="av-btn av-btn-cancel" @onclick="() => Resolver(false)">@dialogo.TextoCancelar</button>
+                }
+                <button type="button" class="av-btn av-btn-ok" @ref="refConfirmar" @onclick="() => Resolver(true)">@dialogo.TextoConfirmar</button>
+            </div>
+        </div>
+    </div>
+}
+
+<div class="av-toasts" aria-live="polite">
+    @foreach (var t in toasts)
+    {
+        <div class="av-toast av-@t.Tipo" role="status">
+            <i class="bi @IconoDe(t.Tipo)"></i>
+            <span>@t.Mensaje</span>
+            <button type="button" class="av-toast-x" aria-label="Cerrar" @onclick="() => QuitarToast(t.Id)"><i class="bi bi-x-lg"></i></button>
+        </div>
+    }
+</div>
+
+<style>
+    .av-backdrop { position: fixed; inset: 0; z-index: 2150; display: flex; align-items: center; justify-content: center; padding: 1rem; background: rgba(15,23,42,.55); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); animation: av-fade .15s ease-out; outline: 0; }
+    .av-dialog { width: 100%; max-width: 26rem; padding: 1.75rem 1.5rem 1.4rem; text-align: center; background: #fff; border-radius: 22px; box-shadow: 0 28px 70px rgba(15,23,42,.4); animation: av-pop .2s ease-out; }
+    .av-icon { display: inline-flex; align-items: center; justify-content: center; width: 4.2rem; height: 4.2rem; margin-bottom: .9rem; border-radius: 50%; font-size: 2rem; }
+    .av-title { margin: 0 0 .45rem; color: #1b2540; font-size: 1.25rem; font-weight: 800; line-height: 1.25; }
+    .av-text { margin: 0 0 1.4rem; color: #667291; font-size: .95rem; line-height: 1.45; white-space: pre-line; }
+    .av-buttons { display: flex; gap: .65rem; }
+    .av-btn { flex: 1 1 0; height: 2.85rem; padding: 0 1rem; border: 1px solid transparent; border-radius: 12px; font: inherit; font-size: .95rem; font-weight: 800; cursor: pointer; transition: filter .15s, background .15s; }
+    .av-btn:focus-visible { outline: 3px solid rgba(79,91,213,.35); outline-offset: 1px; }
+    .av-btn-cancel { background: #fff; border-color: #e2e6f0; color: #1b2540; }
+    .av-btn-cancel:hover { background: #f4f6fb; }
+    .av-btn-ok { color: #fff; }
+    .av-btn-ok:hover { filter: brightness(1.08); }
+
+    .av-peligro .av-icon { background: #fdebee; color: #cf2f4b; } .av-peligro .av-btn-ok { background: #cf2f4b; }
+    .av-exito .av-icon { background: #e3f6ee; color: #0b8a5d; }   .av-exito .av-btn-ok { background: #0b8a5d; }
+    .av-aviso .av-icon { background: #fff2d3; color: #b87500; }   .av-aviso .av-btn-ok { background: #d98f00; }
+    .av-info .av-icon { background: #eceefc; color: #4f5bd5; }    .av-info .av-btn-ok { background: var(--bs-primary, #4f5bd5); }
+
+    .av-toasts { position: fixed; top: 1rem; right: 1rem; z-index: 2200; display: flex; flex-direction: column; gap: .6rem; width: min(24rem, calc(100vw - 2rem)); pointer-events: none; }
+    .av-toast { pointer-events: auto; display: flex; align-items: center; gap: .75rem; padding: .8rem .9rem; background: #fff; border: 1px solid #e2e6f0; border-left-width: 5px; border-radius: 14px; box-shadow: 0 12px 30px rgba(15,23,42,.2); color: #1b2540; font-size: .92rem; font-weight: 700; animation: av-slide .22s ease-out; }
+    .av-toast > i:first-child { flex: none; font-size: 1.35rem; }
+    .av-toast span { flex: 1 1 auto; line-height: 1.3; }
+    .av-toast-x { flex: none; display: inline-flex; width: 1.8rem; height: 1.8rem; align-items: center; justify-content: center; border: 0; border-radius: 8px; background: transparent; color: #8a93ad; cursor: pointer; }
+    .av-toast-x:hover { background: #f1f3f9; color: #1b2540; }
+    .av-toast.av-peligro { border-left-color: #cf2f4b; } .av-toast.av-peligro > i:first-child { color: #cf2f4b; }
+    .av-toast.av-exito { border-left-color: #0b8a5d; }   .av-toast.av-exito > i:first-child { color: #0b8a5d; }
+    .av-toast.av-aviso { border-left-color: #d98f00; }   .av-toast.av-aviso > i:first-child { color: #d98f00; }
+    .av-toast.av-info { border-left-color: #4f5bd5; }    .av-toast.av-info > i:first-child { color: #4f5bd5; }
+
+    .av-barra { height: 4px; margin: -.6rem 0 1.1rem; border-radius: 999px; background: #e3f6ee; overflow: hidden; }
+    .av-barra span { display: block; height: 100%; background: #0b8a5d; transform-origin: left; animation-name: av-barra; animation-timing-function: linear; animation-fill-mode: forwards; }
+    @@keyframes av-barra { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+    @@keyframes av-fade { from { opacity: 0; } to { opacity: 1; } }
+    @@keyframes av-pop { from { opacity: 0; transform: translateY(10px) scale(.96); } to { opacity: 1; transform: none; } }
+    @@keyframes av-slide { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+    @@media (max-width: 575.98px) {
+        .av-toasts { top: .5rem; right: .5rem; left: .5rem; width: auto; }
+        .av-buttons { flex-direction: column-reverse; }
+    }
+    @@media (prefers-reduced-motion: reduce) { .av-backdrop, .av-dialog, .av-toast { animation: none; } }
+</style>
+
+@code {
+    private class Dialogo
+    {
+        public string Titulo = "";
+        public string? Mensaje;
+        public string Tipo = "info";
+        public bool EsConfirmacion;
+        public string TextoConfirmar = "Aceptar";
+        public string TextoCancelar = "Cancelar";
+        public int AutoCierreMs;
+        public TaskCompletionSource<bool> Tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private class ToastItem
+    {
+        public int Id;
+        public string Mensaje = "";
+        public string Tipo = "exito";
+        public CancellationTokenSource Cts = new();
+    }
+
+    private Dialogo? dialogo;
+    private readonly List<ToastItem> toasts = new();
+    private int siguienteToast;
+    private bool enfocar;
+    private bool disposed;
+    private ElementReference refBackdrop;
+    private ElementReference refConfirmar;
+
+    /// <summary>Pregunta Confirmar/Cancelar. Devuelve true si el usuario confirma.</summary>
+    public Task<bool> ConfirmarAsync(string titulo, string? mensaje = null, string textoConfirmar = "Confirmar", string tipo = "peligro", string textoCancelar = "Cancelar")
+        => Mostrar(new Dialogo { Titulo = titulo, Mensaje = mensaje, Tipo = tipo, EsConfirmacion = true, TextoConfirmar = textoConfirmar, TextoCancelar = textoCancelar });
+
+    /// <summary>Mensaje con un solo botón Aceptar.</summary>
+    public async Task InformarAsync(string titulo, string? mensaje = null, string tipo = "aviso", string textoBoton = "Entendido")
+        => await Mostrar(new Dialogo { Titulo = titulo, Mensaje = mensaje, Tipo = tipo, EsConfirmacion = false, TextoConfirmar = textoBoton });
+
+    /// <summary>
+    /// Cartel grande de "¡Se guardó con éxito!" (tilde verde) que se cierra solo, o con "Listo".
+    /// Usarlo después de guardar, para que se entienda que salió todo bien.
+    /// Sin esperar: <c>_ = avisos.GuardadoAsync("Proveedor guardado");</c>
+    /// Esperando (ej: antes de salir de la página): <c>await avisos.GuardadoAsync(...); Nav.NavigateTo(...);</c>
+    /// </summary>
+    public Task GuardadoAsync(string? mensaje = null, string titulo = "¡Se guardó con éxito!", int milisegundos = 2200)
+    {
+        if (disposed) return Task.CompletedTask;
+        var d = new Dialogo { Titulo = titulo, Mensaje = mensaje, Tipo = "exito", EsConfirmacion = false, TextoConfirmar = "Listo", AutoCierreMs = milisegundos };
+        var tarea = Mostrar(d);
+        _ = CerrarSolo(d, milisegundos);
+        return tarea;
+    }
+
+    private async Task CerrarSolo(Dialogo d, int ms)
+    {
+        try { await Task.Delay(ms); } catch { return; }
+        if (disposed || dialogo != d) return;
+        await InvokeAsync(() => { Resolver(true); StateHasChanged(); });
+    }
+
+    /// <summary>Cartel chico que desaparece solo.</summary>
+    public void Toast(string mensaje, string tipo = "exito", int milisegundos = 3500)
+    {
+        if (disposed) return;
+        var t = new ToastItem { Id = ++siguienteToast, Mensaje = mensaje, Tipo = tipo };
+        toasts.Add(t);
+        if (toasts.Count > 4) { var viejo = toasts[0]; viejo.Cts.Cancel(); toasts.RemoveAt(0); }
+        StateHasChanged();
+        _ = AutoQuitar(t, milisegundos);
+    }
+
+    private async Task AutoQuitar(ToastItem t, int ms)
+    {
+        try
+        {
+            await Task.Delay(ms, t.Cts.Token);
+            if (disposed) return;
+            await InvokeAsync(() => QuitarToast(t.Id));
+        }
+        catch (TaskCanceledException) { }
+    }
+
+    private void QuitarToast(int id)
+    {
+        var t = toasts.FirstOrDefault(x => x.Id == id);
+        if (t == null) return;
+        t.Cts.Cancel();
+        toasts.Remove(t);
+        StateHasChanged();
+    }
+
+    private Task<bool> Mostrar(Dialogo d)
+    {
+        // Si había otro diálogo abierto, se lo cierra como cancelado
+        dialogo?.Tcs.TrySetResult(false);
+        dialogo = d;
+        enfocar = true;
+        StateHasChanged();
+        return d.Tcs.Task;
+    }
+
+    private void Resolver(bool resultado)
+    {
+        var d = dialogo;
+        dialogo = null;
+        d?.Tcs.TrySetResult(resultado);
+    }
+
+    private void CerrarPorFondo()
+    {
+        if (dialogo == null) return;
+        // En un mensaje simple, tocar afuera equivale a Entendido; en una confirmación, a Cancelar
+        Resolver(!dialogo.EsConfirmacion);
+    }
+
+    private void OnKeyDown(KeyboardEventArgs e)
+    {
+        if (dialogo == null) return;
+        if (e.Key == "Escape") Resolver(!dialogo.EsConfirmacion);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!enfocar || dialogo == null) return;
+        enfocar = false;
+        try { await refConfirmar.FocusAsync(); } catch { /* sin foco no pasa nada */ }
+    }
+
+    private static string IconoDe(string tipo) => tipo switch
+    {
+        "peligro" => "bi-exclamation-octagon-fill",
+        "exito" => "bi-check-circle-fill",
+        "aviso" => "bi-exclamation-triangle-fill",
+        _ => "bi-info-circle-fill"
+    };
+
+    public void Dispose()
+    {
+        disposed = true;
+        dialogo?.Tcs.TrySetResult(false);
+        foreach (var t in toasts) t.Cts.Cancel();
+        toasts.Clear();
+    }
+}

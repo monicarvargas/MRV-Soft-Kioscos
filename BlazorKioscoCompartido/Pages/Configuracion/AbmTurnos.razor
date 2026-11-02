@@ -1,0 +1,218 @@
+﻿@inject AsistenciaService Asistencia
+
+<AvisosPagina @ref="avisos" />
+
+<section class="gp-card gp-card-pad">
+    <div class="gp-card-head">
+        <span class="gp-bubble"><i class="bi bi-clock-fill"></i></span>
+        <div class="cf-head-text">
+            <h2>Turnos</h2>
+            <p>Los horarios fijos del negocio. Se usan para ver la recaudación por turno y para cerrar solo el turno de quien se olvidó de salir.</p>
+        </div>
+    </div>
+
+    <div class="gp-toolbar cf-tools">
+        @if (lista != null && !lista.Any())
+        {
+            <button type="button" class="gp-btn gp-btn-soft" @onclick="Cargar24hs"><i class="bi bi-magic"></i> Cargar 3 turnos de 8 hs (24 hs)</button>
+        }
+        <button type="button" class="gp-btn gp-btn-primary cf-head-btn" @onclick="Nuevo"><i class="bi bi-plus-lg"></i> Nuevo turno</button>
+    </div>
+
+    @if (editando != null)
+    {
+        <div class="cf-modal-fondo" @onclick="CerrarForm">
+            <div class="cf-form cf-modal cf-m-turno @(esNuevo ? "" : "is-editing")" @onclick:stopPropagation="true" role="dialog" aria-modal="true">
+                <div class="cf-form-title">
+                    <i class="bi @(esNuevo ? "bi-plus-circle-fill" : "bi-pencil-fill")"></i>
+                    @(esNuevo ? "Nuevo turno" : $"Editando: {editando.Nombre}")
+                <button type="button" class="cf-modal-x" title="Cerrar" @onclick="CerrarForm"><i class="bi bi-x-lg"></i></button>
+                </div>
+                <div class="cf-grid">
+                    <div class="cf-col-2">
+                        <label class="cf-lbl">Nombre *</label>
+                        <input class="gp-control" placeholder="Ej: Mañana, Tarde, Noche" @bind="editando.Nombre" />
+                    </div>
+                    <div>
+                        <label class="cf-lbl">Desde</label>
+                        <input type="time" class="gp-control" @bind="desde" />
+                    </div>
+                    <div>
+                        <label class="cf-lbl">Hasta</label>
+                        <input type="time" class="gp-control" @bind="hasta" />
+                    </div>
+                    @if (hasta <= desde)
+                    {
+                        <div class="cf-col-full gp-hint"><i class="bi bi-moon-stars-fill" style="color:var(--gp-primary)"></i> Termina al día siguiente (turno noche). Cuenta para el día en que empieza.</div>
+                    }
+                </div>
+                <div class="cf-form-actions">
+                    <button type="button" class="gp-btn gp-btn-outline" @onclick="() => editando = null">Cancelar</button>
+                    <button type="button" class="gp-btn gp-btn-ok" disabled="@guardando" @onclick="Guardar"><i class="bi bi-check-lg"></i> @(guardando ? "Guardando..." : "Guardar")</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(error))
+    {
+        <div class="gp-banner is-danger"><i class="bi bi-exclamation-octagon-fill"></i><p>@error</p></div>
+    }
+
+    @if (lista == null)
+    {
+        <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>Cargando turnos...</p></div>
+    }
+    else if (!lista.Any())
+    {
+        <div class="gp-empty">
+            <span class="gp-bubble"><i class="bi bi-clock"></i></span>
+            <strong>No hay turnos cargados</strong>
+            <span>Cargá los horarios de tu negocio (ej: Mañana 08:00 a 14:00, Tarde 14:00 a 22:00).</span>
+        </div>
+    }
+    else
+    {
+        <div class="tu-lista">
+            @foreach (var t in lista)
+            {
+                <div class="tu-item @(t.Activo ? "" : "is-off")">
+                    <span class="gp-bubble gp-bubble-sm"><i class="bi @(t.CruzaMedianoche() ? "bi-moon-stars-fill" : "bi-sun-fill")"></i></span>
+                    <div class="tu-txt">
+                        <b>@t.Nombre</b>
+                        <small>@(t.CruzaMedianoche() ? t.Rango() + " del día siguiente" : t.Rango()) · @Horas(t)</small>
+                    </div>
+                    <label class="gp-switch cf-switch-sm" title="Activo">
+                        <input type="checkbox" checked="@t.Activo" @onchange="e => CambiarActivo(t, (bool)e.Value!)" />
+                        <span class="gp-switch-track"></span>
+                    </label>
+                    <button type="button" class="gp-btn gp-btn-soft gp-btn-sm gp-btn-icon" title="Editar" @onclick="() => Editar(t)"><i class="bi bi-pencil-fill"></i></button>
+                    <button type="button" class="gp-btn gp-btn-danger-soft gp-btn-sm gp-btn-icon" title="Eliminar" @onclick="() => Eliminar(t)"><i class="bi bi-trash3-fill"></i></button>
+                </div>
+            }
+        </div>
+        @if (Superpuestos)
+        {
+            <div class="gp-hint" style="margin-top:.6rem"><i class="bi bi-exclamation-triangle-fill"></i> Hay turnos que se pisan. Una venta en el horario que se pisa cuenta para el primero de la lista.</div>
+        }
+    }
+</section>
+
+<style>
+    .tu-lista { display: flex; flex-direction: column; gap: .45rem; }
+    .tu-item { display: flex; align-items: center; gap: .65rem; padding: .6rem .75rem; border: 1px solid var(--gp-line); border-radius: 14px; }
+    .tu-item.is-off { opacity: .55; }
+    .tu-txt { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+    .tu-txt b { font-weight: 900; }
+    .tu-txt small { color: var(--gp-muted); font-weight: 600; font-size: .8rem; }
+</style>
+
+@code {
+    void CerrarForm() => editando = null;
+    [Parameter] public long KioscoId { get; set; }
+
+    private AvisosPagina avisos = default!;
+    private List<Turno>? lista;
+    private Turno? editando;
+    private bool esNuevo, guardando;
+    private string error = "";
+    private TimeOnly desde = new(7, 0), hasta = new(15, 0);
+
+    protected override async Task OnParametersSetAsync() => await Cargar();
+
+    private async Task Cargar()
+    {
+        try { lista = await Asistencia.GetTurnos(KioscoId); error = ""; }
+        catch (Exception ex)
+        {
+            lista = new();
+            error = ex.Message.Contains("turnos") ? "Falta correr el SQL de turnos y asistencia (turnos_asistencia.sql)." : ConfiguracionService.MensajeError(ex);
+        }
+    }
+
+    private static string Horas(Turno t)
+    {
+        var d = t.Fin() - t.Inicio();
+        if (d <= TimeSpan.Zero) d += TimeSpan.FromHours(24);
+        return d.Minutes == 0 ? $"{(int)d.TotalHours} hs" : $"{(int)d.TotalHours}:{d.Minutes:00} hs";
+    }
+
+    private bool Superpuestos
+    {
+        get
+        {
+            var act = lista?.Where(t => t.Activo).ToList() ?? new();
+            // se revisa cada media hora del día: si cae en dos turnos, se pisan
+            for (int m = 0; m < 24 * 60; m += 30)
+            {
+                var h = TimeSpan.FromMinutes(m);
+                int n = act.Count(t => t.CruzaMedianoche() ? (h >= t.Inicio() || h < t.Fin()) : (h >= t.Inicio() && h < t.Fin()));
+                if (n > 1) return true;
+            }
+            return false;
+        }
+    }
+
+    private void Nuevo()
+    {
+        esNuevo = true;
+        var ultimo = lista?.LastOrDefault();
+        desde = ultimo != null ? TimeOnly.FromTimeSpan(ultimo.Fin()) : new TimeOnly(7, 0);
+        hasta = desde.AddHours(8);
+        editando = new Turno { KioscoId = KioscoId, Activo = true, Orden = (lista?.Count ?? 0) + 1 };
+    }
+
+    private void Editar(Turno t)
+    {
+        esNuevo = false;
+        desde = TimeOnly.FromTimeSpan(t.Inicio());
+        hasta = TimeOnly.FromTimeSpan(t.Fin());
+        editando = new Turno { Id = t.Id, KioscoId = t.KioscoId, Nombre = t.Nombre, Orden = t.Orden, Activo = t.Activo, HoraInicio = t.HoraInicio, HoraFin = t.HoraFin };
+    }
+
+    private async Task Guardar()
+    {
+        if (string.IsNullOrWhiteSpace(editando!.Nombre)) { avisos.Toast("Poné un nombre (ej: Mañana).", "peligro"); return; }
+        if (desde == hasta) { avisos.Toast("El turno no puede empezar y terminar a la misma hora.", "peligro"); return; }
+        editando.Nombre = editando.Nombre.Trim();
+        editando.HoraInicio = desde.ToString("HH:mm");
+        editando.HoraFin = hasta.ToString("HH:mm");
+
+        guardando = true;
+        try
+        {
+            await Asistencia.GuardarTurno(editando, esNuevo);
+            _ = avisos.GuardadoAsync("Turno guardado");
+            editando = null;
+            await Cargar();
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo guardar", ConfiguracionService.MensajeError(ex), "peligro"); }
+        finally { guardando = false; }
+    }
+
+    private async Task CambiarActivo(Turno t, bool activo)
+    {
+        try { t.Activo = activo; await Asistencia.GuardarTurno(t, false); }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo guardar", ConfiguracionService.MensajeError(ex), "peligro"); }
+    }
+
+    private async Task Eliminar(Turno t)
+    {
+        if (!await avisos.ConfirmarAsync($"¿Eliminar el turno {t.Nombre}?", "Las ventas no se tocan; solo deja de aparecer en el reporte por turno.", "Eliminar")) return;
+        try { await Asistencia.EliminarTurno(t); avisos.Toast("Turno eliminado", "exito"); await Cargar(); }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo eliminar", ConfiguracionService.MensajeError(ex), "peligro"); }
+    }
+
+    private async Task Cargar24hs()
+    {
+        try
+        {
+            await Asistencia.GuardarTurno(new Turno { KioscoId = KioscoId, Nombre = "Mañana", HoraInicio = "07:00", HoraFin = "15:00", Orden = 1 }, true);
+            await Asistencia.GuardarTurno(new Turno { KioscoId = KioscoId, Nombre = "Tarde", HoraInicio = "15:00", HoraFin = "23:00", Orden = 2 }, true);
+            await Asistencia.GuardarTurno(new Turno { KioscoId = KioscoId, Nombre = "Noche", HoraInicio = "23:00", HoraFin = "07:00", Orden = 3 }, true);
+            _ = avisos.GuardadoAsync("Turnos cargados. Podés cambiar los horarios.");
+            await Cargar();
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudieron cargar", ConfiguracionService.MensajeError(ex), "peligro"); }
+    }
+}

@@ -1,0 +1,231 @@
+﻿@using BlazorKioscoCompartido.Models
+@inject Supabase.Client Db
+@inject AppState State
+
+@* =====================================================================
+   Alta rápida en una ventana: nueva FAMILIA, SUBFAMILIA o PROVEEDOR sin ir a Configuración.
+   Uso:  <AltaRapida @ref="alta" OnCreado="..." />   y después  alta.Abrir(AltaRapida.Tipo.Familia)
+   Guarda en la base y avisa con OnCreado (id y nombre) para que la página lo elija sola.
+   Si ya existe uno con ese nombre, no lo duplica: avisa con el que ya estaba.
+   Necesita <PedidosEstilos /> en la página (ventana gp-modal).
+   ===================================================================== *@
+
+@if (abierto)
+{
+    <div class="gp-scope ar-backdrop" @onclick="Cerrar">
+        <div class="ar-modal @("ar-" + tipo.ToString().ToLowerInvariant())" role="dialog" aria-modal="true" @onclick:stopPropagation="true">
+            <div class="ar-head">
+                <span class="ar-ico"><i class="bi @Icono"></i></span>
+                <div class="ar-head-txt">
+                    <h3>@TituloModal</h3>
+                    <p>@Ayuda</p>
+                </div>
+                <button type="button" class="ar-x" title="Cerrar" @onclick="Cerrar"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="ar-body">
+                <label class="ar-lbl">Nombre *</label>
+                <input class="ar-input ar-nombre" placeholder="@Ejemplo" maxlength="80" @bind="nombre" @bind:event="oninput" @onkeyup="Tecla" @ref="txtNombre" />
+                @if (tipo == Tipo.Proveedor)
+                {
+                    <div class="ar-dos">
+                        <div>
+                            <label class="ar-lbl">Teléfono <small>(opcional)</small></label>
+                            <input class="ar-input" placeholder="Ej: 11 5555-1234" maxlength="40" @bind="telefono" />
+                        </div>
+                        <div>
+                            <label class="ar-lbl">CUIT <small>(opcional)</small></label>
+                            <input class="ar-input" placeholder="Ej: 30-12345678-9" maxlength="20" @bind="cuit" />
+                        </div>
+                    </div>
+                }
+                @if (!string.IsNullOrEmpty(error))
+                {
+                    <div class="ar-error"><i class="bi bi-exclamation-octagon-fill"></i> @error</div>
+                }
+            </div>
+            <div class="ar-foot">
+                <button type="button" class="ar-btn ar-btn-cancel" @onclick="Cerrar">Cancelar</button>
+                <button type="button" class="ar-btn ar-btn-ok" disabled="@(guardando || string.IsNullOrWhiteSpace(nombre))" @onclick="Guardar">
+                    <i class="bi bi-check-lg"></i> @(guardando ? "Guardando..." : "Crear")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    /* ventana con estilos propios (se ve igual en cualquier página) */
+    .ar-backdrop { position: fixed; inset: 0; z-index: 2100; display: flex; align-items: center; justify-content: center; padding: 1rem;
+                   background: rgba(15,23,42,.55); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
+    .ar-modal { --ar-c: var(--tema-principal, #4f5bd5); --ar-suave: var(--tema-suave, #eceefc);
+                width: 100%; max-width: 30rem; overflow: hidden; border-radius: 22px; background: #fff;
+                box-shadow: 0 28px 70px rgba(15,23,42,.4); animation: ar-pop .18s ease-out; font-family: inherit; }
+    .ar-familia   { --ar-c: #7c4dff; --ar-suave: #f1ebff; }
+    .ar-subfamilia{ --ar-c: #0d9488; --ar-suave: #e3f6f3; }
+    .ar-proveedor { --ar-c: #2563eb; --ar-suave: #e8f0fe; }
+    .ar-head { display: flex; align-items: flex-start; gap: .85rem; padding: 1.2rem 1.25rem 1.1rem; color: #fff;
+               background: linear-gradient(135deg, var(--ar-c), color-mix(in srgb, var(--ar-c) 70%, #000)); }
+    .ar-ico { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 2.8rem; height: 2.8rem;
+              border-radius: 14px; background: rgba(255,255,255,.22); font-size: 1.35rem; }
+    .ar-head-txt { flex: 1 1 auto; min-width: 0; }
+    .ar-head h3 { margin: 0; font-size: 1.2rem; font-weight: 900; line-height: 1.2; color: #fff; }
+    .ar-head p { margin: .25rem 0 0; font-size: .84rem; line-height: 1.35; color: rgba(255,255,255,.88); }
+    .ar-x { flex: none; width: 2rem; height: 2rem; border: 0; border-radius: 10px; background: rgba(255,255,255,.18); color: #fff; cursor: pointer; }
+    .ar-x:hover { background: rgba(255,255,255,.3); }
+    .ar-body { padding: 1.1rem 1.25rem 1.2rem; background: linear-gradient(180deg, var(--ar-suave), #fff 85%); }
+    .ar-lbl { display: block; margin: 0 0 .3rem; font-size: .74rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: #3b4664; }
+    .ar-lbl small { text-transform: none; letter-spacing: 0; font-weight: 600; color: #7a8399; }
+    .ar-input { display: block; width: 100%; height: 2.8rem; padding: 0 .85rem; border: 2px solid #d6dbe8; border-radius: 12px;
+                background: #fff; color: #1b2540; font: inherit; font-weight: 700; outline: 0; transition: border-color .15s, box-shadow .15s; }
+    .ar-input:focus { border-color: var(--ar-c); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ar-c) 18%, transparent); }
+    .ar-input::placeholder { color: #a7afc3; font-weight: 600; }
+    .ar-nombre { height: 3.1rem; font-size: 1.08rem; font-weight: 900; text-transform: uppercase; }
+    .ar-dos { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; margin-top: .9rem; }
+    .ar-mas { flex: none; width: 2.8rem; height: 2.8rem; border: 0; border-radius: 12px; background: var(--ar-c); color: #fff; font-size: 1.15rem; cursor: pointer; }
+    .ar-mas:hover { filter: brightness(1.08); }
+    .ar-error { margin-top: .85rem; padding: .6rem .8rem; border-radius: 12px; background: #fdebee; color: #b4233c; font-weight: 700; font-size: .88rem; }
+    .ar-foot { display: flex; gap: .6rem; padding: .95rem 1.25rem 1.15rem; background: #f7f8fc; border-top: 1px solid #e8ebf3; }
+    .ar-btn { flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: .4rem; height: 2.9rem; border-radius: 12px;
+              font: inherit; font-size: 1rem; font-weight: 800; cursor: pointer; transition: filter .15s, background .15s; }
+    .ar-btn-cancel { border: 2px solid #d6dbe8; background: #fff; color: #1b2540; }
+    .ar-btn-cancel:hover { background: #f1f3f9; }
+    .ar-btn-ok { border: 0; background: var(--ar-c); color: #fff; box-shadow: 0 6px 16px color-mix(in srgb, var(--ar-c) 35%, transparent); }
+    .ar-btn-ok:hover { filter: brightness(1.08); }
+    .ar-btn-ok:disabled { opacity: .55; cursor: default; box-shadow: none; }
+    @@keyframes ar-pop { from { opacity: 0; transform: translateY(10px) scale(.97); } to { opacity: 1; transform: none; } }
+    @@media (max-width: 480px) { .ar-dos { grid-template-columns: 1fr; } }
+</style>
+
+@code {
+    public enum Tipo { Familia, Subfamilia, Proveedor }
+
+    /// <summary>Se creó (o ya existía): id y nombre, para elegirlo en la página.</summary>
+    [Parameter] public EventCallback<(long Id, string Nombre)> OnCreado { get; set; }
+
+    private bool abierto, guardando;
+    private Tipo tipo;
+    private long familiaId;
+    private string familiaNombre = "";
+    private string nombre = "", telefono = "", cuit = "";
+    private string? error;
+    private ElementReference txtNombre;
+    private bool enfocar;
+
+    private string TituloModal => tipo switch
+    {
+        Tipo.Familia => "Nueva familia",
+        Tipo.Subfamilia => $"Nueva subfamilia de {familiaNombre}",
+        _ => "Nuevo proveedor"
+    };
+    private string Ayuda => tipo switch
+    {
+        Tipo.Familia => "Para agrupar productos (ej: GOLOSINAS, BEBIDAS). Después la podés editar en Configuración → Familias.",
+        Tipo.Subfamilia => "Para separar dentro de la familia (ej: ALFAJORES, GOMITAS).",
+        _ => "Después podés completar el resto de los datos en Configuración → Proveedores."
+    };
+    private string Ejemplo => tipo switch { Tipo.Familia => "Ej: GOLOSINAS", Tipo.Subfamilia => "Ej: GOMITAS", _ => "Ej: DISTRIBUIDORA ROMA" };
+    private string Icono => tipo switch { Tipo.Familia => "bi-tags-fill", Tipo.Subfamilia => "bi-diagram-3", _ => "bi-truck" };
+
+    /// <summary>Abre la ventana. Para subfamilia hay que pasar la familia.</summary>
+    public void Abrir(Tipo t, long idFamilia = 0, string? nombreFamilia = null)
+    {
+        tipo = t;
+        familiaId = idFamilia;
+        familiaNombre = nombreFamilia ?? "";
+        nombre = telefono = cuit = "";
+        error = null;
+        abierto = true;
+        enfocar = true;
+        StateHasChanged();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (enfocar && abierto)
+        {
+            enfocar = false;
+            try { await txtNombre.FocusAsync(); } catch { }
+        }
+    }
+
+    private void Cerrar() { if (!guardando) abierto = false; }
+
+    private async Task Tecla(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await Guardar();
+        else if (e.Key == "Escape") Cerrar();
+    }
+
+    private async Task Guardar()
+    {
+        var n = (nombre ?? "").Trim().ToUpperInvariant();
+        if (n == "" || guardando) return;
+        if (tipo == Tipo.Subfamilia && familiaId <= 0) { error = "Elegí la familia primero."; return; }
+        guardando = true;
+        error = null;
+        long k = State.KioscoId;
+        try
+        {
+            (long Id, string Nombre)? creado = null;
+            switch (tipo)
+            {
+                case Tipo.Familia:
+                {
+                    var ya = ((await Db.From<Familia>().Where(f => f.KioscoId == k).Get()).Models ?? new())
+                             .FirstOrDefault(f => string.Equals(f.Nombre?.Trim(), n, StringComparison.OrdinalIgnoreCase));
+                    if (ya != null) creado = (ya.Id, ya.Nombre);
+                    else
+                    {
+                        var r = await Db.From<Familia>().Insert(new Familia { KioscoId = k, Nombre = n, Descripcion = n, FechaCreacion = DateTime.Now });
+                        var f = r.Models.FirstOrDefault() ?? throw new Exception("No se pudo crear la familia.");
+                        creado = (f.Id, f.Nombre);
+                    }
+                    break;
+                }
+                case Tipo.Subfamilia:
+                {
+                    long fam = familiaId;
+                    var ya = ((await Db.From<Subfamilia>().Where(s => s.KioscoId == k).Where(s => s.FamiliaId == fam).Get()).Models ?? new())
+                             .FirstOrDefault(s => string.Equals(s.Nombre.Trim(), n, StringComparison.OrdinalIgnoreCase));
+                    if (ya != null) creado = (ya.Id, ya.Nombre);
+                    else
+                    {
+                        var r = await Db.From<Subfamilia>().Insert(new Subfamilia { KioscoId = k, FamiliaId = fam, Nombre = n });
+                        var s = r.Models.FirstOrDefault() ?? throw new Exception("No se pudo crear la subfamilia.");
+                        creado = (s.Id, s.Nombre);
+                    }
+                    break;
+                }
+                default:
+                {
+                    var ya = ((await Db.From<Proveedor>().Where(p => p.KioscoId == k).Get()).Models ?? new())
+                             .FirstOrDefault(p => string.Equals(p.Nombre?.Trim(), n, StringComparison.OrdinalIgnoreCase));
+                    if (ya != null) creado = (ya.Id, ya.Nombre);
+                    else
+                    {
+                        var r = await Db.From<Proveedor>().Insert(new Proveedor
+                        {
+                            KioscoId = k,
+                            Nombre = n,
+                            Telefono = string.IsNullOrWhiteSpace(telefono) ? null : telefono.Trim(),
+                            Cuit = string.IsNullOrWhiteSpace(cuit) ? null : cuit.Trim(),
+                            FechaCreacion = DateTime.Now
+                        });
+                        var p = r.Models.FirstOrDefault() ?? throw new Exception("No se pudo crear el proveedor.");
+                        creado = (p.Id, p.Nombre);
+                    }
+                    break;
+                }
+            }
+            abierto = false;
+            await OnCreado.InvokeAsync(creado!.Value);
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message.Contains("subfamilias")
+                ? "Falta preparar la base: hay que correr el script 26 en Supabase."
+                : "No se pudo guardar: " + ex.Message;
+        }
+        finally { guardando = false; }
+    }
+}

@@ -1,0 +1,78 @@
+﻿@using BlazorKioscoCompartido.Models
+@inject Supabase.Client Db
+@inject AppState State
+
+@* =====================================================================
+   Subfamilia (opcional) dentro de la familia elegida: GOLOSINAS → ALFAJORES, CHICLES, GOMITAS...
+   Muestra solo las de esa familia y deja crear una nueva en una ventana (+).
+   Si todavía no se corrió el script 26, no se muestra.
+   ===================================================================== *@
+
+@if (disponible)
+{
+    <div>
+        <label class="cf-lbl">Subfamilia <small style="font-weight:600; color:var(--gp-muted)">(opcional)</small></label>
+        <div class="sf-fila">
+            <select class="gp-control" disabled="@(!HayFamilia)" value="@(Value?.ToString() ?? "")" @onchange="Elegir">
+                <option value="">@(HayFamilia ? (Filtradas.Any() ? "-- Sin subfamilia --" : "-- No hay: creá una con + --") : "-- Elegí la familia primero --")</option>
+                @foreach (var s in Filtradas)
+                {
+                    <option value="@s.Id">@s.Nombre</option>
+                }
+            </select>
+            <button type="button" class="gp-btn gp-btn-soft gp-btn-icon" title="Nueva subfamilia" disabled="@(!HayFamilia)"
+                    @onclick="() => alta.Abrir(AltaRapida.Tipo.Subfamilia, FamiliaId ?? 0, FamiliaNombre)">
+                <i class="bi bi-plus-lg"></i>
+            </button>
+        </div>
+    </div>
+}
+<AltaRapida @ref="alta" OnCreado="Creada" />
+
+<style>
+    .sf-fila { display: flex; gap: .4rem; align-items: center; }
+    .sf-fila .gp-control { flex: 1 1 auto; min-width: 0; }
+    .sf-fila .gp-btn { flex: none; }
+</style>
+
+@code {
+    /// <summary>Familia elegida en el producto.</summary>
+    [Parameter] public long? FamiliaId { get; set; }
+    /// <summary>Nombre de la familia (para el título de la ventana).</summary>
+    [Parameter] public string? FamiliaNombre { get; set; }
+    [Parameter] public long? Value { get; set; }
+    [Parameter] public EventCallback<long?> ValueChanged { get; set; }
+
+    private AltaRapida alta = default!;
+    private List<Subfamilia> todas = new();
+    private bool disponible;
+
+    private bool HayFamilia => (FamiliaId ?? 0) > 0;
+    private List<Subfamilia> Filtradas => todas.Where(s => s.FamiliaId == FamiliaId).OrderBy(s => s.Nombre).ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            long k = State.KioscoId;
+            var res = await Db.From<Subfamilia>().Where(s => s.KioscoId == k).Get();
+            todas = res.Models ?? new();
+            disponible = true;
+        }
+        catch { disponible = false; }   // falta el script 26
+    }
+
+    private async Task Elegir(ChangeEventArgs e)
+    {
+        long? id = long.TryParse(e.Value?.ToString(), out var v) && v > 0 ? v : null;
+        await ValueChanged.InvokeAsync(id);
+    }
+
+    /// <summary>Se creó en la ventana: se suma a la lista y queda elegida.</summary>
+    private async Task Creada((long Id, string Nombre) s)
+    {
+        if (!todas.Any(x => x.Id == s.Id))
+            todas.Add(new Subfamilia { Id = s.Id, KioscoId = State.KioscoId, FamiliaId = FamiliaId ?? 0, Nombre = s.Nombre });
+        await ValueChanged.InvokeAsync(s.Id);
+    }
+}

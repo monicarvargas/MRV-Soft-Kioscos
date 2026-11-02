@@ -1,0 +1,147 @@
+﻿@inject AppState State
+@inject Supabase.Client Db
+
+@* Redondeo de precios y vuelto: lo define cada negocio (solo el dueño). Se abre desde Configuración → Redondeo. *@
+
+<AvisosPagina @ref="avisos" />
+
+<section class="gp-card gp-card-pad">
+    <div class="gp-card-head">
+        <span class="gp-bubble"><i class="bi bi-calculator-fill"></i></span>
+        <div class="cf-head-text">
+            <h2>Redondeo</h2>
+            <p>Para no andar con monedas: redondea los precios y el vuelto al múltiplo que elijas.</p>
+        </div>
+    </div>
+
+    @if (cargando)
+    {
+        <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>Cargando...</p></div>
+    }
+    else
+    {
+        <label class="gp-switch">
+            <input type="checkbox" @bind="usar" />
+            <span class="gp-switch-track"></span>
+            <span class="gp-switch-text">Usar redondeo</span>
+        </label>
+
+        @if (usar)
+        {
+            <label class="cf-lbl" style="margin-top:1rem">Redondear a múltiplo de</label>
+            <div class="rd-opciones" role="radiogroup">
+                @foreach (var m in Multiplos)
+                {
+                    <button type="button" role="radio" aria-checked="@(multiplo == m)" class="rd-opcion @(multiplo == m ? "is-active" : "")" @onclick="() => multiplo = m">
+                        $ @m.ToString("N0", Ar)
+                    </button>
+                }
+            </div>
+
+            <div class="rd-ejemplo">
+                <b>Ejemplo con $ @multiplo.ToString("N0", Ar):</b>
+                <ul>
+                    <li>Un producto por peso que da <b>$ @EjemploPeso.ToString("N2", Ar)</b> se cobra <b>$ @Arriba(EjemploPeso).ToString("N0", Ar)</b>.</li>
+                    <li>Un precio calculado (costo + ganancia) de <b>$ @EjemploPrecio.ToString("N2", Ar)</b> queda en <b>$ @Arriba(EjemploPrecio).ToString("N0", Ar)</b>.</li>
+                    <li>Si el vuelto da <b>$ @EjemploVuelto.ToString("N0", Ar)</b>, se entregan <b>$ @Abajo(EjemploVuelto).ToString("N0", Ar)</b>.</li>
+                </ul>
+                <small class="gp-muted">Los precios se redondean para arriba y el vuelto para abajo. Los productos por unidad se cobran al precio que tienen cargado.</small>
+            </div>
+        }
+        else
+        {
+            <div class="gp-hint" style="margin-top:.8rem"><i class="bi bi-info-circle-fill" style="color:var(--gp-primary)"></i> Sin redondeo: se cobra y se da el vuelto exacto, con centavos.</div>
+        }
+
+        <div class="cf-form-actions" style="margin-top:1rem">
+            <button type="button" class="gp-btn gp-btn-ok" disabled="@(guardando || !HayCambios)" @onclick="Guardar">
+                <i class="bi bi-check-lg"></i> @(guardando ? "Guardando..." : "Guardar")
+            </button>
+        </div>
+        @if (!EsMiNegocio)
+        {
+            <div class="gp-hint" style="margin-top:.6rem"><i class="bi bi-info-circle-fill" style="color:var(--gp-primary)"></i> Estás configurando otro negocio: se aplica cuando ellos entran.</div>
+        }
+        else
+        {
+            <div class="gp-hint" style="margin-top:.6rem"><i class="bi bi-info-circle-fill" style="color:var(--gp-primary)"></i> En los otros equipos del negocio se aplica la próxima vez que entran.</div>
+        }
+    }
+</section>
+
+<style>
+    .rd-opciones { display: flex; flex-wrap: wrap; gap: .5rem; }
+    .rd-opcion { min-width: 5.5rem; padding: .6rem .9rem; border: 2px solid var(--gp-line); border-radius: 14px; background: #fff; font: inherit; font-weight: 900; color: var(--gp-text); cursor: pointer; }
+    .rd-opcion:hover { border-color: var(--gp-primary-line); }
+    .rd-opcion.is-active { border-color: var(--gp-primary); background: var(--gp-primary-soft); color: var(--gp-primary); }
+    .rd-ejemplo { margin-top: 1rem; padding: .8rem 1rem; border-radius: 14px; background: #f5f7fb; border: 1px solid var(--gp-line); }
+    .rd-ejemplo ul { margin: .4rem 0 .4rem 1.1rem; padding: 0; }
+    .rd-ejemplo li { margin: .15rem 0; }
+</style>
+
+@code {
+    [Parameter] public long KioscoId { get; set; }
+
+    private static readonly System.Globalization.CultureInfo Ar = new("es-AR");
+    private static readonly int[] Multiplos = { 10, 50, 100, 500 };
+    private const decimal EjemploPeso = 1837.50m, EjemploPrecio = 2315.40m, EjemploVuelto = 2380m;
+
+    private AvisosPagina avisos = default!;
+    private bool cargando = true, guardando;
+    private bool usar, usarGuardado;
+    private int multiplo = 50, multiploGuardado = 50;
+
+    private bool EsMiNegocio => KioscoId == State.KioscoId;
+    private bool HayCambios => usar != usarGuardado || (usar && multiplo != multiploGuardado);
+
+    private decimal Arriba(decimal v) => Math.Ceiling(v / multiplo) * multiplo;
+    private decimal Abajo(decimal v) => v - (v % multiplo);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        cargando = true;
+        try
+        {
+            long id = KioscoId;
+            var k = await Db.From<Kiosco>().Select("id, usar_redondeo, multiplo_redondeo").Where(x => x.Id == id).Single();
+            // igual que al entrar al sistema: si nunca se configuró, está activado
+            usarGuardado = k?.UsarRedondeo ?? true;
+            multiploGuardado = k?.MultiploRedondeo is int m && m > 0 ? m : 50;
+        }
+        catch
+        {
+            usarGuardado = EsMiNegocio ? State.UsarRedondeo : false;
+            multiploGuardado = EsMiNegocio && State.MultiploRedondeo > 0 ? State.MultiploRedondeo : 50;
+        }
+        usar = usarGuardado;
+        multiplo = Multiplos.Contains(multiploGuardado) ? multiploGuardado : 50;
+        cargando = false;
+    }
+
+    private async Task Guardar()
+    {
+        guardando = true;
+        try
+        {
+            long id = KioscoId;
+            await Db.From<Kiosco>()
+                .Where(x => x.Id == id)
+                .Set(x => x.UsarRedondeo!, usar)
+                .Set(x => x.MultiploRedondeo!, multiplo)
+                .Update();
+            usarGuardado = usar; multiploGuardado = multiplo;
+            if (EsMiNegocio)
+            {
+                State.UsarRedondeo = usar;
+                State.MultiploRedondeo = multiplo;
+                State.NotifyStateChanged();
+            }
+            _ = avisos.GuardadoAsync(usar ? $"Redondeo a $ {multiplo:N0} guardado" : "Redondeo desactivado");
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudo guardar el redondeo", ConfiguracionService.MensajeError(ex), "peligro");
+        }
+        finally { guardando = false; }
+    }
+}

@@ -1,0 +1,171 @@
+@using BlazorKioscoCompartido.Models
+@using System.Globalization
+@inject Supabase.Client SupaClient
+@inject BlazorKioscoCompartido.Services.AppState State
+
+@* =====================================================================
+   MediosDePago: botones de forma de pago + monto + montos rápidos + "Cargar".
+   Lo usan Cobrar y Cobrar fiado (antes estaba copiado en las dos páginas).
+   Carga sola las formas de pago activas del negocio. No guarda nada: avisa con OnPagoCargado.
+   ===================================================================== *@
+
+@if (cargando)
+{
+    <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>Cargando medios de pago...</p></div>
+}
+else if (!formas.Any())
+{
+    <div class="gp-banner is-danger"><i class="bi bi-exclamation-octagon-fill"></i><p>No hay formas de pago activas. Cargalas en Configuración → Formas de pago.</p></div>
+}
+else
+{
+    <div class="vt-medios" role="group" aria-label="Forma de pago">
+        @foreach (var fp in FormasVisibles)
+        {
+            <button type="button" class="vt-medio @(seleccionada?.Id == fp.Id ? "is-active" : "") @ClaseMedio(fp.Nombre)" @onclick="() => Seleccionar(fp)">
+                <i class="bi @BlazorKioscoCompartido.Services.Utilidades.ObtenerIconoFormaPago(fp.Nombre ?? "")"></i>
+                <span>@NombreMostrar(fp)</span>
+            </button>
+        }
+    </div>
+
+    <label class="cf-lbl">Monto en @(seleccionada != null ? NombreMostrar(seleccionada) : "-")</label>
+    <div class="vt-monto">
+        <div class="vt-addon" style="flex:1 1 auto">
+            <span>$</span>
+            <input type="text" inputmode="decimal" class="gp-control js-monto" placeholder="0,00" onfocus="this.select()"
+                   value="@monto.FormatearMonto(cultura)" @onchange="OnMontoChanged" @onkeyup="OnMontoKeyUp" />
+        </div>
+        <button type="button" class="gp-btn gp-btn-primary" disabled="@(seleccionada == null)" @onclick="Cargar">
+            <i class="bi bi-plus-lg"></i> Cargar
+        </button>
+    </div>
+    <MontosRapidos Restante="@Restante" Modo="@(ModoFiado ? MontosRapidos.ModoPartes : MontosRapidos.ModoBilletes)" OnElegir="v => monto = v" />
+}
+
+@code {
+    /// <summary>Lo que falta cobrar: el monto sugerido se ajusta solo cada vez que cambia.</summary>
+    [Parameter] public decimal Restante { get; set; }
+
+    /// <summary>Cobro de fiados: la forma de pago "Fiado" se muestra como "Descontar".</summary>
+    [Parameter] public bool ModoFiado { get; set; }
+
+    [Parameter] public EventCallback<PagoCargado> OnPagoCargado { get; set; }
+
+    /// <summary>false = no se muestra "Fiado" (en Cobrar: hasta que se elige el cliente).</summary>
+    [Parameter] public bool PermitirFiado { get; set; } = true;
+
+    private static bool EsFiado(FormaPago fp) => string.Equals(fp.Nombre?.Trim(), "Fiado", StringComparison.OrdinalIgnoreCase);
+
+    private List<FormaPago> FormasVisibles => ModoFiado || PermitirFiado ? formas : formas.Where(f => !EsFiado(f)).ToList();
+
+    public class PagoCargado
+    {
+        public long FormaPagoId { get; set; }
+        public string Nombre { get; set; } = "";          // nombre real (ej: "Fiado")
+        public string NombreMostrar { get; set; } = "";   // como se ve en pantalla (ej: "Descontar")
+        public decimal Monto { get; set; }
+    }
+
+    private readonly CultureInfo cultura = CultureInfo.GetCultureInfo("es-AR");
+    private List<FormaPago> formas = new();
+    private FormaPago? seleccionada;
+    private bool cargando = true;
+    private decimal monto;
+    private decimal? ultimoRestante;
+
+    public IReadOnlyList<FormaPago> Formas => formas;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // ETAPA 7: sin internet salen de la copia de la PC (y sin FIADO: sin internet no se fía)
+        var off = BlazorKioscoCompartido.Services.SinInternet.VentaSinInternet.Actual;
+        if (off?.ModoLimitado == true && !ModoFiado)
+        {
+            formas = off.FormasPago();
+            seleccionada = formas.FirstOrDefault();
+            cargando = false;
+            return;
+        }
+        try
+        {
+            var res = await SupaClient.From<FormaPago>()
+                .Where(x => x.KioscoId == State.KioscoId)
+                .Where(x => x.Activo == true)
+                .Order("orden", Supabase.Postgrest.Constants.Ordering.Ascending)
+                .Get();
+            formas = res.Models ?? new List<FormaPago>();
+            // sin la función "fiado" en el plan, no se ofrece vender fiado (en el cobro de deudas sí se usa)
+            if (!ModoFiado && !State.Tiene(BlazorKioscoCompartido.Services.FuncionesPlan.Fiado))
+                formas = formas.Where(f => !string.Equals(f.Nombre?.Trim(), "Fiado", StringComparison.OrdinalIgnoreCase)).ToList();
+            // arranca en la primera forma de pago del negocio (antes quedaba fija la id 1, que en otro negocio no existe)
+            seleccionada = formas.FirstOrDefault();
+        }
+        catch (Exception ex) when (off != null && !ModoFiado && BlazorKioscoCompartido.Services.SinInternet.VentaSinInternet.EsErrorDeRed(ex))
+        {
+            off.MarcarSinConexion();
+            formas = off.FormasPago();
+            seleccionada = formas.FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error al cargar formas de pago: {ex.Message}");
+        }
+        finally
+        {
+            cargando = false;
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        // se sacó el cliente: si estaba elegido "Fiado", pasa a la primera forma de pago
+        if (seleccionada != null && !FormasVisibles.Contains(seleccionada)) seleccionada = FormasVisibles.FirstOrDefault();
+
+        if (ultimoRestante != Restante)
+        {
+            ultimoRestante = Restante;
+            monto = Math.Max(0, Restante);
+        }
+    }
+
+    private string NombreMostrar(FormaPago fp) =>
+        ModoFiado && string.Equals(fp.Nombre, "Fiado", StringComparison.OrdinalIgnoreCase) ? "Descontar" : (fp.Nombre ?? "");
+
+    private static string ClaseMedio(string? nombre)
+    {
+        var n = (nombre ?? "").ToLowerInvariant();
+        if (n.Contains("efectivo")) return "m-efectivo";
+        if (n.Contains("fiado") || n.Contains("credito") || n.Contains("crédito")) return "m-fiado";
+        if (n.Contains("transf")) return "m-transfer";
+        return "";
+    }
+
+    private void Seleccionar(FormaPago fp)
+    {
+        seleccionada = fp;
+        monto = Math.Max(0, Restante);
+    }
+
+    private void OnMontoChanged(ChangeEventArgs e)
+    {
+        monto = decimal.TryParse(e.Value?.ToString(), NumberStyles.Currency, cultura, out var r) ? r : 0;
+    }
+
+    private async Task OnMontoKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await Cargar();
+    }
+
+    private async Task Cargar()
+    {
+        if (seleccionada == null || monto <= 0) return;
+        await OnPagoCargado.InvokeAsync(new PagoCargado
+        {
+            FormaPagoId = seleccionada.Id,
+            Nombre = seleccionada.Nombre ?? "",
+            NombreMostrar = NombreMostrar(seleccionada),
+            Monto = monto
+        });
+    }
+}

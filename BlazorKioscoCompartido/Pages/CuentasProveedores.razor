@@ -1,0 +1,149 @@
+﻿@page "/cuentas-proveedores"
+@using BlazorKioscoCompartido.Models
+@using BlazorKioscoCompartido.Services
+@using BlazorKioscoCompartido.Components
+@using BlazorKioscoCompartido.Pages.Configuracion
+@inject Supabase.Client Db
+@inject AppState State
+@inject NavigationManager Nav
+
+@* Mercadería → Cuentas con proveedores: cuánto se le debe a cada uno, deudas, entregas e historial.
+   Dueño y encargado. Antes estaba en Configuración → Proveedores → Cuenta. *@
+
+<PedidosEstilos />
+<ConfigEstilos />
+<VentasEstilos />
+<AvisosPagina @ref="avisos" />
+
+<div class="container-fluid px-3 py-2 min-vh-100 style-notebook gp-scope gp-page">
+    <EncabezadoPagina Titulo="Cuentas con proveedores"
+                      Subtitulo="Lo que le debés a cada uno, las entregas y el historial"
+                      IconoClass="bi-journal-text"
+                      ColorBorde="primary"
+                      ColorIcono="primary"
+                      MostrarBotonAyuda="false"
+                      RutaVolver="/productos" />
+
+    <div class="vt-wrap cpp-cols">
+        @* ================= PROVEEDORES ================= *@
+        <section class="gp-card gp-card-pad cpp-lista-card">
+            <div class="vt-caja cpp-total">
+                <span class="vt-caja-label">Le debés en total</span>
+                <div class="vt-caja-total" style="color:#fff">$ @TotalDeuda.ToString("N2")</div>
+            </div>
+
+            <div class="gp-search" style="margin:.8rem 0 .5rem">
+                <i class="bi bi-search"></i>
+                <input type="text" class="gp-control" placeholder="Buscar proveedor..." @bind="filtro" @bind:event="oninput" />
+            </div>
+            <label class="cpp-solo"><input type="checkbox" @bind="soloConDeuda" /> Solo a los que les debés</label>
+
+            @if (proveedores == null)
+            {
+                <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>Cargando...</p></div>
+            }
+            else if (!Filtrados.Any())
+            {
+                <p class="gp-muted" style="margin:.5rem 0 0">No hay proveedores para mostrar.</p>
+            }
+            else
+            {
+                <ul class="cpp-lista">
+                    @foreach (var p in Filtrados)
+                    {
+                        var s = saldos.GetValueOrDefault(p.Id);
+                        <li class="cpp-prov @(elegido?.Id == p.Id ? "is-active" : "")" @onclick="() => Elegir(p)">
+                            <span class="cpp-av"><i class="bi bi-truck"></i></span>
+                            <b>@p.Nombre</b>
+                            <span class="cpp-saldo @(s > 0 ? "debe" : s < 0 ? "favor" : "")">@(s == 0 ? "al día" : "$ " + Math.Abs(s).ToString("N2"))</span>
+                        </li>
+                    }
+                </ul>
+            }
+        </section>
+
+        @* ================= CUENTA ================= *@
+        <div>
+            @if (elegido == null)
+            {
+                <section class="gp-card gp-card-pad">
+                    <div class="gp-empty">
+                        <span class="gp-bubble"><i class="bi bi-hand-index-thumb"></i></span>
+                        <strong>Elegí un proveedor</strong>
+                        <span>Vas a ver lo que le debés, cargar entregas o deudas, y todo el historial con quién cargó cada cosa.</span>
+                    </div>
+                </section>
+            }
+            else
+            {
+                <CuentaProveedor KioscoId="State.KioscoId" Proveedor="elegido" EnPagina="true" OnCambio="CargarSaldos" />
+            }
+        </div>
+    </div>
+</div>
+
+<style>
+    .cpp-cols { display: grid; grid-template-columns: minmax(0, 22rem) minmax(0, 1fr); gap: 1rem; align-items: start; }
+    .cpp-total { padding: .9rem 1rem; }
+    .cpp-solo { display: inline-flex; align-items: center; gap: .4rem; color: var(--gp-muted); font-weight: 700; font-size: .85rem; cursor: pointer; margin-bottom: .6rem; }
+    .cpp-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .35rem; max-height: 60vh; overflow: auto; }
+    .cpp-prov { display: flex; align-items: center; gap: .6rem; padding: .55rem .7rem; border: 1px solid var(--gp-line); border-radius: 12px; background: #fff; cursor: pointer; }
+    .cpp-prov:hover { border-color: var(--gp-primary-line); }
+    .cpp-prov.is-active { border-color: var(--gp-primary); background: var(--gp-primary-soft); }
+    .cpp-av { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; border-radius: 10px; background: #e8f0fe; color: #2563eb; }
+    .cpp-prov b { flex: 1 1 auto; min-width: 0; font-weight: 800; font-size: .88rem; text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cpp-saldo { flex: none; font-weight: 900; font-size: .85rem; color: var(--gp-muted); white-space: nowrap; }
+    .cpp-saldo.debe { color: var(--gp-danger); }
+    .cpp-saldo.favor { color: var(--gp-ok); }
+    @@media (max-width: 860px) { .cpp-cols { grid-template-columns: 1fr; } .cpp-lista { max-height: 40vh; } }
+</style>
+
+@code {
+    private AvisosPagina avisos = default!;
+    private List<Proveedor>? proveedores;
+    private Dictionary<long, decimal> saldos = new();
+    private Proveedor? elegido;
+    private string filtro = "";
+    private bool soloConDeuda;
+
+    private decimal TotalDeuda => saldos.Values.Where(v => v > 0).Sum();
+
+    private IEnumerable<Proveedor> Filtrados => (proveedores ?? new())
+        .Where(p => string.IsNullOrWhiteSpace(filtro) || (p.Nombre ?? "").Contains(filtro, StringComparison.OrdinalIgnoreCase))
+        .Where(p => !soloConDeuda || saldos.GetValueOrDefault(p.Id) > 0)
+        .OrderByDescending(p => saldos.GetValueOrDefault(p.Id) > 0).ThenBy(p => p.Nombre);
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (State.KioscoId == 0) { Nav.NavigateTo("/login"); return; }
+        if (!Roles.Puede(State.UsuarioRol, Roles.PMercaderia) || !State.Tiene(FuncionesPlan.DeudasProveedores)) { Nav.NavigateTo("/productos"); return; }
+        try
+        {
+            long k = State.KioscoId;
+            // los dados de baja también, si tienen saldo (para poder saldarlos)
+            proveedores = ((await Db.From<Proveedor>().Where(p => p.KioscoId == k).Get()).Models ?? new()).ToList();
+        }
+        catch (Exception ex) { proveedores = new(); await avisos.InformarAsync("No se pudieron cargar los proveedores", ex.Message, "peligro"); }
+        await CargarSaldos();
+        proveedores = proveedores!.Where(p => p.EstaActivo() || saldos.GetValueOrDefault(p.Id) != 0).ToList();
+
+        // viene de Configuración → Proveedores → Cuenta
+        var q = new Uri(Nav.Uri).Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries)
+            .Select(x => x.Split('=', 2)).FirstOrDefault(x => x.Length == 2 && x[0] == "prov");
+        if (q != null && long.TryParse(q[1], out var id)) elegido = proveedores.FirstOrDefault(p => p.Id == id);
+    }
+
+    private void Elegir(Proveedor p) => elegido = p;
+
+    private async Task CargarSaldos()
+    {
+        try
+        {
+            long k = State.KioscoId;
+            var res = await Db.From<SaldoProveedor>().Where(x => x.KioscoId == k).Get();
+            saldos = (res.Models ?? new()).ToDictionary(x => x.ProveedorId, x => x.Saldo);
+        }
+        catch { saldos = new(); }   // falta el SQL 17
+        StateHasChanged();
+    }
+}

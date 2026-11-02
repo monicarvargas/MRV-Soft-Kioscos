@@ -1,0 +1,525 @@
+﻿@page "/reportes-productos"
+@using BlazorKioscoCompartido.Models
+@using BlazorKioscoCompartido.Components
+@using System.Globalization
+@using System.Text
+@using Newtonsoft.Json
+@inject Supabase.Client SupaClient
+@inject AppState State
+@inject NavigationManager Nav
+@inject IJSRuntime JSRuntime
+
+@* Reportes de productos: precios sin actualizar, poca venta y sin ventas.
+   Los datos salen de la función reporte_productos (SQL 19). *@
+
+<PedidosEstilos />
+<ConfigEstilos />
+<VentasEstilos />
+<AvisosPagina @ref="avisos" />
+
+<div class="container-fluid px-3 py-2 min-vh-100 style-notebook gp-scope gp-page">
+    <EncabezadoPagina Titulo="Reportes de productos"
+                      Subtitulo="Precios viejos, poca venta y mercadería que no se mueve"
+                      IconoClass="bi-clipboard-data-fill"
+                      ColorBorde="primary"
+                      ColorIcono="primary"
+                      MostrarBotonAyuda="false"
+                      RutaVolver="/productos" />
+
+    <div class="vt-wrap" style="display:flex; flex-direction:column; gap:1rem">
+
+        @* ================= QUÉ REPORTE ================= *@
+        <div class="rp-tipos">
+            @foreach (var t in Tipos)
+            {
+                <button type="button" class="rp-tipo @(tipo == t.Clave ? "is-active" : "")" @onclick="() => ElegirTipo(t.Clave)">
+                    <i class="bi @t.Icono"></i>
+                    <b>@t.Titulo</b>
+                    <small>@t.Ayuda</small>
+                </button>
+            }
+        </div>
+
+        @* ================= FILTROS ================= *@
+        <section class="gp-card gp-card-pad">
+            <div class="rp-filtros">
+                <div>
+                    <label class="cf-lbl">@EtiquetaDias</label>
+                    <div class="rp-dias">
+                        @foreach (var d in DiasRapidos)
+                        {
+                            <button type="button" class="gp-btn gp-btn-sm @(dias == d ? "gp-btn-primary" : "gp-btn-outline")" @onclick="() => ElegirDias(d)">@TextoDias(d)</button>
+                        }
+                        <input type="number" min="1" max="3650" inputmode="numeric" class="gp-control rp-dias-input" title="Otra cantidad de días"
+                               value="@dias" @onchange="CambiarDias" />
+                        <span class="gp-muted">días</span>
+                    </div>
+                </div>
+
+                @if (tipo == "poca")
+                {
+                    <div>
+                        <label class="cf-lbl">Vendió como mucho</label>
+                        <div class="rp-dias">
+                            <input type="number" min="1" step="1" inputmode="numeric" class="gp-control rp-dias-input" value="@maxVendido" @onchange="CambiarMax" />
+                            <span class="gp-muted">unidades (o kilos, en los de peso)</span>
+                        </div>
+                    </div>
+                }
+
+                @if (familias.Count > 0)
+                {
+                    <div>
+                        <label class="cf-lbl">Familia</label>
+                        <select class="gp-control" @bind="familiaId" @bind:after="CambioFamilia">
+                            <option value="0">Todas</option>
+                            @foreach (var f in familias)
+                            {
+                                <option value="@f.Id">@f.Nombre</option>
+                            }
+                        </select>
+                    </div>
+                }
+                @if (familiaId > 0 && SubfamiliasDeLaFamilia.Any())
+                {
+                    <div>
+                        <label class="cf-lbl">Subfamilia</label>
+                        <select class="gp-control" @bind="subfamiliaId" @bind:after="Cargar">
+                            <option value="0">Todas</option>
+                            @foreach (var s in SubfamiliasDeLaFamilia)
+                            {
+                                <option value="@s.Id">@s.Nombre</option>
+                            }
+                        </select>
+                    </div>
+                }
+
+                <label class="rp-tilde">
+                    <input type="checkbox" class="gp-check" @bind="soloConStock" @bind:after="Cargar" />
+                    Solo los que tienen stock
+                </label>
+            </div>
+        </section>
+
+        @* ================= RESULTADO ================= *@
+        <section class="gp-card gp-card-pad">
+            <div class="gp-card-head">
+                <span class="gp-bubble"><i class="bi @TipoActual.Icono"></i></span>
+                <div class="vt-head-text">
+                    <h2>@TipoActual.Titulo</h2>
+                    <p>@Explicacion</p>
+                </div>
+            </div>
+
+            @if (!string.IsNullOrEmpty(error))
+            {
+                <div class="gp-banner is-danger"><i class="bi bi-exclamation-octagon-fill"></i><p>@error</p></div>
+            }
+            else if (cargando)
+            {
+                <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>Armando el reporte...</p></div>
+            }
+            else
+            {
+                <div class="rp-res-cab">
+                    <span class="gp-summary"><strong>@filas.Count</strong> producto(s)@(cortado ? $" (se muestran los primeros {filas.Count})" : "")</span>
+                    @if (StockParado > 0 && tipo != "precio")
+                    {
+                        <span class="gp-chip"><i class="bi bi-box-seam"></i> @StockParado.ToString("N0", Ar) u. en stock</span>
+                    }
+                    <div class="rp-res-acciones">
+                        @if (tipo == "precio" && filas.Any())
+                        {
+                            <button type="button" class="gp-btn gp-btn-ok-soft gp-btn-sm" disabled="@marcando" @onclick="MarcarTodosRevisados" title="Revisaste los precios y están bien: salen de esta lista sin cambiarlos">
+                                <i class="bi bi-check2-all"></i> Todos están bien
+                            </button>
+                        }
+                        @if (filas.Any())
+                        {
+                            <button type="button" class="gp-btn gp-btn-outline gp-btn-sm" @onclick="DescargarExcel"><i class="bi bi-file-earmark-excel-fill"></i> Descargar Excel</button>
+                        }
+                    </div>
+                </div>
+
+                @if (!filas.Any())
+                {
+                    <div class="gp-empty">
+                        <span class="gp-bubble"><i class="bi bi-emoji-smile"></i></span>
+                        <strong>@Vacio</strong>
+                    </div>
+                }
+                else
+                {
+                    <div class="gp-table-wrap gp-stack-wrap">
+                        <table class="gp-table gp-stack">
+                            <thead>
+                                <tr>
+                                    <th>Producto</th>
+                                    <th class="t-right">Precio</th>
+                                    <th class="t-right">Stock</th>
+                                    @if (tipo == "precio")
+                                    {
+                                        <th>Precio del</th>
+                                    }
+                                    else if (tipo == "poca")
+                                    {
+                                        <th class="t-right">Vendió</th>
+                                        @if (VeImportes) { <th class="t-right">Importe</th> }
+                                        <th>Última venta</th>
+                                    }
+                                    else
+                                    {
+                                        <th>Última venta</th>
+                                    }
+                                    <th class="t-center">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var f in filas)
+                                {
+                                    <tr>
+                                        <td class="gp-td-main" data-label="Producto">
+                                            <span class="gp-product">@f.Nombre</span>
+                                            <small class="gp-muted rp-sub">@Sub(f)</small>
+                                        </td>
+                                        <td class="t-right gp-num" data-label="Precio">$ @Plata(f.PrecioVenta)@(f.PorPeso ? "/kg" : "")</td>
+                                        <td class="t-right gp-num" data-label="Stock">@Cantidad(f.Stock, f.PorPeso)</td>
+                                        @if (tipo == "precio")
+                                        {
+                                            <td data-label="Precio del">@Fecha(f.FechaPrecio) <small class="rp-hace @ColorHace(f.FechaPrecio)">@Hace(f.FechaPrecio)</small></td>
+                                        }
+                                        else if (tipo == "poca")
+                                        {
+                                            <td class="t-right gp-num" data-label="Vendió">@Cantidad(f.Vendido, f.PorPeso)</td>
+                                            @if (VeImportes) { <td class="t-right gp-num" data-label="Importe">$ @Plata(f.Importe)</td> }
+                                            <td data-label="Última venta">@Fecha(f.UltimaVenta)</td>
+                                        }
+                                        else
+                                        {
+                                            <td data-label="Última venta">
+                                                @if (string.IsNullOrEmpty(f.UltimaVenta)) { <span class="rp-hace is-rojo">nunca se vendió</span> }
+                                                else { <span>@Fecha(f.UltimaVenta)</span> <small class="rp-hace @ColorHace(f.UltimaVenta)">@Hace(f.UltimaVenta)</small> }
+                                            </td>
+                                        }
+                                        <td class="t-center gp-td-actions" data-label="">
+                                            <div class="gp-cell-actions">
+                                                @if (tipo == "precio")
+                                                {
+                                                    <button type="button" class="gp-btn gp-btn-ok-soft gp-btn-sm gp-btn-icon" title="El precio está bien (sale de la lista)" disabled="@marcando" @onclick="() => MarcarRevisado(f)"><i class="bi bi-check-lg"></i></button>
+                                                }
+                                                <button type="button" class="gp-btn gp-btn-soft gp-btn-sm gp-btn-icon" title="Editar producto" @onclick='() => Nav.NavigateTo($"/producto/editar/{f.Id}")'><i class="bi bi-pencil-fill"></i></button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            }
+        </section>
+    </div>
+</div>
+
+<style>
+    .rp-tipos { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: .6rem; }
+    .rp-tipo { display: flex; flex-direction: column; align-items: flex-start; gap: .15rem; padding: .85rem 1rem; border: 2px solid var(--gp-line); border-radius: 16px; background: #fff; text-align: left; cursor: pointer; transition: border-color .15s, background-color .15s; }
+    .rp-tipo i { font-size: 1.35rem; color: var(--gp-primary); }
+    .rp-tipo b { font-size: 1rem; color: var(--gp-text); }
+    .rp-tipo small { color: var(--gp-muted); font-weight: 600; font-size: .8rem; }
+    .rp-tipo:hover { border-color: var(--gp-primary-line); }
+    .rp-tipo.is-active { border-color: var(--gp-primary); background: var(--gp-primary-soft); }
+    .rp-filtros { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .9rem 1.4rem; }
+    .rp-dias { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; }
+    .rp-dias-input { width: 5.5rem; }
+    .rp-tilde { display: inline-flex; align-items: center; gap: .45rem; font-weight: 700; color: var(--gp-text); cursor: pointer; padding-bottom: .55rem; }
+    .rp-res-cab { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .9rem; margin-bottom: .7rem; }
+    .rp-res-acciones { margin-left: auto; display: flex; flex-wrap: wrap; gap: .4rem; }
+    .rp-sub { display: block; }
+    .rp-hace { display: inline-block; margin-left: .3rem; font-weight: 700; color: var(--gp-muted); }
+    .rp-hace.is-naranja { color: var(--gp-warn); }
+    .rp-hace.is-rojo { color: var(--gp-danger); }
+</style>
+
+@code {
+    private AvisosPagina avisos = default!;
+    private static readonly CultureInfo Ar = new("es-AR");
+
+    private sealed record Tipo(string Clave, string Icono, string Titulo, string Ayuda);
+    private static readonly List<Tipo> Tipos = new()
+    {
+        new("precio", "bi-hourglass-split", "Precios sin actualizar", "No se les cambió el precio hace tiempo"),
+        new("poca", "bi-graph-down-arrow", "Poca venta", "Se vendieron pocas unidades"),
+        new("sin_venta", "bi-moon-stars-fill", "Sin ventas", "No se venden hace mucho (o nunca)"),
+    };
+    private static readonly int[] DiasRapidos = { 15, 30, 60, 90, 180 };
+
+    private string tipo = "precio";
+    private int dias = 30;
+    private decimal maxVendido = 5;
+    private long familiaId;
+    private long subfamiliaId;
+    private List<Subfamilia> subfamilias = new();
+    private List<Subfamilia> SubfamiliasDeLaFamilia => subfamilias.Where(s => s.FamiliaId == familiaId).OrderBy(s => s.Nombre).ToList();
+    private bool soloConStock;
+
+    private List<Familia> familias = new();
+    private List<FilaReporte> filas = new();
+    private bool cargando, cortado, marcando;
+    private string error = "";
+    private const int TamPagina = 500, MaxFilas = 5000;
+
+    private Tipo TipoActual => Tipos.First(t => t.Clave == tipo);
+    private bool VeImportes => Roles.VeRecaudacion(State.UsuarioRol);   // la plata vendida, solo el dueño
+    private decimal StockParado => filas.Where(f => !f.PorPeso && f.Stock > 0).Sum(f => f.Stock);
+
+    private string EtiquetaDias => tipo switch
+    {
+        "precio" => "Precio sin cambiar hace más de",
+        "poca" => "En los últimos",
+        _ => "Sin ventas hace más de",
+    };
+
+    private string Explicacion => tipo switch
+    {
+        "precio" => $"Productos a los que no se les cambió el costo ni el precio en más de {TextoDias(dias)}. Revisalos: puede haber mercadería con precio viejo. Si el precio está bien, tocá ✓ y sale de la lista.",
+        "poca" => $"Se vendieron, pero poco: {Cant(maxVendido)} o menos en los últimos {TextoDias(dias)}. Los que no se vendieron nada están en “Sin ventas”.",
+        _ => $"Productos que no se venden hace más de {TextoDias(dias)}, o que nunca se vendieron. Los primeros son los más quietos.",
+    };
+
+    private string Vacio => tipo switch
+    {
+        "precio" => "¡Todos los precios están al día!",
+        "poca" => "No hay productos con poca venta en ese período.",
+        _ => "Todos los productos se vendieron en ese período.",
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (State.KioscoId == 0) { Nav.NavigateTo("/login"); return; }
+        if (!Roles.Puede(State.UsuarioRol, Roles.PReportes)) { Nav.NavigateTo("/productos"); return; }
+
+        try
+        {
+            long k = State.KioscoId;
+            var res = await SupaClient.From<Familia>().Where(f => f.KioscoId == k).Get();
+            familias = res.Models.OrderBy(f => f.Nombre).ToList();
+        }
+        catch { familias = new(); }
+        try
+        {
+            long k = State.KioscoId;
+            subfamilias = (await SupaClient.From<Subfamilia>().Where(s => s.KioscoId == k).Get()).Models ?? new();
+        }
+        catch { subfamilias = new(); }   // falta el script 26
+
+        await Cargar();
+    }
+
+    private async Task CambioFamilia()
+    {
+        subfamiliaId = 0;
+        await Cargar();
+    }
+
+    private async Task ElegirTipo(string t)
+    {
+        if (tipo == t) return;
+        tipo = t;
+        await Cargar();
+    }
+
+    private async Task ElegirDias(int d) { dias = d; await Cargar(); }
+
+    private async Task CambiarDias(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var d) && d > 0) { dias = Math.Min(d, 3650); await Cargar(); }
+    }
+
+    private async Task CambiarMax(ChangeEventArgs e)
+    {
+        if (decimal.TryParse(e.Value?.ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var m) && m > 0)
+        { maxVendido = m; await Cargar(); }
+    }
+
+    private async Task Cargar()
+    {
+        cargando = true; error = ""; cortado = false;
+        StateHasChanged();
+        var todas = new List<FilaReporte>();
+        try
+        {
+            for (int desde = 0; desde < MaxFilas; desde += TamPagina)
+            {
+                var args = new Dictionary<string, object>
+                {
+                    { "p_kiosco", State.KioscoId },
+                    { "p_tipo", tipo },
+                    { "p_dias", dias },
+                    { "p_max", maxVendido },
+                    { "p_con_stock", soloConStock },
+                    { "p_offset", desde },
+                    { "p_limit", TamPagina },
+                };
+                if (familiaId > 0) args["p_familia"] = familiaId;
+                if (familiaId > 0 && subfamiliaId > 0) args["p_subfamilia"] = subfamiliaId;
+
+                var res = await SupaClient.Rpc("reporte_productos", args);
+                var tanda = string.IsNullOrWhiteSpace(res.Content)
+                    ? new List<FilaReporte>()
+                    : JsonConvert.DeserializeObject<List<FilaReporte>>(res.Content) ?? new();
+                todas.AddRange(tanda);
+                if (tanda.Count < TamPagina) break;
+            }
+            cortado = todas.Count >= MaxFilas;
+            filas = todas;
+        }
+        catch (Exception ex)
+        {
+            filas = new();
+            var msg = ex.Message ?? "";
+            error = subfamiliaId > 0 && (msg.Contains("reporte_productos") || msg.Contains("PGRST202"))
+                ? "Para filtrar por subfamilia falta correr el script 28.reportes_subfamilias.sql en Supabase."
+                : msg.Contains("reporte_productos") || msg.Contains("PGRST202")
+                ? "Falta preparar la base: hay que correr el script 19.reportes_productos.sql en Supabase."
+                : "No se pudo armar el reporte: " + msg;
+        }
+        finally { cargando = false; }
+    }
+
+    private async Task MarcarRevisado(FilaReporte f) => await Marcar(new[] { f.Id }, $"{f.Nombre}: precio revisado");
+
+    private async Task MarcarTodosRevisados()
+    {
+        if (!await avisos.ConfirmarAsync($"¿Los {filas.Count} precios están bien?",
+                "Salen de esta lista sin cambiarles el precio. Vuelven a aparecer si pasan otra vez los días sin actualizarse.",
+                "Sí, están bien", "aviso")) return;
+        await Marcar(filas.Select(x => x.Id).ToArray(), "Precios marcados como revisados");
+    }
+
+    private async Task Marcar(long[] ids, string okMsg)
+    {
+        marcando = true;
+        try
+        {
+            for (int i = 0; i < ids.Length; i += 500)
+            {
+                var parte = ids.Skip(i).Take(500).ToArray();
+                await SupaClient.Rpc("marcar_precio_revisado", new Dictionary<string, object> { { "p_ids", parte } });
+            }
+            var quitar = ids.ToHashSet();
+            filas = filas.Where(x => !quitar.Contains(x.Id)).ToList();
+            avisos.Toast(okMsg, "exito");
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo marcar", ex.Message, "peligro"); }
+        finally { marcando = false; }
+    }
+
+    // ---------- Excel (CSV que abre Excel) ----------
+    private IJSObjectReference? jsModulo;
+
+    private async Task DescargarExcel()
+    {
+        var sb = new StringBuilder();
+        var cab = new List<string> { "Codigo", "Producto", "Familia", "Proveedor", "Precio venta", "Costo", "Stock", "Unidad" };
+        if (tipo == "precio") cab.Add("Precio del");
+        else
+        {
+            if (tipo == "poca") { cab.Add($"Vendido ({dias} dias)"); if (VeImportes) cab.Add("Importe"); }
+            cab.Add("Ultima venta");
+        }
+        sb.AppendLine(string.Join(";", cab));
+
+        foreach (var f in filas)
+        {
+            var c = new List<string>
+            {
+                Csv(f.Codigo), Csv(f.Nombre), Csv(f.Familia), Csv(f.Proveedor),
+                Num(f.PrecioVenta), Num(f.PrecioCosto), Num(f.Stock), f.PorPeso ? "kg" : "u"
+            };
+            if (tipo == "precio") c.Add(Fecha(f.FechaPrecio));
+            else
+            {
+                if (tipo == "poca") { c.Add(Num(f.Vendido)); if (VeImportes) c.Add(Num(f.Importe)); }
+                c.Add(string.IsNullOrEmpty(f.UltimaVenta) ? "nunca" : Fecha(f.UltimaVenta));
+            }
+            sb.AppendLine(string.Join(";", c));
+        }
+
+        var nombre = tipo switch { "precio" => "precios-sin-actualizar", "poca" => "poca-venta", _ => "sin-ventas" };
+        try
+        {
+            jsModulo ??= await JSRuntime.InvokeAsync<IJSObjectReference>("import", "./_content/BlazorKioscoCompartido/js/descargas.js?v=2");
+            await jsModulo.InvokeVoidAsync("descargarArchivo", $"{nombre}-{DateTime.Now:yyyy-MM-dd}.csv", "text/csv", sb.ToString());
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo descargar", ex.Message, "peligro"); }
+    }
+
+    private static string Csv(string? s)
+    {
+        s ??= "";
+        return s.Contains(';') || s.Contains('"') || s.Contains('\n') ? "\"" + s.Replace("\"", "\"\"") + "\"" : s;
+    }
+    private static string Num(decimal? v) => (v ?? 0).ToString("0.###", Ar);
+
+    // ---------- formato ----------
+    private static string TextoDias(int d) => d switch
+    {
+        30 => "1 mes",
+        60 => "2 meses",
+        90 => "3 meses",
+        180 => "6 meses",
+        365 => "1 año",
+        _ => $"{d} días",
+    };
+    private static string Cant(decimal v) => v.ToString("0.##", Ar);
+    private static string Plata(decimal? v) => (v ?? 0).ToString("N2", Ar);
+    private static string Cantidad(decimal v, bool peso) => peso ? $"{v.ToString("0.###", Ar)} kg" : v.ToString("0.##", Ar);
+
+    private static string Sub(FilaReporte f)
+    {
+        var partes = new[] { f.Codigo, f.Familia, f.Proveedor }.Where(x => !string.IsNullOrWhiteSpace(x));
+        return string.Join(" · ", partes);
+    }
+
+    private static DateTime? Dia(string? iso) =>
+        DateTime.TryParseExact(iso, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ? d : null;
+
+    private static string Fecha(string? iso) => Dia(iso)?.ToString("dd/MM/yyyy") ?? "—";
+
+    private static int? DiasDesde(string? iso) => Dia(iso) is DateTime d ? (int)(DateTime.Today - d.Date).TotalDays : null;
+
+    private static string Hace(string? iso)
+    {
+        var n = DiasDesde(iso);
+        if (n is null) return "";
+        if (n <= 0) return "(hoy)";
+        if (n == 1) return "(ayer)";
+        if (n < 60) return $"(hace {n} días)";
+        return $"(hace {n / 30} meses)";
+    }
+
+    private string ColorHace(string? iso)
+    {
+        var n = DiasDesde(iso) ?? 0;
+        return n >= dias * 2 ? "is-rojo" : n >= dias ? "is-naranja" : "";
+    }
+
+    private sealed class FilaReporte
+    {
+        [JsonProperty("id")] public long Id { get; set; }
+        [JsonProperty("codigo")] public string? Codigo { get; set; }
+        [JsonProperty("nombre")] public string? Nombre { get; set; }
+        [JsonProperty("familia")] public string? Familia { get; set; }
+        [JsonProperty("proveedor")] public string? Proveedor { get; set; }
+        [JsonProperty("por_peso")] public bool PorPeso { get; set; }
+        [JsonProperty("precio_costo")] public decimal? PrecioCosto { get; set; }
+        [JsonProperty("precio_venta")] public decimal? PrecioVenta { get; set; }
+        [JsonProperty("stock")] public decimal Stock { get; set; }
+        [JsonProperty("fecha_precio")] public string? FechaPrecio { get; set; }
+        [JsonProperty("ultima_venta")] public string? UltimaVenta { get; set; }
+        [JsonProperty("vendido")] public decimal Vendido { get; set; }
+        [JsonProperty("importe")] public decimal Importe { get; set; }
+        [JsonProperty("total_filas")] public long TotalFilas { get; set; }
+    }
+}

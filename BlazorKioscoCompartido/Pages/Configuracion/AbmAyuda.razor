@@ -1,0 +1,165 @@
+﻿@inject Supabase.Client Db
+@inject AppState State
+
+@* Configuración → Ayuda y plan: cómo se usa cada cosa que tiene el negocio, y qué tendría con otro plan.
+   Los textos están en Services\AyudaSistema.cs; los planes en la tabla planes (_sql\20). *@
+
+<section class="gp-card gp-card-pad">
+    <div class="gp-card-head">
+        <span class="gp-bubble"><i class="bi bi-question-circle-fill"></i></span>
+        <div class="cf-head-text">
+            <h2>Ayuda y plan</h2>
+            <p>
+                @if (planActual != null)
+                {
+                    <span>Tu plan: <b class="ay-plan">@planActual.Nombre</b> · </span>
+                }
+                Tocá cada tema para ver cómo se usa, o mirá qué puede hacer cada perfil.
+            </p>
+        </div>
+    </div>
+
+    <div class="gp-seg ay-solapas" role="tablist">
+        <button type="button" class="@(solapa == "ayuda" ? "is-active" : "")" @onclick='() => solapa = "ayuda"'><i class="bi bi-book-fill"></i> Cómo se usa</button>
+        <button type="button" class="@(solapa == "perfiles" ? "is-active" : "")" @onclick='() => solapa = "perfiles"'><i class="bi bi-people-fill"></i> Perfiles: qué puede cada uno</button>
+    </div>
+
+    @if (solapa == "perfiles")
+    {
+        <PerfilesPermisos KioscoId="KioscoId" />
+    }
+    else
+    {
+    <div class="gp-search" style="max-width:none; margin-bottom:1rem">
+        <i class="bi bi-search"></i>
+        <input type="text" class="gp-control" placeholder="Buscar en la ayuda (ej: fiado, carteles, precio)..." @bind="filtro" @bind:event="oninput" />
+    </div>
+
+    <div class="cf-section"><i class="bi bi-check-circle-fill" style="color:var(--gp-ok)"></i> Lo que podés usar</div>
+    <div class="ay-lista">
+        @foreach (var t in Filtrar(Habilitados))
+        {
+            <TemaAyuda Tema="t" Abierto="abierto == t.Titulo" OnAlternar="() => Alternar(t.Titulo)" />
+        }
+    </div>
+
+    @if (Faltantes.Any())
+    {
+        <div class="cf-section" style="margin-top:1.4rem"><i class="bi bi-stars" style="color:var(--gp-primary)"></i> Con otro plan también tendrías</div>
+        <div class="ay-lista">
+            @foreach (var t in Filtrar(Faltantes))
+            {
+                <TemaAyuda Tema="t" Bloqueado="true" Etiqueta="@PlanQueLaTrae(t.Clave)" Abierto="abierto == t.Titulo" OnAlternar="() => Alternar(t.Titulo)" />
+            }
+        </div>
+        <div class="gp-hint" style="margin-top:.8rem">
+            <i class="bi bi-chat-dots-fill" style="color:var(--gp-primary)"></i>
+            ¿Te interesa alguna? Consultá para pasarte de plan o habilitar solo esa función.
+        </div>
+    }
+
+    @if (planes.Count > 1)
+    {
+        <div class="cf-section" style="margin-top:1.4rem"><i class="bi bi-table"></i> Qué trae cada plan</div>
+        <div class="gp-table-wrap">
+            <table class="gp-table ay-tabla">
+                <thead>
+                    <tr>
+                        <th>Función</th>
+                        @foreach (var p in planes)
+                        {
+                            <th class="t-center @(p.Codigo == planActual?.Codigo ? "is-mio" : "")">@p.Nombre@(p.Codigo == planActual?.Codigo ? " (el tuyo)" : "")</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Vender, productos, nuevo producto y configuración</td>
+                        @foreach (var p in planes)
+                        {
+                            <td class="t-center @(p.Codigo == planActual?.Codigo ? "is-mio" : "")"><i class="bi bi-check-lg ay-si"></i></td>
+                        }
+                    </tr>
+                    @foreach (var f in FuncionesPlan.Todas)
+                    {
+                        <tr>
+                            <td>@f.Nombre</td>
+                            @foreach (var p in planes)
+                            {
+                                <td class="t-center @(p.Codigo == planActual?.Codigo ? "is-mio" : "")">
+                                    @if (p.Funciones.Contains(f.Clave)) { <i class="bi bi-check-lg ay-si"></i> } else { <span class="ay-no">—</span> }
+                                </td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    }
+</section>
+
+<style>
+    .ay-plan { color: var(--gp-primary); text-transform: uppercase; }
+    .ay-solapas { display: flex; width: 100%; margin-bottom: 1rem; }
+    .ay-solapas button { flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: .45rem; }
+    .ay-lista { display: flex; flex-direction: column; gap: .45rem; }
+    .ay-tabla td, .ay-tabla th { font-size: .85rem; }
+    .ay-tabla .is-mio { background: var(--gp-primary-soft); }
+    .ay-si { color: var(--gp-ok); font-size: 1.1rem; font-weight: 900; }
+    .ay-no { color: var(--gp-muted); }
+</style>
+
+@code {
+    [Parameter] public long KioscoId { get; set; }
+
+    private List<Plan> planes = new();
+    private Plan? planActual;
+    private string filtro = "";
+    private string? abierto;
+    private string solapa = "ayuda";   // "ayuda" | "perfiles"
+
+    private bool Tiene(string? clave) => clave == null || State.Tiene(clave);
+
+    private List<AyudaSistema.Tema> Habilitados => AyudaSistema.Temas.Where(t => Tiene(t.Clave)).ToList();
+    private List<AyudaSistema.Tema> Faltantes => AyudaSistema.Temas.Where(t => !Tiene(t.Clave)).ToList();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            planes = ((await Db.From<Plan>().Get()).Models ?? new()).OrderBy(p => p.Orden).ToList();
+            long id = KioscoId;
+            var k = await Db.From<Kiosco>().Select("id, plan_codigo").Where(x => x.Id == id).Single();
+            planActual = planes.FirstOrDefault(p => p.Codigo == k?.PlanCodigo);
+        }
+        catch { /* sin planes (falta el SQL 20): se muestra solo la ayuda */ }
+    }
+
+    private void Alternar(string titulo) => abierto = abierto == titulo ? null : titulo;
+
+    /// <summary>"Plan Medio": el primer plan (más barato) que trae esa función.</summary>
+    private string PlanQueLaTrae(string? clave)
+    {
+        var p = planes.FirstOrDefault(x => clave != null && x.Funciones.Contains(clave));
+        return p == null ? "Se habilita aparte" : "Plan " + p.Nombre;
+    }
+
+    private IEnumerable<AyudaSistema.Tema> Filtrar(List<AyudaSistema.Tema> temas)
+    {
+        var f = Normalizar(filtro);
+        if (f == "") return temas;
+        var palabras = f.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return temas.Where(t =>
+        {
+            var texto = Normalizar(t.Titulo + " " + t.ParaQue + " " + t.DondeEsta + " " + string.Join(" ", t.Pasos) + " " + string.Join(" ", t.Consejos ?? Array.Empty<string>()));
+            return palabras.All(p => texto.Contains(p));
+        });
+    }
+
+    private static string Normalizar(string? s)
+    {
+        var d = (s ?? "").ToLowerInvariant().Normalize(System.Text.NormalizationForm.FormD);
+        return new string(d.Where(c => System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark).ToArray());
+    }
+}

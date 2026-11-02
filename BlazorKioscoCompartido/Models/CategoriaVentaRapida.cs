@@ -1,14 +1,14 @@
 ﻿using Supabase.Postgrest.Attributes;
 using Supabase.Postgrest.Models;
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace BlazorKioscoCompartido.Models
 {
     [Table("categorias_venta_rapida")]
     public class CategoriaVentaRapida:BaseModel
     {
-        [Key]
-        [Column("id")]
+        [PrimaryKey("id", false)]
         public long Id { get; set; }
 
         [Required]
@@ -27,7 +27,6 @@ namespace BlazorKioscoCompartido.Models
         public bool Habilitado { get; set; } = true;
         [Column("kiosco_id")]
         public long KioscoId { get; set; }
-        // Propiedad de navegación por si querés traer los productos asociados directamente desde C#
-        public virtual ICollection<Producto> Productos { get; set; } = new List<Producto>();
+       
     }
 }

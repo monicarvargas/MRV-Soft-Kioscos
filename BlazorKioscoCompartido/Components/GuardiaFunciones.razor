@@ -1,0 +1,117 @@
+@using Microsoft.AspNetCore.Components.Routing
+@implements IDisposable
+@inject AppState State
+@inject NavigationManager Nav
+
+@* Si se entra (por link o escribiendo la dirección) a una página que el plan del negocio no incluye,
+   vuelve a Productos y avisa. Va en los dos MainLayout, al lado de ModoSoporte. *@
+@if (avisoSinInternet)
+{
+    <div class="gf-aviso" role="status">
+        <i class="bi bi-wifi-off"></i>
+        <span><b>Sin internet solo se puede vender.</b> El resto vuelve cuando haya internet (y, si entraste sin internet, después de entrar de nuevo).</span>
+        <button type="button" title="Cerrar" @onclick="() => avisoSinInternet = false"><i class="bi bi-x-lg"></i></button>
+    </div>
+}
+else if (avisoPermiso != null)
+{
+    <div class="gf-aviso" role="status">
+        <i class="bi bi-shield-lock-fill"></i>
+        <span><b>@avisoPermiso</b>: tu usuario no tiene permiso para entrar. Lo puede habilitar el dueño en Configuración → Ayuda y plan → Perfiles.</span>
+        <button type="button" title="Cerrar" @onclick="() => avisoPermiso = null"><i class="bi bi-x-lg"></i></button>
+    </div>
+}
+else if (aviso != null)
+{
+    <div class="gf-aviso" role="status">
+        <i class="bi bi-stars"></i>
+        <span><b>@aviso</b> no está incluida en el plan de este negocio. Consultá para habilitarla.</span>
+        <button type="button" title="Cerrar" @onclick="() => aviso = null"><i class="bi bi-x-lg"></i></button>
+    </div>
+}
+
+<style>
+    .gf-aviso { display: flex; align-items: center; gap: .6rem; margin: 0 0 .75rem; padding: .6rem .8rem; border-radius: 14px;
+                border: 1px solid var(--tema-principal, #0d6efd); background: var(--tema-suave, #e7f0ff); color: #1b2540; font-weight: 600; }
+    .gf-aviso > i { font-size: 1.2rem; color: var(--tema-principal, #0d6efd); }
+    .gf-aviso span { flex: 1 1 auto; }
+    .gf-aviso button { border: 0; background: transparent; color: inherit; cursor: pointer; }
+</style>
+
+@code {
+    private string? aviso;
+    private string? avisoPermiso;   // la página es de una parte que el perfil del usuario no tiene
+    private bool recienRedirigido;
+    private bool avisoSinInternet;
+
+    // ETAPA 7 (escritorio): sin internet solo se puede entrar a estas páginas
+    private static readonly string[] RutasSinInternet = { "", "login", "producto/vender", "vender-desktop", "producto/cobrar", "producto/cobrar-desktop" };
+
+    protected override void OnInitialized()
+    {
+        Nav.LocationChanged += AlNavegar;
+        State.OnChange += AlCambiarEstado;
+        Revisar();
+    }
+
+    private void AlNavegar(object? sender, LocationChangedEventArgs e) => InvokeAsync(() => Revisar(true));
+    private void AlCambiarEstado() => InvokeAsync(() => Revisar(false));
+    private void Revisar() => Revisar(true);
+
+    private void Revisar(bool navego)
+    {
+        if (State.KioscoId == 0) return;
+
+        // sin internet: solo Vender y Cobrar (se revisa al cambiar de página, así no se corta lo que se estaba haciendo)
+        var off = BlazorKioscoCompartido.Services.SinInternet.VentaSinInternet.Actual;
+        if (navego && off?.ModoLimitado == true)
+        {
+            var ruta = Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0].Trim('/').ToLowerInvariant();
+            if (!RutasSinInternet.Contains(ruta))
+            {
+                avisoSinInternet = true;
+                aviso = null;
+                recienRedirigido = true;
+                StateHasChanged();
+                Nav.NavigateTo(RutasApp.Escritorio.Vender);
+                return;
+            }
+        }
+        if (navego && !recienRedirigido && avisoSinInternet) { avisoSinInternet = false; StateHasChanged(); }
+
+        var rutaActual = Nav.ToBaseRelativePath(Nav.Uri);
+
+        // permisos del perfil (lo que el dueño le dio al encargado / vendedor)
+        var permiso = Roles.PermisoDeRuta(rutaActual);
+        if (navego && permiso != null && !Roles.Puede(State.UsuarioRol, permiso))
+        {
+            avisoPermiso = Roles.BuscarPermiso(permiso)?.Nombre ?? "Esa opción";
+            aviso = null;
+            recienRedirigido = true;
+            StateHasChanged();
+            Nav.NavigateTo("/productos");
+            return;
+        }
+
+        var clave = FuncionesPlan.ClaveDeRuta(rutaActual);
+        if (clave == null || State.Tiene(clave))
+        {
+            // el aviso queda solo en la página a la que se lo mandó; al seguir navegando se borra
+            if (!recienRedirigido && (aviso != null || avisoPermiso != null)) { aviso = null; avisoPermiso = null; StateHasChanged(); }
+            recienRedirigido = false;
+            return;
+        }
+
+        avisoPermiso = null;
+        aviso = FuncionesPlan.Buscar(clave)?.Nombre ?? "Esa opción";
+        recienRedirigido = true;
+        StateHasChanged();
+        Nav.NavigateTo("/productos");
+    }
+
+    public void Dispose()
+    {
+        Nav.LocationChanged -= AlNavegar;
+        State.OnChange -= AlCambiarEstado;
+    }
+}

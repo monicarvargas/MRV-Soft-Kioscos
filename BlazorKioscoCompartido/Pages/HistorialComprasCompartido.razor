@@ -1,0 +1,350 @@
+@using BlazorKioscoCompartido.Components
+@using BlazorKioscoCompartido.Models
+@using System.Globalization
+@inject Supabase.Client SupaClient
+@inject AppState State
+
+<PedidosEstilos />
+<AvisosPagina @ref="avisos" />
+
+<div class="gp-scope">
+    <section class="gp-card gp-card-pad">
+
+        <div class="gp-toolbar">
+            <div class="gp-seg" role="group" aria-label="Filtrar por estado">
+                <button type="button" class="@(filtroEstado == "todas" ? "is-active" : "")" @onclick='() => CambiarEstado("todas")'>Todas <span class="gp-n">@compras.Count</span></button>
+                <button type="button" class="@(filtroEstado == CompraEstado.Cerrada ? "is-active" : "")" @onclick="() => CambiarEstado(CompraEstado.Cerrada)"><span class="gp-dot is-pend"></span> Sin confirmar <span class="gp-n">@compras.Count(c => c.Estado == CompraEstado.Cerrada)</span></button>
+                <button type="button" class="@(filtroEstado == CompraEstado.Confirmada ? "is-active" : "")" @onclick="() => CambiarEstado(CompraEstado.Confirmada)"><span class="gp-dot is-env"></span> Confirmadas <span class="gp-n">@compras.Count(c => c.Estado == CompraEstado.Confirmada)</span></button>
+            </div>
+
+            <div class="gp-seg" role="group" aria-label="Filtrar por origen">
+                <button type="button" class="@(filtroOrigen == "" ? "is-active" : "")" @onclick='() => CambiarOrigen("")'>Todo origen</button>
+                <button type="button" class="@(filtroOrigen == CompraOrigen.Boleta ? "is-active" : "")" @onclick="() => CambiarOrigen(CompraOrigen.Boleta)"><i class="bi bi-receipt"></i> Boleta</button>
+                <button type="button" class="@(filtroOrigen == CompraOrigen.Pedido ? "is-active" : "")" @onclick="() => CambiarOrigen(CompraOrigen.Pedido)"><i class="bi bi-truck"></i> Pedido</button>
+                <button type="button" class="@(filtroOrigen == CompraOrigen.Excel ? "is-active" : "")" @onclick="() => CambiarOrigen(CompraOrigen.Excel)"><i class="bi bi-file-earmark-excel"></i> Excel</button>
+                <button type="button" class="@(filtroOrigen == CompraOrigen.Calculadora ? "is-active" : "")" @onclick="() => CambiarOrigen(CompraOrigen.Calculadora)"><i class="bi bi-calculator"></i> Calculadora</button>
+            </div>
+
+            <div class="gp-search">
+                <i class="bi bi-search"></i>
+                <input type="text" class="gp-control" placeholder="Buscar por proveedor o N° de boleta..."
+                       @bind="busqueda" @bind:event="oninput" />
+                @if (!string.IsNullOrEmpty(busqueda))
+                {
+                    <button type="button" class="gp-search-clear" title="Borrar búsqueda" @onclick='() => busqueda = ""'><i class="bi bi-x-lg"></i></button>
+                }
+            </div>
+        </div>
+
+        @if (cargando)
+        {
+            <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>Cargando compras...</p></div>
+        }
+
+        <div class="gp-table-wrap gp-stack-wrap">
+            <table class="gp-table gp-stack">
+                <thead>
+                    <tr>
+                        <th>Fecha</th>
+                        <th>Origen</th>
+                        <th>Proveedor</th>
+                        <th>N° boleta</th>
+                        <th class="t-right">Total</th>
+                        <th class="t-center">Estado</th>
+                        <th class="t-center">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (!Filtradas.Any() && !cargando)
+                    {
+                        <tr class="gp-empty-row">
+                            <td colspan="7">
+                                <div class="gp-empty">
+                                    <span class="gp-bubble"><i class="bi bi-journal-x"></i></span>
+                                    <strong>No hay compras</strong>
+                                    <span>@(compras.Any() ? "Ninguna compra coincide con los filtros." : "Todavía no se registró ninguna compra.")</span>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var c in Filtradas)
+                        {
+                            <tr>
+                                <td class="gp-nowrap" data-label="Fecha">@FechaMostrar(c).ToString("dd/MM/yyyy")</td>
+                                <td data-label="Origen"><i class="bi @IconoOrigen(c.Origen)"></i> @TextoOrigen(c.Origen)</td>
+                                <td class="gp-td-main" data-label="Proveedor"><strong>@NombreProveedor(c.ProveedorId)</strong></td>
+                                <td data-label="N° boleta">@(string.IsNullOrWhiteSpace(c.NumeroComprobante) ? "—" : c.NumeroComprobante)</td>
+                                <td class="t-right gp-money" data-label="Total">$@c.TotalCompra.ToString("N2", cultura)</td>
+                                <td class="t-center" data-label="Estado">
+                                    <span class="gp-pill @(c.Estado == CompraEstado.Confirmada ? "is-env" : "is-pend")">@(c.Estado == CompraEstado.Confirmada ? "Confirmada" : "Sin confirmar")</span>
+                                </td>
+                                <td class="t-center gp-td-actions" data-label="">
+                                    <div class="gp-cell-actions">
+                                        <button type="button" class="gp-btn gp-btn-soft gp-btn-sm gp-btn-icon" title="Ver detalle" @onclick="() => AbrirDetalleAsync(c)">
+                                            <i class="bi bi-eye-fill"></i>
+                                        </button>
+                                        @if (c.Estado == CompraEstado.Cerrada)
+                                        {
+                                            <button type="button" class="gp-btn gp-btn-ok-soft gp-btn-sm" title="Confirmar: actualiza stock y precios" @onclick="() => OnConfirmar.InvokeAsync(c.Id)">
+                                                <i class="bi bi-box-arrow-in-down"></i> Confirmar
+                                            </button>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        @if (compras.Count >= Limite)
+        {
+            <p class="gp-muted" style="margin:.8rem 0 0; font-size:.85rem">Se muestran las últimas @Limite compras.</p>
+        }
+    </section>
+</div>
+
+@if (detalle != null)
+{
+    <div class="gp-scope gp-modal-backdrop" @onclick="CerrarDetalle">
+        <div class="gp-modal" role="dialog" aria-modal="true" aria-labelledby="hcTitulo" style="max-width: 46rem;"
+             @onclick:stopPropagation="true">
+            <div class="gp-modal-head">
+                <span class="gp-bubble gp-bubble-sm"><i class="bi bi-@(IconoOrigen(detalle.Origen).Replace("bi-", ""))"></i></span>
+                <div>
+                    <h3 id="hcTitulo">Compra del @FechaMostrar(detalle).ToString("dd/MM/yyyy")</h3>
+                    <p>@TextoOrigen(detalle.Origen) · @NombreProveedor(detalle.ProveedorId)@(string.IsNullOrWhiteSpace(detalle.NumeroComprobante) ? "" : " · Boleta " + detalle.NumeroComprobante)</p>
+                </div>
+                <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm gp-btn-icon gp-modal-x" aria-label="Cerrar" @onclick="CerrarDetalle"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="gp-modal-body">
+                @if (cargandoDetalle)
+                {
+                    <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>Cargando...</p></div>
+                }
+                else if (!lineas.Any())
+                {
+                    <div class="gp-empty"><strong>Esta compra no tiene productos guardados</strong></div>
+                }
+                else
+                {
+                    <div class="gp-table-wrap gp-stack-wrap">
+                        <table class="gp-table gp-stack">
+                            <thead>
+                                <tr>
+                                    <th>Producto</th>
+                                    <th>Cód. proveedor</th>
+                                    <th class="t-center">Cantidad</th>
+                                    <th class="t-right">Costo</th>
+                                    <th class="t-right">Subtotal</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var l in lineas)
+                                {
+                                    <tr>
+                                        <td class="gp-td-main" data-label="Producto"><div class="gp-product">@l.NombreProducto</div></td>
+                                        <td data-label="Cód. proveedor">@(string.IsNullOrWhiteSpace(l.CodigoBarrasProveedor) ? "—" : l.CodigoBarrasProveedor)</td>
+                                        <td class="t-center" data-label="Cantidad">
+                                            @l.Cantidad
+                                            @if (l.CantidadPedida.HasValue && l.CantidadPedida != l.Cantidad)
+                                            {
+                                                <small class="gp-muted"> (pedido: @l.CantidadPedida)</small>
+                                            }
+                                        </td>
+                                        <td class="t-right" data-label="Costo">
+                                            $@l.PrecioCosto.ToString("N2", cultura)
+                                            @if (l.CostoAnterior.HasValue && l.CostoAnterior > 0 && l.CostoAnterior != l.PrecioCosto)
+                                            {
+                                                <small class="gp-muted"> (antes $@l.CostoAnterior.Value.ToString("N2", cultura))</small>
+                                            }
+                                        </td>
+                                        <td class="t-right gp-money" data-label="Subtotal">$@l.Subtotal.ToString("N2", cultura)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="cm-modal-sub">
+                        <span>Total de la compra</span>
+                        <strong>$@detalle.TotalCompra.ToString("N2", cultura)</strong>
+                    </div>
+                    @if (detalle.TotalBoleta.HasValue && detalle.TotalBoleta > 0)
+                    {
+                        <p class="gp-muted" style="margin:.6rem 0 0; font-size:.85rem">Total impreso en la boleta: $@detalle.TotalBoleta.Value.ToString("N2", cultura)</p>
+                    }
+                }
+            </div>
+            <div class="gp-modal-foot">
+                @if (detalle.Estado == CompraEstado.Cerrada)
+                {
+                    <button type="button" class="gp-btn gp-btn-ok" @onclick="ConfirmarDesdeDetalle"><i class="bi bi-box-arrow-in-down"></i> Confirmar y actualizar</button>
+                    <button type="button" class="gp-btn gp-btn-danger-soft" @onclick="EliminarDetalleAsync"><i class="bi bi-trash"></i> Eliminar lista</button>
+                }
+                <button type="button" class="gp-btn gp-btn-ghost" @onclick="CerrarDetalle">Cerrar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private const int Limite = 100;
+
+    /// <summary>Se pidió confirmar una lista cerrada (la página principal abre "Recibir mercadería").</summary>
+    [Parameter] public EventCallback<long> OnConfirmar { get; set; }
+    [Parameter] public EventCallback OnCambio { get; set; }
+
+    private AvisosPagina avisos = default!;
+    private readonly CultureInfo cultura = CultureInfo.GetCultureInfo("es-AR");
+
+    private List<CompraMayorista> compras = new();
+    private List<Proveedor> proveedores = new();
+    private bool cargando = true;
+
+    private string filtroEstado = "todas";
+    private string filtroOrigen = "";
+    private string busqueda = "";
+
+    private CompraMayorista? detalle;
+    private List<CompraMayoristaDetalle> lineas = new();
+    private bool cargandoDetalle;
+
+    private IEnumerable<CompraMayorista> Filtradas
+    {
+        get
+        {
+            var q = compras.AsEnumerable();
+            if (filtroEstado != "todas") q = q.Where(c => c.Estado == filtroEstado);
+            if (filtroOrigen != "") q = q.Where(c => c.Origen == filtroOrigen);
+
+            var t = Normalizar(busqueda);
+            if (!string.IsNullOrWhiteSpace(t))
+                q = q.Where(c => Normalizar($"{NombreProveedor(c.ProveedorId)} {c.NumeroComprobante}").Contains(t));
+            return q;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarAsync();
+    }
+
+    private async Task CargarAsync()
+    {
+        try
+        {
+            cargando = true;
+            long kiosco = State.KioscoId;
+
+            var resProv = await SupaClient.From<Proveedor>().Where(p => p.KioscoId == kiosco).Get();
+            proveedores = resProv.Models ?? new List<Proveedor>();
+
+            // Las listas "en curso" son borradores de la calculadora: no se muestran acá
+            var res = await SupaClient.From<CompraMayorista>()
+                .Where(c => c.KioscoId == kiosco)
+                .Filter(c => c.Estado, Supabase.Postgrest.Constants.Operator.In, new List<object> { CompraEstado.Cerrada, CompraEstado.Confirmada })
+                .Order("fecha", Supabase.Postgrest.Constants.Ordering.Descending)
+                .Limit(Limite)
+                .Get();
+            compras = res.Models ?? new List<CompraMayorista>();
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudo cargar el historial", ex.Message, "peligro");
+        }
+        finally
+        {
+            cargando = false;
+        }
+    }
+
+    private void CambiarEstado(string e) => filtroEstado = e;
+    private void CambiarOrigen(string o) => filtroOrigen = o;
+
+    private async Task AbrirDetalleAsync(CompraMayorista c)
+    {
+        detalle = c;
+        lineas = new();
+        cargandoDetalle = true;
+        try
+        {
+            var id = c.Id;
+            var res = await SupaClient.From<CompraMayoristaDetalle>().Where(d => d.CompraId == id).Get();
+            lineas = (res.Models ?? new List<CompraMayoristaDetalle>()).OrderBy(d => d.NombreProducto).ToList();
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudo cargar el detalle", ex.Message, "peligro");
+        }
+        finally
+        {
+            cargandoDetalle = false;
+        }
+    }
+
+    private void CerrarDetalle() => detalle = null;
+
+    private async Task ConfirmarDesdeDetalle()
+    {
+        if (detalle == null) return;
+        var id = detalle.Id;
+        detalle = null;
+        await OnConfirmar.InvokeAsync(id);
+    }
+
+    private async Task EliminarDetalleAsync()
+    {
+        if (detalle == null) return;
+        if (!await avisos.ConfirmarAsync("¿Eliminar esta lista?", "Se borra la lista y sus productos. No toca el stock ni los precios.", "Eliminar")) return;
+
+        try
+        {
+            var id = detalle.Id;
+            await SupaClient.From<CompraMayoristaDetalle>().Where(d => d.CompraId == id).Delete();
+            await SupaClient.From<CompraMayorista>().Where(c => c.Id == id).Delete();
+            detalle = null;
+            await CargarAsync();
+            await OnCambio.InvokeAsync();
+            avisos.Toast("Lista eliminada", "exito", 2500);
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudo eliminar", ex.Message, "peligro");
+        }
+    }
+
+    private DateTime FechaMostrar(CompraMayorista c) =>
+        (c.FechaCompra ?? c.Fecha).ToLocalTime();
+
+    private string NombreProveedor(long? id) =>
+        id.HasValue && id > 0 ? (proveedores.FirstOrDefault(p => p.Id == id.Value)?.Nombre ?? "Proveedor N/D") : "Sin proveedor";
+
+    private static string TextoOrigen(string? o) => o switch
+    {
+        CompraOrigen.Boleta => "Boleta",
+        CompraOrigen.Pedido => "Pedido",
+        CompraOrigen.Excel => "Excel",
+        _ => "Calculadora"
+    };
+
+    private static string IconoOrigen(string? o) => o switch
+    {
+        CompraOrigen.Boleta => "bi-receipt",
+        CompraOrigen.Pedido => "bi-truck",
+        CompraOrigen.Excel => "bi-file-earmark-excel",
+        _ => "bi-calculator"
+    };
+
+    private static string Normalizar(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return "";
+        var d = s.Normalize(System.Text.NormalizationForm.FormD);
+        var sb = new System.Text.StringBuilder();
+        foreach (var ch in d)
+            if (CharUnicodeInfo.GetUnicodeCategory(ch) != UnicodeCategory.NonSpacingMark) sb.Append(ch);
+        return sb.ToString().ToLowerInvariant().Trim();
+    }
+}

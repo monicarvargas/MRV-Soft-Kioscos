@@ -14,9 +14,13 @@ namespace BlazorKioscoCompartido.Models
         public long KioscoId { get; set; }
         [Column("nombre")]
         public string Nombre { get; set; }
+        /// <summary>% de utilidad de la familia (ej: FERRETERIA 60). null = la general (40). Script 37.</summary>
+        [Column("utilidad", Newtonsoft.Json.NullValueHandling.Ignore)]
+        public decimal? Utilidad { get; set; }
+
         [Column("descripcion")]
         public string? Descripcion { get; set; }
-        [Column("created_ad")]
-        public DateTime fechaCreacion { get; set; } = DateTime.UtcNow.ToLocalTime();
+        [Column("created_at")]
+        public DateTime FechaCreacion { get; set; } = DateTime.UtcNow.ToLocalTime();
     }
 }

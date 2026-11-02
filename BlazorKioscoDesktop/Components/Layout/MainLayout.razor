@@ -1,50 +1,25 @@
-﻿@* @inherits LayoutComponentBase
+﻿@inherits LayoutComponentBase
+@implements IDisposable
 @inject BlazorKioscoCompartido.Services.AppState State
 @inject NavigationManager Nav
+@inject AsistenciaService Asistencia
+@inject Supabase.Client Db
 
-<div class="page">
-    <div class="sidebar">
-        <NavMenu />
-    </div>
+@* Color elegido por el dueño (barra, login, botones, barra lateral) *@
+<TemaNegocio />
+<AvisosPagina @ref="avisos" />
 
-    <main>
-        <nav class="navbar navbar-dark bg-primary px-3 shadow-sm" style="height: 3.5rem; display: flex; align-items: center;">
-            <div class="container-fluid">
-                <a class="navbar-brand fw-bold" @onclick="IrAHome" style="cursor: pointer; text-decoration: none;">
-                    @if (State.KioscoId == 0)
-                    {
-                        <span>MRV Soft</span>
-                    }
-                    else
-                    {
-                        <small class="text-white-50">MRV Soft | </small> <span>@State.NombreNegocio</span>
-                    }
-                </a>
-            </div>
-        </nav>
-
-        <article class="content px-4 py-3">
-            @Body
-        </article>
-    </main>
-</div>
-
-@code {
-    private void IrAHome()
-    {
-        Nav.NavigateTo("/");
-    }
-}
- *@
-@inherits LayoutComponentBase
-@inject BlazorKioscoCompartido.Services.AppState State
-@inject NavigationManager Nav
-
-<div class="page">
+<div class="page app-escritorio">
     @if (State.KioscoId != 0)
     {
-        <div class="sidebar animate__animated animate__fadeInLeft">
-             <NavMenu /> 
+        <div class="sidebar">
+            <div class="sidebar-marca" @onclick="IrAHome">
+                <i class="bi bi-shop"></i> <span>MRV Soft</span>
+            </div>
+            <div class="sidebar-scroll">
+                @* El mismo menú que el celular *@
+                <MenuPrincipal Rutas="RutasApp.Escritorio" Oscuro="true" OnCerrarSistema="CerrarSistemaAsync" ConAtajos="true" />
+            </div>
         </div>
     }
 
@@ -56,32 +31,86 @@
                     <a class="navbar-brand fw-bold" @onclick="IrAHome" style="cursor: pointer; text-decoration: none;">
                         <small class="text-white-50">MRV Soft | </small> <span>@State.NombreNegocio</span>
                     </a>
+                    <span class="nav-usuario" title="@Roles.Legible(State.UsuarioRol)"><i class="bi bi-person-circle"></i> <b>@State.UsuarioNombre</b><small> · @Roles.Legible(State.UsuarioRol)</small></span>
                 </div>
             </nav>
         }
 
         <article class="@(State.KioscoId == 0 ? "content-login" : "content px-4 py-3")">
+            <EstadoSinInternet />
+            <ModoSoporte Arriba=".5rem" />
+            <GuardiaFunciones />
             @Body
         </article>
     </main>
 </div>
 
-@code {
-    private void IrAHome()
-    {
-        Nav.NavigateTo("/");
+<style>
+    /* Usuario logueado, al lado del nombre del negocio */
+    .nav-usuario { display: inline-flex; align-items: center; gap: .35rem; margin-left: auto; padding: .3rem .8rem;
+                   border-radius: 999px; background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.3);
+                   color: #fff; font-size: .95rem; white-space: nowrap; }
+    .nav-usuario b { font-weight: 800; }
+    .nav-usuario small { color: rgba(255,255,255,.75); }
+
+    .sidebar-marca { display: flex; align-items: center; gap: .55rem; height: 3.5rem; padding: 0 1.2rem; color: #fff; font-weight: 900; font-size: 1.05rem; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,.15); }
+    .sidebar-marca i { font-size: 1.3rem; }
+    .sidebar-scroll { height: calc(100vh - 3.5rem); overflow-y: auto; }
+    .vt-atajo { padding: .05rem .4rem; border-radius: 6px; background: rgba(255,255,255,.25); color: #fff; font-family: inherit; font-size: .72rem; font-weight: 800; box-shadow: none; }
+
+    /* Que ninguna página ensanche la ventana (tablas y pestañas se acomodan adentro) */
+    .app-escritorio main { min-width: 0; }
+
+    /* En la PC no hay barra de abajo como en el celular: las barras fijas (total de la venta) van al pie */
+    .app-escritorio .vt-totalbar.is-fija { bottom: 1rem; }
+    @@media (min-width: 641px) {
+        .app-escritorio .vt-totalbar.is-fija { left: calc(250px + 1.5rem); right: 1.5rem; }
+        .app-escritorio .vt-espacio { height: 110px; }
     }
+</style>
+
+@code {
+    private void IrAHome() => Nav.NavigateTo(
+        BlazorKioscoCompartido.Services.SinInternet.VentaSinInternet.Actual?.ModoLimitado == true ? RutasApp.Escritorio.Vender   // sin internet: solo vender
+        : Roles.EsSuperAdmin(State.UsuarioRol) ? RutasApp.Escritorio.AdminNegocios : RutasApp.Escritorio.Productos);
+
+    private AvisosPagina avisos = default!;
 
     protected override void OnInitialized()
     {
-        // Nos suscribimos al cambio de estado para que el Layout se entere 
-        // en el momento exacto en que el usuario se loguea y dibuje el menú
-        State.OnChange += StateHasChanged;
+        // el layout se redibuja cuando el usuario se loguea / cambia el color
+        State.OnChange += Refrescar;
+        // la X de la ventana: solo cierra si no hay nadie adentro (en el login)
+        CierreSistema.HaySesion = () => State.KioscoId != 0;
+        CierreSistema.IntentoCerrar += AvisarCierre;
+    }
+
+    private void Refrescar() => InvokeAsync(StateHasChanged);
+
+    private void AvisarCierre() => InvokeAsync(() =>
+        avisos.Toast("Para cerrar el sistema usá el botón \"Cerrar el sistema\" del menú (abajo de todo).", "info", 4000));
+
+    /// <summary>Botón "Cerrar el sistema": marca la salida del empleado, cierra la sesión y cierra el programa.</summary>
+    private async Task CerrarSistemaAsync()
+    {
+        if (!await avisos.ConfirmarAsync("¿Cerrar el sistema?", "Se marca tu salida y se cierra el programa.", "Cerrar el sistema", "peligro", "Seguir trabajando")) return;
+
+        if (State.AsistenciaId is long idAsistencia)
+        {
+            try { await Asistencia.FicharSalidaAsync(idAsistencia); } catch { }
+            State.AsistenciaId = null;
+        }
+        var off = BlazorKioscoCompartido.Services.SinInternet.VentaSinInternet.Actual;
+        if (off?.SinConexion != true) await Db.CerrarSesionAsync();
+        off?.AlSalir();
+
+        CierreSistema.Permitido = true;
+        Microsoft.Maui.ApplicationModel.MainThread.BeginInvokeOnMainThread(() => Microsoft.Maui.Controls.Application.Current?.Quit());
     }
 
     public void Dispose()
     {
-        // Buenas prácticas: nos desuscribimos al destruir el componente
-        State.OnChange -= StateHasChanged;
+        State.OnChange -= Refrescar;
+        CierreSistema.IntentoCerrar -= AvisarCierre;
     }
 }

@@ -1,5 +1,8 @@
-﻿@page "/producto/nuevo-desktop"
+﻿@page "/producto/nuevo"
+@page "/producto/nuevo/{CodigoPrecargado}"
+@page "/producto/nuevo-desktop"
 @page "/producto/nuevo-desktop/{CodigoPrecargado}"
+@* Escritorio: usa las mismas direcciones que el celular (las viejas "-desktop" siguen andando) *@
 
 <NuevoProductoCompartido CodigoPrecargado="@CodigoPrecargado" />
 

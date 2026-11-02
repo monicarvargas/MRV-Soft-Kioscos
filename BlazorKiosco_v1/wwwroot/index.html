@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 
 <head>
     <meta charset="utf-8" />
@@ -8,9 +8,18 @@
     <base href="/" />
     <link rel="stylesheet" href="css/bootstrap/bootstrap.min.css" />
     <link rel="stylesheet" href="css/app.css" />
-    <link rel="icon" type="image/png" href="favicon.png" />
+    <link rel="icon" type="image/png" href="icons/favicon.png" />
+    <!-- App instalable (acceso directo con ícono en PC y celular) -->
+    <link rel="manifest" href="manifest.webmanifest" />
+    <meta name="theme-color" content="#2563eb" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="MRV Soft" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <link href="BlazorKioscoMobile.styles.css" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    
     <script src="https://unpkg.com/html5-qrcode"></script>
 
     <script>
@@ -46,6 +55,103 @@
         <a href="" class="reload">Reload</a>
         <a class="dismiss">🗙</a>
     </div>
+    <script>
+        // ===== Campos de número: sin ruedita del mouse y flechitas de a 1 =====
+        // 1) La ruedita NO cambia el valor: si el campo tiene el foco, se le saca y la página se desplaza normal.
+        // 2) Flechitas (las del campo y las del teclado ↑ ↓): suman o restan 1, nunca 0,1 ni 0,01.
+        //    Igual se pueden escribir decimales a mano.
+        (function () {
+            function esNumero(el) { return el && el.tagName === 'INPUT' && el.type === 'number'; }
+
+            document.addEventListener('wheel', function (e) {
+                var el = e.target;
+                if (esNumero(el) && document.activeElement === el) el.blur();
+            }, { capture: true, passive: true });
+
+            // step="any" hace que las flechitas del campo vayan de a 1 y deja escribir decimales sin marcar error
+            document.addEventListener('focusin', function (e) {
+                if (esNumero(e.target)) e.target.setAttribute('step', 'any');
+            }, true);
+            document.addEventListener('mouseover', function (e) {
+                if (esNumero(e.target) && e.target.getAttribute('step') !== 'any') e.target.setAttribute('step', 'any');
+            }, true);
+
+            document.addEventListener('keydown', function (e) {
+                var el = e.target;
+                if (!esNumero(el) || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') || el.readOnly || el.disabled) return;
+                e.preventDefault();
+                var v = parseFloat(el.value); if (isNaN(v)) v = 0;
+                v += e.key === 'ArrowUp' ? 1 : -1;
+                if (el.min !== '' && v < parseFloat(el.min)) v = parseFloat(el.min);
+                if (el.max !== '' && v > parseFloat(el.max)) v = parseFloat(el.max);
+                el.value = Math.round(v * 1000) / 1000;
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+            }, true);
+        })();
+    </script>
+    <script>
+        // ===== Campos de plata (clase "js-monto"): se ve el punto de miles mientras se escribe =====
+        // Ej: 3000 → 3.000 · 20000 → 20.000 · 1500,5 → 1.500,5 (la coma es para los centavos).
+        (function () {
+            function formatear(el) {
+                var v = el.value || '';
+                var pos = el.selectionStart == null ? v.length : el.selectionStart;
+                var antes = v.slice(0, pos).replace(/[^\d,]/g, '').length;      // dígitos y coma antes del cursor
+                var limpio = v.replace(/[^\d,]/g, '');
+                var i = limpio.indexOf(',');
+                var ent = i < 0 ? limpio : limpio.slice(0, i);
+                var dec = i < 0 ? null : limpio.slice(i + 1).replace(/,/g, '').slice(0, 2);
+                ent = ent.replace(/^0+(?=\d)/, '');
+                var nuevo = ent.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + (dec !== null ? ',' + dec : '');
+                if (nuevo === v) return;
+                el.value = nuevo;
+                var n = 0, p = 0;
+                while (p < nuevo.length && n < antes) { if (/[\d,]/.test(nuevo[p])) n++; p++; }
+                try { el.setSelectionRange(p, p); } catch (e) { }
+            }
+            document.addEventListener('input', function (e) {
+                var el = e.target;
+                if (el && el.classList && el.classList.contains('js-monto')) formatear(el);
+            }, true);
+        })();
+    </script>
+    <script>
+        // Todo lo que se escribe queda en MAYÚSCULAS (más prolijo), como el nombre del producto.
+        // No se toca: contraseñas, mails, números, fechas, ni los campos con data-no-mayus
+        // (o que estén adentro de algo con la clase "no-mayus").
+        (function () {
+            function aplica(el) {
+                if (!el || el.readOnly || el.disabled) return false;
+                if (el.tagName === 'INPUT') {
+                    var t = (el.getAttribute('type') || 'text').toLowerCase();
+                    if (t !== 'text' && t !== 'search') return false;
+                } else if (el.tagName !== 'TEXTAREA') return false;
+                if (el.closest('[data-no-mayus], .no-mayus')) return false;
+                var ac = (el.getAttribute('autocomplete') || '').toLowerCase();
+                if (ac.indexOf('password') >= 0 || ac.indexOf('email') >= 0) return false;
+                if ((el.id || '').toLowerCase().indexOf('pass') >= 0) return false;
+                if ((el.getAttribute('inputmode') || '').toLowerCase() === 'email') return false;
+                return true;
+            }
+            // se engancha ANTES que Blazor (fase de captura), así Blazor ya recibe el texto en mayúsculas
+            document.addEventListener('input', function (e) {
+                var el = e.target;
+                if (e.isComposing || !aplica(el)) return;
+                var v = el.value, m = v.toUpperCase();
+                if (v === m || m.length !== v.length) return;
+                var a = el.selectionStart, b = el.selectionEnd;
+                el.value = m;
+                try { el.setSelectionRange(a, b); } catch (_) { }
+            }, true);
+        })();
+    </script>
+    <script>
+        // Para que el navegador ofrezca "Instalar MRV Soft" (ícono en el escritorio / pantalla del celular)
+        if ('serviceWorker' in navigator && location.hostname !== 'localhost') {
+            navigator.serviceWorker.register('sw-mrv.js').catch(function () { });
+        }
+    </script>
     <script src="_framework/blazor.webassembly.js" autostart="false"></script>
 
     <script>

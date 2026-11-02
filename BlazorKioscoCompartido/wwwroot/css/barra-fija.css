@@ -1,0 +1,30 @@
+﻿:root {
+    --footer-nav-height: 58px; /* alto de tu menú inferior */
+}
+
+.barra-fija-inferior {
+    position: fixed;
+    bottom: var(--footer-nav-height);
+    left: 0;
+    right: 0;
+    z-index: 1040;
+    background-color: #ffffff;
+    border-top: 1px solid #e2e8f0;
+    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.max-w-700 {
+    max-width: 700px;
+    margin: 0 auto;
+}
+
+/* Para el contenedor de la página, así el contenido no queda tapado por la barra */
+.con-barra-fija {
+    padding-bottom: 120px !important;
+}
+
+@media (min-width: 768px) {
+    .con-barra-fija {
+        padding-bottom: 140px !important;
+    }
+}

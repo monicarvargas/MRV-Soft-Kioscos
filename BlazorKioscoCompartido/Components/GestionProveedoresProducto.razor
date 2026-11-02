@@ -1,0 +1,374 @@
+@using BlazorKioscoCompartido.Models
+@inject ProveedorService ProvService
+@inject BlazorKioscoCompartido.Services.AppState State
+
+@* Proveedores del producto y el código de barras que usa cada uno. Usa estilos gp-/cf-/pp-. *@
+<section class="gp-card gp-card-pad">
+    <div class="gp-card-head">
+        <span class="gp-bubble"><i class="bi bi-truck"></i></span>
+        <div class="cf-head-text">
+            <h2>Proveedores y códigos</h2>
+            <p>Quién te vende este producto, con qué código lo trae en la boleta y si lo vende por bulto (ej: caja x 100 = 100).</p>
+        </div>
+    </div>
+
+    @* === AGREGAR PROVEEDOR AL PRODUCTO (en una ventana, bien a la vista) === *@
+    <div class="gpp-agregar">
+        <button type="button" class="gp-btn gp-btn-primary" @onclick="AbrirAgregar">
+            <i class="bi bi-plus-circle-fill"></i> Agregar proveedor a este producto
+        </button>
+    </div>
+
+    @if (modalAgregar)
+    {
+        <div class="ar-backdrop" @onclick="() => modalAgregar = false">
+            <div class="ar-modal ar-proveedor" role="dialog" aria-modal="true" @onclick:stopPropagation="true">
+                <div class="ar-head">
+                    <span class="ar-ico"><i class="bi bi-truck"></i></span>
+                    <div class="ar-head-txt">
+                        <h3>Agregar proveedor</h3>
+                        <p>Quién te vende este producto, con qué código lo trae y si viene por bulto.</p>
+                    </div>
+                    <button type="button" class="ar-x" title="Cerrar" @onclick="() => modalAgregar = false"><i class="bi bi-x-lg"></i></button>
+                </div>
+                <div class="ar-body">
+                    <label class="ar-lbl">Proveedor *</label>
+                    <div class="sf-fila">
+                        <select class="ar-input" @bind="nuevoProveedorId">
+                            <option value="0">-- Elegí un proveedor --</option>
+                            @foreach (var prov in listaProveedoresDisponibles)
+                            {
+                                <option value="@prov.Id">@prov.Nombre</option>
+                            }
+                        </select>
+                        <button type="button" class="ar-mas" title="Nuevo proveedor" @onclick="() => altaProv.Abrir(AltaRapida.Tipo.Proveedor)"><i class="bi bi-plus-lg"></i></button>
+                    </div>
+
+                    <div class="ar-dos">
+                        <div>
+                            <label class="ar-lbl">Código del proveedor <small>(opcional)</small></label>
+                            <input type="text" class="ar-input" placeholder="Ej: PROV-7791234" @bind="nuevoCodigoProveedor" />
+                        </div>
+                    </div>
+
+                    <div class="ar-dos">
+                        <div>
+                            <label class="ar-lbl">Viene por</label>
+                            <select class="ar-input" @bind="nuevoTipoBulto" @bind:after="CambioTipoNuevo">
+                                @foreach (var t in BlazorKioscoCompartido.Constants.TiposBulto.Lista)
+                                {
+                                    <option value="@t">@(t == BlazorKioscoCompartido.Constants.TiposBulto.Unidad ? "UNIDAD (suelto)" : t)</option>
+                                }
+                            </select>
+                        </div>
+                        @if (nuevoTipoBulto != BlazorKioscoCompartido.Constants.TiposBulto.Unidad)
+                        {
+                            <div>
+                                <label class="ar-lbl">¿Cuántas unidades trae? <small>(opcional)</small></label>
+                                <input type="number" min="2" inputmode="numeric" class="ar-input" onfocus="this.select()" placeholder="Ej: 48"
+                                       value="@(nuevoUnidadesBulto > 1 ? nuevoUnidadesBulto.ToString() : "")" @onchange="e => nuevoUnidadesBulto = int.TryParse(e.Value?.ToString(), out var n) && n > 1 ? n : 1" />
+                            </div>
+                        }
+                    </div>
+                    @if (nuevoTipoBulto != BlazorKioscoCompartido.Constants.TiposBulto.Unidad)
+                    {
+                        <div class="ar-hint"><i class="bi bi-box-seam"></i> En el pedido, <b>1 = 1 @nuevoTipoBulto.ToLower()@(nuevoUnidadesBulto > 1 ? $" de {nuevoUnidadesBulto} unidades" : "")</b>.
+                            @(nuevoUnidadesBulto > 1 ? "El stock se sigue contando por unidad." : "Si no ponés cuántas trae, en el pedido solo dice la cantidad de " + nuevoTipoBulto.ToLower() + "s.")</div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(mensajeError))
+                    {
+                        <div class="ar-error"><i class="bi bi-exclamation-octagon-fill"></i> @mensajeError</div>
+                    }
+                </div>
+                <div class="ar-foot">
+                    <button type="button" class="ar-btn ar-btn-cancel" @onclick="() => modalAgregar = false">Cancelar</button>
+                    <button type="button" class="ar-btn ar-btn-ok" @onclick="AgregarFilaProveedor"><i class="bi bi-plus-lg"></i> Agregar</button>
+                </div>
+            </div>
+        </div>
+    }
+    <AltaRapida @ref="altaProv" OnCreado="ProveedorCreado" />
+
+    @* === PROVEEDORES ASIGNADOS === *@
+    <div class="gp-table-wrap gp-stack-wrap">
+        <table class="gp-table gp-stack">
+            <thead>
+                <tr><th>Proveedor</th><th>Código del proveedor</th><th>Cómo lo llama el proveedor</th><th class="t-center">Viene por</th><th class="t-center">Habilitado</th><th class="t-center">Quitar</th></tr>
+            </thead>
+            <tbody>
+                @if (!relacionesProveedores.Any())
+                {
+                    <tr class="gp-empty-row">
+                        <td colspan="6">
+                            <div class="gp-empty">
+                                <span class="gp-bubble"><i class="bi bi-inbox"></i></span>
+                                <strong>Sin proveedores vinculados</strong>
+                                <span>Agregá uno arriba. Así, al recibir mercadería, se reconoce el código de la boleta.</span>
+                            </div>
+                        </td>
+                    </tr>
+                }
+                @foreach (var rel in relacionesProveedores)
+                {
+                    <tr class="@(rel.Habilitado ? "" : "is-off")">
+                        <td class="gp-td-main" data-label="Proveedor">
+                            <span class="gp-product">@(rel.Proveedor?.Nombre ?? ObtenerNombreProveedor(rel.IdProveedor))</span>
+                        </td>
+                        <td data-label="Código">
+                            <input type="text" class="gp-control pp-cell-input pp-cell-code" placeholder="Sin código" maxlength="60"
+                                   @bind="rel.CodigoBarrasProveedor" onfocus="this.select()" />
+                        </td>
+                        <td data-label="Lo llama">
+                            <input type="text" class="gp-control pp-cell-input pp-cell-desc" placeholder="Ej: ABRAZADERA 16MM X 100 UNID" maxlength="200"
+                                   @bind="rel.DescripcionProveedor" />
+                        </td>
+                        <td class="t-center" data-label="Viene por">
+                            <div class="pp-viene" title="Cómo lo vende este proveedor (en el pedido, 1 = 1 de estos)">
+                                <select class="gp-control pp-cell-input" value="@BlazorKioscoCompartido.Constants.TiposBulto.Nombre(rel.TipoBulto, rel.UnidadesPorBulto)" @onchange="e => CambiarTipoBulto(rel, e)">
+                                    @foreach (var t in BlazorKioscoCompartido.Constants.TiposBulto.Lista)
+                                    {
+                                        <option value="@t">@(t == BlazorKioscoCompartido.Constants.TiposBulto.Unidad ? "SUELTO" : t)</option>
+                                    }
+                                </select>
+                                @if (!BlazorKioscoCompartido.Constants.TiposBulto.EsSuelto(rel.TipoBulto, rel.UnidadesPorBulto))
+                                {
+                                    <div class="pp-addon pp-cell-bulto">
+                                        <span>de</span>
+                                        <input type="number" min="2" inputmode="numeric" class="gp-control pp-cell-input" onfocus="this.select()"
+                                               placeholder="?" title="Cuántas unidades trae (opcional)"
+                                               value="@(rel.UnidadesPorBulto > 1 ? rel.UnidadesPorBulto.ToString() : "")" @onchange="e => CambiarUnidadesBulto(rel, e)" />
+                                        <span>u.</span>
+                                    </div>
+                                }
+                            </div>
+                        </td>
+                        <td class="t-center" data-label="Habilitado">
+                            <label class="gp-switch cf-switch-sm" title="Habilitado">
+                                <input type="checkbox" checked="@rel.Habilitado"
+                                       @onchange="(e) => CambiarEstadoHabilitado(rel, (bool)(e.Value ?? false))" />
+                                <span class="gp-switch-track"></span>
+                            </label>
+                        </td>
+                        <td class="t-center gp-td-actions" data-label="">
+                            <div class="gp-cell-actions">
+                                <button type="button" class="gp-btn gp-btn-danger-soft gp-btn-sm gp-btn-icon" title="Quitar proveedor"
+                                        @onclick="() => EliminarRelacion(rel)"><i class="bi bi-trash3-fill"></i></button>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<style>
+    .ar-hint { margin-top: .85rem; padding: .6rem .8rem; border-radius: 12px; background: #e8f0fe; color: #1d4ed8; font-weight: 600; font-size: .86rem; }
+    .ar-hint i { margin-right: .3rem; }
+    .pp-viene { display: inline-flex; flex-direction: column; align-items: center; gap: .3rem; }
+    .pp-viene select { min-width: 7.5rem; font-weight: 800; }
+    .gpp-agregar { margin: 0 0 1rem; }
+    .gpp-agregar .gp-btn { padding-left: 1.2rem; padding-right: 1.2rem; }
+    .sf-fila { display: flex; gap: .4rem; align-items: center; }
+    .sf-fila .gp-control { flex: 1 1 auto; min-width: 0; }
+    .sf-fila .gp-btn { flex: none; }
+</style>
+
+@code {
+    [Parameter] public long ProductoId { get; set; }
+    [Parameter] public long KioscoId { get; set; }
+    /// <summary>Unidades del bulto cargado en el producto ("Lo compro por bulto"): sirve para completar "de x u.".</summary>
+    [Parameter] public int? UnidadesBultoProducto { get; set; }
+
+    /// <summary>Al crear una variante: copia los proveedores (y unidades por bulto) de este producto.
+    /// El código y la descripción del proveedor NO se copian porque cada variante tiene los suyos.</summary>
+    [Parameter] public long CopiarDeProductoId { get; set; }
+
+    /// <summary>Avisa a la página si algún proveedor vende este producto por bulto (para aclarar que el stock es por unidad).</summary>
+    [Parameter] public EventCallback<bool> OnBultosCambio { get; set; }
+
+    public bool HayBultos => relacionesProveedores.Any(r => r.UnidadesPorBulto > 1);
+    private bool hayBultosAvisado;
+
+    private async Task AvisarBultosAsync()
+    {
+        if (HayBultos == hayBultosAvisado) return;
+        hayBultosAvisado = HayBultos;
+        await OnBultosCambio.InvokeAsync(hayBultosAvisado);
+    }
+
+    // Listas principales
+    private List<Proveedor> todosLosProveedores = new();
+    private List<ProductoProveedor> relacionesProveedores = new();
+
+    // Filtro para el Dropdown (solo muestra los proveedores que no han sido agregados aún)
+    private IEnumerable<Proveedor> listaProveedoresDisponibles =>
+        todosLosProveedores.Where(p => p.EstaActivo() && !relacionesProveedores.Any(r => r.IdProveedor == p.Id));   // los dados de baja no se ofrecen
+
+    // Campos temporales del formulario
+    private long nuevoProveedorId = 0;
+    private string nuevoCodigoProveedor = string.Empty;
+    private int nuevoUnidadesBulto = 1;
+    private string nuevoTipoBulto = BlazorKioscoCompartido.Constants.TiposBulto.Unidad;
+
+    private void CambioTipoNuevo()
+    {
+        if (nuevoTipoBulto == BlazorKioscoCompartido.Constants.TiposBulto.Unidad) nuevoUnidadesBulto = 1;
+        // se completa con las unidades del bulto del producto; si no hay, queda en blanco
+        else if (nuevoUnidadesBulto <= 1 && (UnidadesBultoProducto ?? 0) > 1) nuevoUnidadesBulto = UnidadesBultoProducto!.Value;
+    }
+
+    /// <summary>Cambió "viene por" en la tabla. Si pasa de suelto a caja/bulto, propone 12 unidades para que lo corrija.</summary>
+    private async Task CambiarTipoBulto(ProductoProveedor rel, ChangeEventArgs e)
+    {
+        var t = e.Value?.ToString() ?? BlazorKioscoCompartido.Constants.TiposBulto.Unidad;
+        if (t == BlazorKioscoCompartido.Constants.TiposBulto.Unidad) { rel.TipoBulto = null; rel.UnidadesPorBulto = 1; }
+        else
+        {
+            rel.TipoBulto = t;   // las unidades son opcionales: se completan con las del bulto del producto si están
+            if (rel.UnidadesPorBulto <= 1 && (UnidadesBultoProducto ?? 0) > 1) rel.UnidadesPorBulto = UnidadesBultoProducto!.Value;
+        }
+        await AvisarBultosAsync();
+    }
+    private string mensajeError = string.Empty;
+    private bool modalAgregar;
+    private AltaRapida altaProv = default!;
+
+    private void AbrirAgregar()
+    {
+        mensajeError = string.Empty;
+        nuevoProveedorId = 0;
+        nuevoCodigoProveedor = string.Empty;
+        nuevoUnidadesBulto = 1;
+        nuevoTipoBulto = BlazorKioscoCompartido.Constants.TiposBulto.Unidad;
+        modalAgregar = true;
+    }
+
+    /// <summary>Se creó un proveedor nuevo en la ventana rápida: se suma a la lista y queda elegido.</summary>
+    private void ProveedorCreado((long Id, string Nombre) p)
+    {
+        if (!todosLosProveedores.Any(x => x.Id == p.Id))
+            todosLosProveedores.Add(new Proveedor { Id = p.Id, KioscoId = KioscoId > 0 ? KioscoId : State.KioscoId, Nombre = p.Nombre });
+        nuevoProveedorId = p.Id;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarDatos();
+        await AvisarBultosAsync();
+    }
+
+    private async Task CargarDatos()
+    {
+        // Si el padre no pasó KioscoId, usar el del AppState como fallback
+        var kioscoIdReal = KioscoId > 0 ? KioscoId : State?.KioscoId ?? 0;
+
+        // 1. Obtener la lista general de proveedores del kiosco desde el servicio
+        todosLosProveedores = await ProvService.ObtenerProveedoresAsync(kioscoIdReal);
+
+        // 2. Si estamos editando un producto existente, cargar sus relaciones
+        if (ProductoId > 0)
+        {
+            relacionesProveedores = await ProvService.ObtenerRelacionesPorProductoAsync(ProductoId);
+        }
+        else if (CopiarDeProductoId > 0)
+        {
+            var origen = await ProvService.ObtenerRelacionesPorProductoAsync(CopiarDeProductoId);
+            relacionesProveedores = origen.Select(r => new ProductoProveedor
+            {
+                IdProducto = 0,
+                IdProveedor = r.IdProveedor,
+                IdKiosco = r.IdKiosco,
+                Habilitado = r.Habilitado,
+                EsPrincipal = r.EsPrincipal,
+                UnidadesPorBulto = r.UnidadesPorBulto,
+                TipoBulto = r.TipoBulto,
+                CodigoBarrasProveedor = null,
+                DescripcionProveedor = null,
+                Proveedor = todosLosProveedores.FirstOrDefault(p => p.Id == r.IdProveedor)
+            }).ToList();
+        }
+    }
+
+    /// <summary>
+    /// Agrega una nueva relación proveedor-código a la lista en memoria
+    /// </summary>
+    private async Task AgregarFilaProveedor()
+    {
+        mensajeError = string.Empty;
+
+        if (nuevoProveedorId <= 0)
+        {
+            mensajeError = "Elegí un proveedor de la lista.";
+            return;
+        }
+
+        if (relacionesProveedores.Any(r => r.IdProveedor == nuevoProveedorId))
+        {
+            mensajeError = "Ese proveedor ya está asignado a este producto.";
+            return;
+        }
+
+        bool esSuelto = nuevoTipoBulto == BlazorKioscoCompartido.Constants.TiposBulto.Unidad;
+        if (esSuelto || nuevoUnidadesBulto < 2) nuevoUnidadesBulto = 1;   // las unidades por caja son opcionales
+
+        var nuevaRelacion = new ProductoProveedor
+        {
+            IdProducto = ProductoId,
+            IdProveedor = nuevoProveedorId,
+            IdKiosco = KioscoId,
+            CodigoBarrasProveedor = string.IsNullOrWhiteSpace(nuevoCodigoProveedor) ? null : nuevoCodigoProveedor.Trim(),
+            Habilitado = true,
+            UnidadesPorBulto = nuevoUnidadesBulto < 1 ? 1 : nuevoUnidadesBulto,
+            TipoBulto = BlazorKioscoCompartido.Constants.TiposBulto.ParaGuardar(nuevoTipoBulto, nuevoUnidadesBulto),
+            Proveedor = todosLosProveedores.FirstOrDefault(p => p.Id == nuevoProveedorId)
+        };
+
+        relacionesProveedores.Add(nuevaRelacion);
+        modalAgregar = false;
+
+        nuevoProveedorId = 0;
+        nuevoCodigoProveedor = string.Empty;
+        nuevoUnidadesBulto = 1;
+        nuevoTipoBulto = BlazorKioscoCompartido.Constants.TiposBulto.Unidad;
+        await AvisarBultosAsync();
+    }
+
+    private async Task CambiarUnidadesBulto(ProductoProveedor rel, ChangeEventArgs e)
+    {
+        rel.UnidadesPorBulto = int.TryParse(e.Value?.ToString(), out int n) && n > 1 ? n : 1;
+        // se borra el número: el tipo (caja, pack...) se mantiene
+        await AvisarBultosAsync();
+    }
+
+    private void CambiarEstadoHabilitado(ProductoProveedor rel, bool estado)
+    {
+        rel.Habilitado = estado;
+    }
+
+    private async Task EliminarRelacion(ProductoProveedor item)
+    {
+        relacionesProveedores.Remove(item);
+        await AvisarBultosAsync();
+    }
+
+    private string ObtenerNombreProveedor(long idProveedor)
+    {
+        return todosLosProveedores.FirstOrDefault(p => p.Id == idProveedor)?.Nombre ?? "Proveedor desconocido";
+    }
+
+    /// <summary>
+    /// Método público accesible desde la página padre (EditarProducto / NuevoProducto) para guardar en Supabase
+    /// </summary>
+    public async Task GuardarCambiosProveedoresAsync(long idProductoAsignado)
+    {
+        foreach (var rel in relacionesProveedores)
+        {
+            rel.IdProducto = idProductoAsignado;
+            rel.CodigoBarrasProveedor = string.IsNullOrWhiteSpace(rel.CodigoBarrasProveedor) ? null : rel.CodigoBarrasProveedor.Trim();
+            rel.DescripcionProveedor = string.IsNullOrWhiteSpace(rel.DescripcionProveedor) ? null : rel.DescripcionProveedor.Trim();
+        }
+        await ProvService.GuardarRelacionesProductoAsync(idProductoAsignado, KioscoId, relacionesProveedores);
+    }
+}

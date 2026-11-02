@@ -1,142 +1,620 @@
 ﻿@page "/productos"
 @using BlazorKioscoCompartido.Models
 @using BlazorKioscoCompartido.Components
-@using Supabase.Postgrest
+@using Microsoft.JSInterop
+@using static Supabase.Postgrest.Constants
+@implements IDisposable
 @inject Supabase.Client SupaClient
 @inject NavigationManager Nav
+@inject AppState State
+@inject IJSRuntime JS
+@inject PrecioService PrecioServ
 
-<div class="container mt-3">
-    @* --- CABECERA --- *@
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        @* <h3 class="mb-0 fw-bold">Gestión de Stock</h3> *@
-        <button class="btn btn-primary rounded-pill" @onclick="CrearNuevo">
-            <i class="bi bi-plus-lg"></i> Nuevo
-        </button>
+<PedidosEstilos />
+<VentasEstilos />
+
+<div class="container-fluid px-3 py-2 min-vh-100 style-notebook gp-scope gp-page">
+    <div class="vt-wrap" style="display:flex; flex-direction:column; gap:1rem">
+
+        @* ================= BUSCADOR ================= *@
+        <section class="gp-card gp-card-pad">
+            <div class="gp-card-head">
+                <span class="gp-bubble"><i class="bi bi-tag-fill"></i></span>
+                <div class="vt-head-text">
+                    <h2>Productos</h2>
+                    <p>Buscá o escaneá un producto para cambiar el precio o el stock.</p>
+                </div>
+                <button type="button" class="gp-btn gp-btn-primary gp-btn-sm vt-head-right" @onclick="() => IrANuevo(null)"><i class="bi bi-plus-lg"></i> Nuevo</button>
+            </div>
+
+            <div class="pr-buscar">
+                <div class="gp-search">
+                    <i class="bi bi-search"></i>
+                    <input type="text" class="gp-control" placeholder="Nombre o código de barras..." autocomplete="off"
+                           value="@busqueda" @oninput="AlEscribir" @onkeyup="AlTeclear" @ref="txtBuscar" />
+                    @if (!string.IsNullOrEmpty(busqueda))
+                    {
+                        <button type="button" class="gp-search-clear" title="Borrar" @onclick="Limpiar"><i class="bi bi-x-lg"></i></button>
+                    }
+                </div>
+                <button type="button" class="gp-btn gp-btn-soft gp-btn-icon pr-scan" title="Escanear con la cámara" @onclick="Escanear"><i class="bi bi-upc-scan"></i></button>
+            </div>
+            <div id="reader" style="width:100%; max-width:420px; margin:.6rem auto 0;"></div>
+
+            @* ---- filtros ---- *@
+            <div class="pr-filtros">
+                @foreach (var f in Filtros)
+                {
+                    <button type="button" class="pr-chip @(filtro == f.Clave ? "is-active" : "") @f.Clase" @onclick="() => CambiarFiltro(f.Clave)">
+                        <i class="bi @f.Icono"></i> @f.Texto @if (contadores.TryGetValue(f.Clave, out var n)) { <span class="pr-n">@n</span> }
+                    </button>
+                }
+            </div>
+            @if (familias.Count > 1)
+            {
+                <div class="pr-orden">
+                    <select class="gp-control" @bind="familiaId" @bind:after="CambioFamilia">
+                        <option value="0">Todas las familias</option>
+                        @foreach (var fam in familias)
+                        {
+                            <option value="@fam.Id">@fam.Nombre</option>
+                        }
+                    </select>
+                    @if (familiaId > 0 && SubfamiliasDeLaFamilia.Any())
+                    {
+                        <select class="gp-control" @bind="subfamiliaId" @bind:after="Buscar">
+                            <option value="0">Todas las subfamilias</option>
+                            @foreach (var s in SubfamiliasDeLaFamilia)
+                            {
+                                <option value="@s.Id">@s.Nombre</option>
+                            }
+                        </select>
+                    }
+                    <select class="gp-control" @bind="orden" @bind:after="Buscar">
+                        <option value="nombre">Ordenar por nombre</option>
+                        <option value="stock">Menos stock primero</option>
+                        <option value="recientes">Modificados recientemente</option>
+                    </select>
+                </div>
+            }
+        </section>
+
+        @* ================= LISTA ================= *@
+        <section class="gp-card gp-card-pad">
+            @if (cargando)
+            {
+                <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>@(string.IsNullOrWhiteSpace(busqueda) ? "Cargando productos..." : "Buscando...")</p></div>
+            }
+            else if (!string.IsNullOrEmpty(error))
+            {
+                <div class="gp-banner is-danger"><i class="bi bi-exclamation-octagon-fill"></i><p>@error</p></div>
+            }
+            else if (!lista.Any())
+            {
+                <div class="gp-empty">
+                    <span class="gp-bubble"><i class="bi bi-search"></i></span>
+                    <strong>@(HayProductos ? "No hay productos con ese filtro" : "Todavía no cargaste productos")</strong>
+                    @if (EsCodigo(busqueda))
+                    {
+                        <span>El código <b>@busqueda</b> no está cargado.</span>
+                        <button type="button" class="gp-btn gp-btn-primary" style="margin-top:.7rem" @onclick="() => IrANuevo(busqueda)"><i class="bi bi-plus-lg"></i> Crear producto con ese código</button>
+                    }
+                    else
+                    {
+                        <span>@(HayProductos ? "Probá con otra búsqueda." : "Tocá \"Nuevo\" o importá un Excel.")</span>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="pr-cab">
+                    <span>@TextoCantidad</span>
+                    @if (!string.IsNullOrEmpty(nombreLista2) || EsFeriado)
+                    {
+                        <span class="pr-leyenda"><span class="pr-dot @(EsFeriado ? "is-feriado" : "")"></span> precio que se cobra ahora (@(EsFeriado ? nombreLista3 : columnaActiva == "precio_lista2" ? nombreLista2 : "precio de venta"))</span>
+                    }
+                </div>
+                <ul class="pr-lista">
+                    @foreach (var p in lista)
+                    {
+                        var st = EstadoStock(p);
+                        <li class="pr-item @(p.Activo ? "" : "is-off")" @onclick="() => IrAEditar(p)">
+                            <div class="pr-info">
+                                <b>@p.Nombre</b>
+                                <small>
+                                    @(string.IsNullOrWhiteSpace(p.CodigoBarras) ? "Sin código" : p.CodigoBarras)
+                                    @if (NombreFamilia(p.FamiliaId) is string fam)
+                                    {
+                                        <span> · @fam</span>
+                                    }
+                                </small>
+                                <span class="pr-tags">
+                                    @if (p.EsCombo == true) { <span class="pr-tag is-combo">Combo</span> }
+                                    @if (p.EsVentaPorPeso()) { <span class="pr-tag">Por peso</span> }
+                                    @if (!p.Activo) { <span class="pr-tag is-off">Inactivo</span> }
+                                </span>
+                            </div>
+                            <div class="pr-precios">
+                                @if (EsFeriado)
+                                {
+                                    <span class="pr-l3 is-now is-feriado">@nombreLista3 $ @Precio(p, PrecioService.PrecioSegunLista(p, "precio_lista3", State.KioscoId))@Sufijo(p)</span>
+                                }
+                                <span class="pr-pv @(columnaActiva == "precio_venta" ? "is-now" : "")">$ @Precio(p, p.PrecioVenta)@Sufijo(p)</span>
+                                @if (!string.IsNullOrEmpty(nombreLista2))
+                                {
+                                    <span class="pr-l2 @(columnaActiva == "precio_lista2" ? "is-now" : "")">@nombreLista2 $ @Precio(p, PrecioService.PrecioSegunLista(p, "precio_lista2", State.KioscoId))@Sufijo(p)</span>
+                                }
+                            </div>
+                            <div class="pr-stock @st.Clase" title="Stock">
+                                <b>@TextoStock(p)</b>
+                                <small>@st.Texto</small>
+                            </div>
+                            <i class="bi bi-chevron-right pr-chev"></i>
+                        </li>
+                    }
+                </ul>
+                @if (hayMas)
+                {
+                    <button type="button" class="gp-btn gp-btn-outline pr-mas" disabled="@cargandoMas" @onclick="CargarMas">
+                        @(cargandoMas ? "Cargando..." : "Ver más")
+                    </button>
+                }
+            }
+        </section>
     </div>
-
-    @* --- COMPONENTE DE BÚSQUEDA --- *@
-    @* OnProductoEncontrado ahora dispara la navegación directa al editor *@
-    <div class="mb-4">
-@*         <BuscadorProducto CargarAlInicio="true"
-                          OnProductoEncontrado="RedirigirAEditar"
-                          MostrarPrimeraLista="true"
-                          MostrarSegundaLista="mostrarSegundaLista" />
-
- *@    
-            <BuscadorProducto CargarAlInicio="true"
-                          OnProductoEncontrado="RedirigirAEditar"
-                          OnProductoNoEncontrado="RedirigirANuevo"
-                          MostrarPrimeraLista="true"
-                          MostrarSegundaLista="mostrarSegundaLista" />
-
 </div>
 
-    @* Mensaje de ayuda *@
-    <div class="alert alert-info border-0 shadow-sm small">
-        <i class="bi bi-info-circle-fill me-2"></i>
-        Buscá un producto y seleccionalo para modificar precios o stock.
-    </div>
-</div>
+<style>
+    .pr-buscar { display: flex; gap: .5rem; align-items: center; }
+    .pr-buscar .gp-search { max-width: none; flex: 1 1 auto; }
+    .pr-buscar .gp-search .gp-control { height: 3rem; font-size: 1.02rem; }
+    .pr-scan { width: 3rem !important; height: 3rem !important; font-size: 1.25rem; }
 
-@code {
-    private bool mostrarSegundaLista = false;
-    private long idNegocio;
-    // Este parámetro va a recibir "/producto/editar" desde el cel,
-    // o "/producto/editar-desktop" desde la PC
+    .pr-filtros { display: flex; gap: .4rem; margin-top: .8rem; overflow-x: auto; padding-bottom: .2rem; scrollbar-width: none; }
+    .pr-filtros::-webkit-scrollbar { display: none; }
+    .pr-chip { flex: none; display: inline-flex; align-items: center; gap: .35rem; padding: .4rem .75rem; border: 1.5px solid var(--gp-line); border-radius: 999px; background: #fff; color: var(--gp-text); font: inherit; font-size: .82rem; font-weight: 800; cursor: pointer; white-space: nowrap; }
+    .pr-chip i { color: var(--gp-muted); }
+    .pr-chip.is-active { border-color: var(--gp-primary); background: var(--gp-primary); color: #fff; }
+    .pr-chip.is-active i { color: #fff; }
+    .pr-chip.is-bajo:not(.is-active) i { color: var(--gp-warn); }
+    .pr-chip.is-sin:not(.is-active) i { color: var(--gp-danger); }
+    .pr-n { padding: 0 .4rem; border-radius: 999px; background: rgba(22,33,72,.08); font-size: .72rem; }
+    .pr-chip.is-active .pr-n { background: rgba(255,255,255,.25); }
+    .pr-orden { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: .5rem; margin-top: .6rem; }
+
+    .pr-cab { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .4rem; margin-bottom: .6rem; color: var(--gp-muted); font-size: .85rem; font-weight: 600; }
+    .pr-cab b { color: var(--gp-text); }
+    .pr-leyenda { display: inline-flex; align-items: center; gap: .35rem; }
+    .pr-dot { width: .7rem; height: .7rem; border-radius: 4px; background: #16a34a; }
+
+    .pr-lista { display: flex; flex-direction: column; gap: .45rem; margin: 0; padding: 0; list-style: none; }
+    .pr-item { display: flex; align-items: center; gap: .75rem; padding: .65rem .75rem; border: 1px solid var(--gp-line); border-radius: 14px; background: #fff; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+    .pr-item:hover { border-color: var(--gp-primary-line); box-shadow: var(--gp-shadow); }
+    .pr-item.is-off { background: #f7f8fc; }
+    .pr-item.is-off .pr-info b { color: #9aa3bd; }
+    .pr-info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: .1rem; }
+    .pr-info b { font-weight: 900; font-size: .9rem; text-transform: uppercase; line-height: 1.25; }
+    .pr-info small { color: var(--gp-muted); font-weight: 600; font-size: .76rem; }
+    .pr-tags { display: flex; flex-wrap: wrap; gap: .25rem; }
+    .pr-tags:empty { display: none; }
+    .pr-tag { padding: .05rem .45rem; border-radius: 999px; background: #f0f2f9; color: var(--gp-muted); font-size: .68rem; font-weight: 800; }
+    .pr-tag.is-combo { background: var(--gp-ok-soft); color: var(--gp-ok); }
+    .pr-tag.is-off { background: #eceef4; color: #7a839c; }
+
+    .pr-precios { flex: none; display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+    .pr-pv, .pr-l2 { color: var(--gp-muted); font-weight: 700; font-size: .78rem; white-space: nowrap; }
+    /* el precio que se cobra AHORA: verde fuerte, con la etiqueta "SE COBRA" para que no se confundan */
+    .pr-precios .is-now { display: inline-flex; align-items: center; gap: .4rem; margin-bottom: .15rem; padding: .2rem .6rem;
+                          border-radius: 9px; background: #16a34a; color: #fff; font-weight: 900; font-size: 1.02rem;
+                          box-shadow: 0 2px 6px rgba(22,163,74,.3); }
+    .pr-precios .is-now::before { content: "SE COBRA"; padding: .05rem .35rem; border-radius: 5px; background: rgba(255,255,255,.25);
+                                  font-size: .6rem; font-weight: 900; letter-spacing: .04em; }
+    .pr-precios > span:not(.is-now) { opacity: .75; font-size: .74rem; }
+    /* feriado / domingo: el recuadro "SE COBRA" en rojo */
+    .pr-precios .is-now.is-feriado { background: #e11d48; box-shadow: 0 2px 6px rgba(225,29,72,.35); }
+    .pr-dot.is-feriado { background: #e11d48; }
+
+    .pr-stock { flex: none; display: flex; flex-direction: column; align-items: center; min-width: 4.4rem; padding: .3rem .45rem; border-radius: 10px; background: #f3f5fa; }
+    .pr-stock b { font-weight: 900; font-size: .9rem; line-height: 1.1; }
+    .pr-stock small { font-size: .64rem; font-weight: 800; color: var(--gp-muted); }
+    .pr-stock.is-sin { background: var(--gp-danger-soft); }
+    .pr-stock.is-sin b, .pr-stock.is-sin small { color: var(--gp-danger); }
+    .pr-stock.is-bajo { background: var(--gp-warn-soft); }
+    .pr-stock.is-bajo b, .pr-stock.is-bajo small { color: var(--gp-warn); }
+    .pr-stock.is-ok b { color: var(--gp-ok); }
+    .pr-chev { flex: none; color: var(--gp-muted); }
+    .pr-mas { width: 100%; margin-top: .7rem; justify-content: center; }
+
+    @@media (max-width: 575.98px) {
+        .pr-item { flex-wrap: wrap; gap: .4rem .6rem; }
+        .pr-info { flex-basis: calc(100% - 1.5rem); }
+        .pr-precios { order: 3; flex: 1 1 auto; align-items: flex-start; text-align: left; }
+        .pr-stock { order: 4; }
+        .pr-chev { order: 2; }
+        .pr-orden { grid-template-columns: 1fr; }
+    }
+</style>
+
+@code {    // "/producto/editar" en el celular, "/producto/editar-desktop" en la PC
     [Parameter] public string RutaEditar { get; set; } = "/producto/editar";
     [Parameter] public string RutaNuevo { get; set; } = "/producto/nuevo";
-    
-    // CAMBIAMOS A OnInitializedAsync para que cargue ANTES de dibujar los componentes hijos
+
+    private const int TamPagina = 50;
+    private const string Columnas = "id, kiosco_id, nombre, codigo_barras, precio_venta, precio_lista2, stock_actual, stock_minimo, unidad, activo, familia_id, es_combo, fecha_actualizacion";
+
+    private ElementReference txtBuscar;
+    private List<Producto> lista = new();
+    private List<Familia> familias = new();
+    private Dictionary<string, int> contadores = new();
+    private bool cargando = true, cargandoMas, hayMas;
+    private string error = "";
+    private string busqueda = "";
+    private string filtro = "activos";
+    private long familiaId = 0;
+    private long subfamiliaId = 0;
+    private List<Subfamilia> subfamilias = new();
+    private List<Subfamilia> SubfamiliasDeLaFamilia => subfamilias.Where(s => s.FamiliaId == familiaId).OrderBy(s => s.Nombre).ToList();
+    private string orden = "nombre";
+    private string nombreLista2 = "";
+    private string nombreLista3 = "";
+    private bool EsFeriado => columnaActiva == "precio_lista3";
+    private string columnaActiva = "precio_venta";
+    private CancellationTokenSource? espera;
+    private int consultaNro = 0;
+    private static bool usarSinAcentos = true;   // se apaga solo si falta la columna nombre_busqueda
+    private DotNetObjectReference<Productos>? refJs;
+
+    // la búsqueda se recuerda mientras la app está abierta (al volver de editar sigue igual)
+    private static string ultimaBusqueda = "", ultimoFiltro = "activos";
+
+    private sealed record FiltroDef(string Clave, string Texto, string Icono, string Clase);
+    private static readonly FiltroDef[] Filtros =
+    {
+        new("activos", "Todos", "bi-grid-fill", ""),
+        new("bajo", "Stock bajo", "bi-exclamation-triangle-fill", "is-bajo"),
+        new("sin", "Sin stock", "bi-x-octagon-fill", "is-sin"),
+        new("combos", "Combos", "bi-gift-fill", ""),
+        new("inactivos", "Inactivos", "bi-eye-slash-fill", ""),
+    };
+
+    private bool HayProductos => contadores.GetValueOrDefault("activos") + contadores.GetValueOrDefault("inactivos") > 0 || lista.Any();
+
+    private string TextoCantidad
+    {
+        get
+        {
+            // si no hay búsqueda ni familia, el total del filtro lo da el contador
+            if (string.IsNullOrWhiteSpace(busqueda) && familiaId == 0 && contadores.TryGetValue(filtro, out var total))
+                return total == 1 ? "1 producto" : $"{total:N0} productos" + (lista.Count < total ? $" · mostrando {lista.Count}" : "");
+            return hayMas ? $"Mostrando {lista.Count}" : (lista.Count == 1 ? "1 producto" : $"{lista.Count} productos");
+        }
+    }
+
     protected override async Task OnInitializedAsync()
     {
-        // 1. Forzamos el ID del negocio (o lo traés de tu lógica)
-        idNegocio = 1;
+        await PrecioServ.AsegurarReglasAsync(State.KioscoId);   // recargos de la Lista 2 del negocio
+        if (State.KioscoId == 0) { Nav.NavigateTo("/login"); return; }
+        // el superadmin (fuera del modo soporte) va siempre a Administrar negocios
+        if (Roles.EsSuperAdmin(State.UsuarioRol)) { Nav.NavigateTo(RutasApp.Celular.AdminNegocios); return; }
+        // al entrar desde el menú arranca limpio; si vuelve de editar un producto, sigue con lo que estaba buscando
+        if (!volviendoDeEditar) { ultimaBusqueda = ""; ultimoFiltro = "activos"; }
+        volviendoDeEditar = false;
+        busqueda = ultimaBusqueda;
+        filtro = ultimoFiltro;
+        long k = State.KioscoId;
 
-        if (idNegocio > 0)
+        // todo en paralelo: la primera página, los contadores y los datos auxiliares
+        var tLista = Buscar();
+        var tContadores = CargarContadoresAsync();
+        var tAux = CargarAuxiliaresAsync(k);
+        await Task.WhenAll(tLista, tContadores, tAux);
+    }
+
+    private async Task CargarAuxiliaresAsync(long k)
+    {
+        try
         {
-            try
+            var tFam = SupaClient.From<Familia>().Where(f => f.KioscoId == k).Get();
+            var tListas = SupaClient.From<ListaPrecio>().Where(x => x.KioscoId == k).Get();
+            await Task.WhenAll(tFam, tListas);
+
+            familias = (tFam.Result.Models ?? new()).OrderBy(f => f.Nombre).ToList();
+            var l2 = (tListas.Result.Models ?? new()).FirstOrDefault(x => x.NombreColumnaProductos == "precio_lista2");
+            nombreLista2 = l2 != null && l2.MostrarEnBuscador ? (l2.NombreLista ?? "Lista 2") : "";
+            var l3 = (tListas.Result.Models ?? new()).FirstOrDefault(x => x.NombreColumnaProductos == "precio_lista3");
+            nombreLista3 = l3?.NombreLista ?? "Precio feriado";
+            columnaActiva = await PrecioServ.ObtenerColumnaPrecioActivaAsync(k, DateTime.Now.TimeOfDay);
+        }
+        catch { /* si falla, la lista igual funciona */ }
+        try { subfamilias = (await SupaClient.From<Subfamilia>().Where(s => s.KioscoId == k).Get()).Models ?? new(); }
+        catch { subfamilias = new(); }   // falta el script 26
+        StateHasChanged();
+    }
+
+    private async Task CambioFamilia()
+    {
+        subfamiliaId = 0;
+        await Buscar();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) { try { await txtBuscar.FocusAsync(); } catch { } }
+    }
+
+    // ===================== CONSULTAS (las hace la base, de a 50) =====================
+    private Supabase.Postgrest.Interfaces.IPostgrestTable<Producto> ConFiltro(Supabase.Postgrest.Interfaces.IPostgrestTable<Producto> q, string f) => f switch
+    {
+        "bajo" => q.Where(p => p.Activo == true).Filter("stock_bajo", Operator.Equals, "true"),
+        "sin" => q.Where(p => p.Activo == true).Filter("sin_stock", Operator.Equals, "true"),
+        "combos" => q.Where(p => p.Activo == true).Where(p => p.EsCombo == true),
+        "inactivos" => q.Where(p => p.Activo == false),
+        _ => q.Where(p => p.Activo == true)
+    };
+
+    private Supabase.Postgrest.Interfaces.IPostgrestTable<Producto> ArmarConsulta()
+    {
+        long k = State.KioscoId;
+        Supabase.Postgrest.Interfaces.IPostgrestTable<Producto> q = SupaClient.From<Producto>().Select(Columnas).Where(p => p.KioscoId == k);
+        q = ConFiltro(q, filtro);
+        if (familiaId > 0) { long fam = familiaId; q = q.Where(p => p.FamiliaId == fam); }
+        if (familiaId > 0 && subfamiliaId > 0) { long sub = subfamiliaId; q = q.Where(p => p.SubfamiliaId == sub); }
+
+        // se sacan los caracteres que rompen el filtro de Supabase: , ( ) % " \ *
+        var texto = System.Text.RegularExpressions.Regex.Replace(busqueda ?? "", @"[,()%""\\*]", " ").Trim();
+        if (texto != "")
+        {
+            // "coca 500" → nombre ILIKE '%coca%500%'   (o el código contiene lo escrito)
+            var palabras = texto.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            // sin acentos ni mayúsculas: "Café" busca "cafe" en la columna nombre_busqueda (la calcula la base)
+            var patron = "%" + string.Join("%", palabras.Select(SinAcentos)) + "%";
+            q = q.Or(new List<Supabase.Postgrest.Interfaces.IPostgrestQueryFilter>
             {
-                
-                var res = await SupaClient.From<ListaPrecio>()
-                            .Where(x => x.KioscoId == idNegocio && x.NombreColumnaProductos == "precio_lista2")
-                            .Get();
+                new Supabase.Postgrest.QueryFilter(usarSinAcentos ? "nombre_busqueda" : "nombre", Operator.ILike, patron),
+                new Supabase.Postgrest.QueryFilter("codigo_barras", Operator.ILike, $"%{string.Join("", palabras)}%")
+            });
+        }
 
-                var configuracionLista = res.Models.FirstOrDefault();
+        return orden switch
+        {
+            "stock" => q.Order("stock_actual", Ordering.Ascending, NullPosition.First).Order("nombre", Ordering.Ascending),
+            "recientes" => q.Order("fecha_actualizacion", Ordering.Descending, NullPosition.Last),
+            _ => q.Order("nombre", Ordering.Ascending)
+        };
+    }
 
-                if (configuracionLista != null)
-                {
-                    // 3. Asignamos el valor directamente
-                    mostrarSegundaLista = configuracionLista.MostrarEnBuscador;
-                }
-                else
-                {
-                    // Log de respaldo en la consola del navegador por si no encuentra la fila
-                    Console.WriteLine("Alerta: No se encontró la configuración para 'precio_lista2' en la tabla listas_precios.");
-                }
-            }
-            catch (Exception ex)
+    private async Task Buscar()
+    {
+        int nro = ++consultaNro;
+        cargando = true;
+        error = "";
+        StateHasChanged();
+        try
+        {
+            var res = await ArmarConsulta().Range(0, TamPagina - 1).Get();
+            if (nro != consultaNro) return;                     // llegó tarde: ya hay otra búsqueda
+            lista = res.Models ?? new List<Producto>();
+            hayMas = lista.Count == TamPagina;
+            stockCombos.Clear();
+            await CargarStockCombosAsync(lista);
+            if (nro != consultaNro) return;
+
+            // si escribió un código exacto, ese va primero
+            var t = busqueda.Trim();
+            if (t != "") lista = lista.OrderByDescending(p => p.CodigoBarras == t).ToList();
+        }
+        catch (Exception ex) when (usarSinAcentos && ex.Message.Contains("nombre_busqueda"))
+        {
+            // todavía no se corrió busqueda_sin_acentos.sql: se busca como antes
+            usarSinAcentos = false;
+            if (nro == consultaNro) { cargando = false; await Buscar(); }
+            return;
+        }
+        catch (Exception ex)
+        {
+            if (nro != consultaNro) return;
+            lista = new();
+            error = ex.Message.Contains("stock_bajo") || ex.Message.Contains("sin_stock")
+                ? "Falta correr el SQL de índices (indices_rapidez.sql) para usar este filtro."
+                : "No se pudieron cargar los productos: " + ex.Message;
+        }
+        finally
+        {
+            if (nro == consultaNro) { cargando = false; StateHasChanged(); }
+        }
+    }
+
+    private async Task CargarMas()
+    {
+        cargandoMas = true;
+        try
+        {
+            int desde = lista.Count;
+            var res = await ArmarConsulta().Range(desde, desde + TamPagina - 1).Get();
+            var mas = res.Models ?? new List<Producto>();
+            lista.AddRange(mas.Where(m => !lista.Any(x => x.Id == m.Id)));
+            hayMas = mas.Count == TamPagina;
+            await CargarStockCombosAsync(mas);
+        }
+        catch (Exception ex) { error = "No se pudieron cargar más: " + ex.Message; }
+        finally { cargandoMas = false; }
+    }
+
+    /// <summary>Cuántos hay en cada filtro (consultas de "contar", muy livianas).</summary>
+    private async Task CargarContadoresAsync()
+    {
+        long k = State.KioscoId;
+        var tareas = Filtros.ToDictionary(f => f.Clave, f => Contar(k, f.Clave));
+        foreach (var kv in tareas)
+        {
+            try { contadores[kv.Key] = await kv.Value; }
+            catch { contadores.Remove(kv.Key); }   // ej: falta el SQL de stock_bajo → el chip queda sin número
+        }
+        StateHasChanged();
+    }
+
+    private Task<int> Contar(long k, string f)
+        => ConFiltro(SupaClient.From<Producto>().Where(p => p.KioscoId == k), f).Count(CountType.Exact);
+
+    // ===================== STOCK DE LOS COMBOS =====================
+    /// <summary>Cuántos combos se pueden armar con el stock de sus productos (el que menos alcanza manda). Clave: id del combo.</summary>
+    private readonly Dictionary<long, int> stockCombos = new();
+
+    private async Task CargarStockCombosAsync(IEnumerable<Producto> productos)
+    {
+        var ids = productos.Where(p => p.EsCombo == true && !stockCombos.ContainsKey(p.Id)).Select(p => (object)p.Id).Distinct().ToList();
+        if (!ids.Any()) return;
+        try
+        {
+            var dets = new List<ComboDetalle>();
+            foreach (var t in ids.Chunk(100))
             {
-                Console.WriteLine($"Error al consultar listas_precios: {ex.Message}");
+                var r = await SupaClient.From<ComboDetalle>().Select("id, combo_id, producto_hijo_id, cantidad, kiosco_id")
+                    .Filter("combo_id", Operator.In, t.ToList()).Get();
+                dets.AddRange(r.Models ?? new());
             }
+            var hijos = dets.Select(d => (object)d.ProductoHijoId).Distinct().ToList();
+            var stock = new Dictionary<long, int>();
+            foreach (var t in hijos.Chunk(100))
+            {
+                var r = await SupaClient.From<Producto>().Select("id, stock_actual")
+                    .Filter("id", Operator.In, t.ToList()).Get();
+                foreach (var h in r.Models ?? new()) stock[h.Id] = h.StockActual ?? 0;
+            }
+            foreach (var g in dets.Where(d => d.Cantidad > 0).GroupBy(d => d.ComboId))
+                stockCombos[g.Key] = Math.Max(0, g.Min(d => stock.GetValueOrDefault(d.ProductoHijoId) / d.Cantidad));
+        }
+        catch { /* si falla, el combo muestra "—" como antes */ }
+    }
+
+    // ===================== MOSTRAR =====================
+    private sealed record Estado(string Clase, string Texto);
+    private Estado EstadoStock(Producto p)
+    {
+        if (p.EsCombo == true)
+        {
+            if (!stockCombos.TryGetValue(p.Id, out var sc)) return new("", "combo");
+            return sc <= 0 ? new("is-sin", "sin stock") : new("is-ok", "combos");
+        }
+        int s = p.StockActual ?? 0;
+        if (s <= 0) return new("is-sin", "sin stock");
+        if ((p.StockMinimo ?? 0) > 0 && s <= p.StockMinimo) return new("is-bajo", "stock bajo");
+        return new("is-ok", "en stock");
+    }
+
+    /// <summary>Unidades, o kilos si el producto se vende por peso (el stock se guarda en gramos).</summary>
+    private string TextoStock(Producto p)
+    {
+        if (p.EsCombo == true) return stockCombos.TryGetValue(p.Id, out var sc) ? sc.ToString("N0", Cultura) : "—";
+        int s = p.StockActual ?? 0;
+        return p.EsVentaPorPeso() ? $"{(s / 1000m).ToString("0.##", Cultura)} kg" : s.ToString("N0", Cultura);
+    }
+
+    private static readonly System.Globalization.CultureInfo Cultura = new("es-AR");
+    /// <summary>El precio se guarda por kilo; en GRAMOS se muestra cada 100 g (igual que en el producto y el cartel).</summary>
+    private static string Precio(Producto p, decimal? valor) =>
+        ((valor ?? 0) / (p.PrecioCada100g() ? 10m : 1m)).ToString("N2", Cultura);
+    private static string Sufijo(Producto p) => p.PrecioCada100g() ? " x 100 g" : p.EsVentaPorPeso() ? " x kg" : "";
+    /// <summary>"Café" → "cafe" (igual que hace la base con f_sin_acentos).</summary>
+    private static string SinAcentos(string s)
+    {
+        var d = (s ?? "").ToLowerInvariant().Normalize(System.Text.NormalizationForm.FormD);
+        return new string(d.Where(c => System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark).ToArray())
+            .Normalize(System.Text.NormalizationForm.FormC);
+    }
+
+    private static bool EsCodigo(string? t) => !string.IsNullOrWhiteSpace(t) && t.Trim().All(char.IsDigit) && t.Trim().Length >= 6;
+    private string? NombreFamilia(long? id) => id is null or 0 || familias.Count <= 1 ? null : familias.FirstOrDefault(f => f.Id == id)?.Nombre;
+
+    private async Task CambiarFiltro(string f)
+    {
+        filtro = ultimoFiltro = f;
+        // los filtros de arriba mandan: se limpian familia y subfamilia (así "Todos (9)" muestra los 9)
+        familiaId = 0;
+        subfamiliaId = 0;
+        await Buscar();
+    }
+
+    // ===================== BÚSQUEDA / ESCÁNER =====================
+    private async Task AlEscribir(ChangeEventArgs e)
+    {
+        busqueda = ultimaBusqueda = e.Value?.ToString() ?? "";
+        // espera 300 ms a que deje de escribir antes de ir a la base
+        espera?.Cancel();
+        espera = new CancellationTokenSource();
+        try { await Task.Delay(300, espera.Token); }
+        catch (TaskCanceledException) { return; }
+        await Buscar();
+    }
+
+    private async Task AlTeclear(KeyboardEventArgs e)
+    {
+        if (e.Key != "Enter") return;
+        espera?.Cancel();
+        await AbrirSiEsCodigo(busqueda);
+    }
+
+    /// <summary>Enter o escáner: si el código existe abre el producto; si no existe, ofrece crearlo.</summary>
+    private async Task AbrirSiEsCodigo(string texto)
+    {
+        var t = (texto ?? "").Trim();
+        if (t == "") return;
+        try
+        {
+            long k = State.KioscoId;
+            var res = await SupaClient.From<Producto>().Select("id, codigo_barras")
+                .Where(p => p.KioscoId == k).Where(p => p.CodigoBarras == t).Limit(1).Get();
+            var exacto = res.Models.FirstOrDefault();
+            if (exacto != null) { IrAEditar(exacto); return; }
+        }
+        catch { }
+
+        await Buscar();
+        if (lista.Count == 1) { IrAEditar(lista[0]); return; }
+        if (lista.Count == 0 && EsCodigo(t)) IrANuevo(t);
+    }
+
+    private async Task Limpiar()
+    {
+        espera?.Cancel();
+        busqueda = ultimaBusqueda = "";
+        await Buscar();
+    }
+
+    private async Task Escanear()
+    {
+        try
+        {
+            refJs ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("methodsJS.iniciarEscaneo", refJs);
+        }
+        catch
+        {
+            // en la PC no hay cámara configurada: se usa el lector de códigos (escribe el código y manda Enter)
+            try { await txtBuscar.FocusAsync(); } catch { }
         }
     }
-    // Al tocar un producto en la lista del componente, este método recibe el objeto
-    // private void IrAEditar(Producto p)
-    // {
-    //     if (p != null)
-    //     {
-    //         Nav.NavigateTo($"/producto/editar/{p.Id}");
-    //     }
-    // }
-    // private void RedirigirAEditar(Producto p)
-    // {
-    //     if (p == null) return;
-    //     // Navega dinámicamente:
-    //     // En el celular irá a: /producto/editar/123
-    //     // En la PC irá a: /producto/editar-desktop/123
-    //     Nav.NavigateTo($"{RutaEditar}/{p.Id}");
-    // }
-    private void RedirigirAEditar(Producto p)
+
+    [JSInvokable]
+    public async Task ProcesarCodigoEscaneado(string code)
     {
-        if (p != null)
-        {
-            // Console.WriteLine($"[NAVEGACIÓN] Redirigiendo1 a: {RutaEditar} | ID Producto: {p.Id}");
-            Nav.NavigateTo($"{RutaEditar}/{p.Id}");
-        }
+        busqueda = ultimaBusqueda = code ?? "";
+        await InvokeAsync(StateHasChanged);
+        await AbrirSiEsCodigo(busqueda);
     }
-    private void RedirigirANuevo(string codigoNoEncontrado)
+
+    private static bool volviendoDeEditar;
+    private void IrAEditar(Producto p) { volviendoDeEditar = true; Nav.NavigateTo($"{RutaEditar}/{p.Id}"); }
+
+    private void IrANuevo(string? codigo)
     {
-        // Si no viene código (es un alta limpia), va a la ruta base
-        if (string.IsNullOrWhiteSpace(codigoNoEncontrado))
-        {
-            // Console.WriteLine($"[NAVEGACIÓN] Redirigiendo2 a: {RutaNuevo} | ID Producto: {codigoNoEncontrado}");
-            Nav.NavigateTo(RutaNuevo);
-        }
-        else
-        {
-            // Si viene un código que no existe, se lo pegamos a la URL
-            // En PC: /producto/nuevo-desktop/1122333
-            // En Móvil: /producto/nuevo/1122333
-            // Console.WriteLine($"[NAVEGACIÓN] Redirigiendo3 a: {RutaNuevo} | ID Producto: {codigoNoEncontrado}");
-            Nav.NavigateTo($"{RutaNuevo}/{codigoNoEncontrado}");
-        }
+        if (!string.IsNullOrWhiteSpace(codigo)) { ultimaBusqueda = ""; Nav.NavigateTo($"{RutaNuevo}/{Uri.EscapeDataString(codigo.Trim())}"); }
+        else Nav.NavigateTo(RutaNuevo);
     }
-    // Caso B: El buscador NO encontró el producto. Recibe el string directo desde el hijo.
-    // private void ManejarProductoNoEncontrado(string codigoEscaneado)
-    // {
-    //     if (!string.IsNullOrWhiteSpace(codigoEscaneado))
-    //     {
-    //         // Redirige al alta pasándole el código fallido por la URL limpiamente
-    //         Nav.NavigateTo($"{RutaNuevo}/{Uri.EscapeDataString(codigoEscaneado)}");
-    //     }
-    //     else
-    //     {
-    //         // Si por alguna razón buscaron vacío, va al alta limpio
-    //         Nav.NavigateTo($"{RutaNuevo}");
-    //     }
-    // }
-    private void CrearNuevo()
+
+    public void Dispose()
     {
-        Nav.NavigateTo($"{RutaNuevo}");
+        espera?.Cancel();
+        refJs?.Dispose();
     }
 }

@@ -1,0 +1,243 @@
+﻿@inject Supabase.Client Db
+@inject AppState State
+@inject IJSRuntime JS
+
+@* Configuración → Copia de seguridad (solo el dueño): baja los datos del negocio a un Excel.
+   Usa exportar_negocio (_sql\29.exportar_negocio.sql). No reemplaza a la copia completa de la base.
+   En la app de escritorio, además: copia automática en una carpeta (ej. Google Drive) — Services\CopiaAutomatica.cs *@
+
+<AvisosPagina @ref="avisos" />
+
+<section class="gp-card gp-card-pad">
+    <div class="gp-card-head">
+        <span class="gp-bubble"><i class="bi bi-cloud-arrow-down-fill"></i></span>
+        <div class="cf-head-text">
+            <h2>Copia de seguridad en Excel</h2>
+            <p>Baja a un Excel los datos de tu negocio: productos y precios, familias, proveedores, clientes, deudas y ventas.</p>
+        </div>
+    </div>
+
+    <div class="cp-opciones">
+        <label class="cf-lbl" style="margin:0">Ventas de los últimos</label>
+        <div class="gp-seg" role="group">
+            @foreach (var d in new[] { 30, 90, 365 })
+            {
+                <button type="button" class="@(dias == d ? "is-active" : "")" @onclick="() => dias = d">@(d == 365 ? "12 meses" : d + " días")</button>
+            }
+        </div>
+    </div>
+
+    <div class="cf-form-actions" style="margin-top:1rem">
+        <button type="button" class="gp-btn gp-btn-ok" disabled="@haciendo" @onclick="HacerCopia">
+            @if (haciendo)
+            {
+                <span class="gp-spinner" style="width:1.1rem;height:1.1rem;border-width:2px"></span> <span>Armando la copia...</span>
+            }
+            else
+            {
+                <i class="bi bi-file-earmark-excel-fill"></i> <span>Hacer copia</span>
+            }
+        </button>
+    </div>
+
+    @if (resumen.Any())
+    {
+        <div class="gp-banner is-ok" style="margin-top:1rem">
+            <i class="bi bi-check-circle-fill"></i>
+            <p><b>Copia descargada.</b> @string.Join(" · ", resumen)</p>
+        </div>
+    }
+
+    <div class="gp-hint" style="margin-top:1rem">
+        <i class="bi bi-info-circle-fill" style="color:var(--gp-primary)"></i>
+        Guardala en un pendrive, en Google Drive o mandátela por mail. Conviene hacerla una vez por semana.
+        Es una copia para tener los datos a mano.
+    </div>
+</section>
+
+@* ================= COPIA AUTOMÁTICA (solo en la PC) ================= *@
+<section class="gp-card gp-card-pad" style="margin-top:1rem">
+    <div class="gp-card-head">
+        <span class="gp-bubble"><i class="bi bi-arrow-repeat"></i></span>
+        <div class="cf-head-text">
+            <h2>Copia automática</h2>
+            <p>La PC guarda sola el Excel en una carpeta. Si es la carpeta de Google Drive, se sube sola a tu Drive.</p>
+        </div>
+    </div>
+
+    @if (auto == null)
+    {
+        <div class="gp-hint">
+            <i class="bi bi-pc-display" style="color:var(--gp-primary)"></i>
+            Se configura desde la app de la PC (en el celular no está).
+        </div>
+    }
+    else
+    {
+        <label class="gp-switch">
+            <input type="checkbox" checked="@cfg.Activa" @onchange="e => cfg.Activa = (bool)e.Value!" />
+            <span class="gp-switch-track"></span>
+            <span class="gp-switch-text">Hacer la copia automáticamente</span>
+        </label>
+
+        <div class="cp-campos" style="@(cfg.Activa ? "" : "opacity:.55")">
+            <div>
+                <label class="cf-lbl">Carpeta donde se guarda</label>
+                <div class="cp-carpeta">
+                    <input class="gp-control no-mayus" placeholder="Ej: G:\Mi unidad" @bind="cfg.Carpeta" />
+                    <button type="button" class="gp-btn gp-btn-soft" title="Buscar la carpeta de Google Drive de esta PC" @onclick="BuscarDrive">
+                        <i class="bi bi-google"></i> Buscar Google Drive
+                    </button>
+                </div>
+                <small class="gp-muted">Adentro se crea la carpeta "@CopiaAutomatica.Subcarpeta".</small>
+            </div>
+
+            <div class="cp-fila">
+                <div>
+                    <label class="cf-lbl">Cada cuánto</label>
+                    <div class="gp-seg" role="group">
+                        <button type="button" class="@(cfg.CadaDias == 1 ? "is-active" : "")" @onclick="() => cfg.CadaDias = 1">Todos los días</button>
+                        <button type="button" class="@(cfg.CadaDias == 7 ? "is-active" : "")" @onclick="() => cfg.CadaDias = 7">Una vez por semana</button>
+                    </div>
+                </div>
+                <div>
+                    <label class="cf-lbl">Copias que se guardan</label>
+                    <select class="gp-control" @bind="cfg.Guardar">
+                        @foreach (var n in new[] { 7, 14, 30, 60 })
+                        {
+                            <option value="@n">Las últimas @n</option>
+                        }
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="cf-form-actions" style="margin-top:1rem">
+            <button type="button" class="gp-btn gp-btn-outline" disabled="@(probando || string.IsNullOrWhiteSpace(cfg.Carpeta))" @onclick="ProbarAhora">
+                <i class="bi bi-play-fill"></i> @(probando ? "Haciendo la copia..." : "Guardar y probar ahora")
+            </button>
+            <button type="button" class="gp-btn gp-btn-ok" @onclick="GuardarConfig">
+                <i class="bi bi-check-lg"></i> Guardar
+            </button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(cfg.UltimoError))
+        {
+            <div class="gp-banner is-danger" style="margin-top:1rem"><i class="bi bi-exclamation-octagon-fill"></i><p><b>La última copia falló:</b> @cfg.UltimoError</p></div>
+        }
+        else if (cfg.Ultima is DateTime u)
+        {
+            <div class="gp-banner is-ok" style="margin-top:1rem">
+                <i class="bi bi-check-circle-fill"></i>
+                <p><b>Última copia:</b> @u.ToString("dd/MM/yyyy HH:mm") · @System.IO.Path.GetFileName(cfg.UltimoArchivo ?? "")</p>
+            </div>
+        }
+
+        <div class="gp-hint" style="margin-top:1rem">
+            <i class="bi bi-info-circle-fill" style="color:var(--gp-primary)"></i>
+            Para que suba a Google Drive, en esta PC tiene que estar instalado <b>Google Drive para escritorio</b> (gratis) con tu cuenta.
+            La copia se hace mientras la app está abierta y hay alguien adentro.
+        </div>
+    }
+</section>
+
+<style>
+    .cp-opciones { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; }
+    .cp-campos { display: flex; flex-direction: column; gap: .9rem; margin-top: .9rem; }
+    .cp-carpeta { display: flex; flex-wrap: wrap; gap: .5rem; }
+    .cp-carpeta .gp-control { flex: 1 1 18rem; }
+    .cp-fila { display: flex; flex-wrap: wrap; gap: 1rem 2rem; align-items: flex-end; }
+    .cp-fila select { width: auto; min-width: 11rem; }
+</style>
+
+@code {
+    [Parameter] public long KioscoId { get; set; }
+
+    private AvisosPagina avisos = default!;
+    private IJSObjectReference? jsModulo;
+    private int dias = 90;
+    private bool haciendo, probando;
+    private List<string> resumen = new();
+
+    private CopiaAutomatica? auto;
+    private CopiaAutomatica.Config cfg = new();
+
+    private long cargadoPara = -1;
+    protected override void OnParametersSet()
+    {
+        auto = CopiaAutomatica.Actual;
+        if (auto != null && cargadoPara != KioscoId) { cfg = auto.Leer(KioscoId); cargadoPara = KioscoId; }
+    }
+
+    private async Task HacerCopia()
+    {
+        haciendo = true;
+        resumen = new();
+        StateHasChanged();
+        try
+        {
+            var r = await CopiaExcel.GenerarAsync(Db, KioscoId, dias);
+            resumen = r.Resumen;
+            var nombre = CopiaExcel.NombreArchivo(State.NombreNegocio, DateTime.Now);
+            jsModulo ??= await JS.InvokeAsync<IJSObjectReference>("import", "./_content/BlazorKioscoCompartido/js/descargas.js?v=3");
+            await jsModulo.InvokeVoidAsync("descargarBinario", nombre,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", Convert.ToBase64String(r.Bytes));
+        }
+        catch (Exception ex)
+        {
+            resumen = new();
+            await avisos.InformarAsync("No se pudo hacer la copia", CopiaExcel.Mensaje(ex), "peligro");
+        }
+        finally { haciendo = false; }
+    }
+
+    // ---------------- copia automática ----------------
+    private void BuscarDrive()
+    {
+        var d = CopiaAutomatica.BuscarGoogleDrive();
+        if (d == null)
+        {
+            _ = avisos.InformarAsync("No encontré Google Drive en esta PC",
+                "Instalá \"Google Drive para escritorio\" (gratis), entrá con tu cuenta y volvé a tocar el botón. También podés escribir la carpeta a mano.", "aviso");
+            return;
+        }
+        cfg.Carpeta = d;
+        avisos.Toast("Carpeta de Google Drive encontrada", "exito", 2000);
+    }
+
+    private bool Validar()
+    {
+        cfg.Carpeta = (cfg.Carpeta ?? "").Trim().Trim('"');
+        if (cfg.Activa && cfg.Carpeta == "") { avisos.Toast("Elegí la carpeta donde guardar las copias.", "peligro"); return false; }
+        if (cfg.Carpeta != "" && !System.IO.Directory.Exists(cfg.Carpeta)) { avisos.Toast("Esa carpeta no existe en esta PC.", "peligro"); return false; }
+        return true;
+    }
+
+    private void GuardarConfig()
+    {
+        if (auto == null || !Validar()) return;
+        auto.Guardar(KioscoId, cfg);
+        _ = avisos.GuardadoAsync(cfg.Activa ? "La copia se va a hacer sola" : "Copia automática apagada");
+    }
+
+    private async Task ProbarAhora()
+    {
+        if (auto == null || !Validar()) return;
+        probando = true;
+        try
+        {
+            auto.Guardar(KioscoId, cfg);
+            var ruta = await auto.HacerAhoraAsync(KioscoId, State.NombreNegocio);
+            await avisos.InformarAsync("Copia guardada", ruta, "exito", "Listo");
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudo hacer la copia", ex.Message, "peligro");
+        }
+        finally
+        {
+            cfg = auto.Leer(KioscoId);
+            probando = false;
+        }
+    }
+}

@@ -1,0 +1,465 @@
+@using System.Globalization
+@using BlazorKioscoCompartido.Models
+@inject BlazorKioscoCompartido.Services.AppState State
+@inject PrecioService PrecioServ
+@inject Supabase.Client SupaBulto
+
+@* =====================================================================
+   PreciosProducto: Costo, Utilidad, Precio Venta y (opcional) Lista 2.
+   Trabaja directamente sobre el objeto Producto que le pasa la página.
+   Usa los estilos gp-/pp- (incluir <PedidosEstilos /> y <ProductoEstilos /> en la página).
+   ===================================================================== *@
+
+@if (Producto != null)
+{
+    <div class="pp-precios">
+        @* ================= COSTO ================= *@
+        <label class="pp-tile">
+            <span class="pp-tile-label"><i class="bi bi-tag-fill"></i> Costo @if (!string.IsNullOrEmpty(Producto.ObtenerTextoModoPesoCosto())) { <small>@Producto.ObtenerTextoModoPesoCosto()</small> }</span>
+            <span class="pp-money">
+                <span>$</span>
+                <input type="text" inputmode="decimal" class="pp-big js-monto" onfocus="this.select()"
+                       value="@((Producto.PrecioCosto ?? 0).ToString("#,##0.00", argCulture))"
+                       @onchange="OnCostoChanged" />
+            </span>
+        </label>
+
+        @* ================= UTILIDAD ================= *@
+        <label class="pp-tile">
+            <span class="pp-tile-label"><i class="bi bi-graph-up-arrow"></i> Utilidad</span>
+            <span class="pp-money">
+                <input type="number" inputmode="decimal" class="pp-big" onfocus="this.select()"
+                       @bind="Producto.UtilidadPV"
+                       @oninput="OnUtilidadPVInput" />
+                <span>%</span>
+            </span>
+            @if (UtilidadSugerida is decimal us && Math.Round(Producto.UtilidadPV ?? 0m, 2) != Math.Round(us, 2))
+            {
+                <button type="button" class="pp-sug" title="Utilidad definida para el grupo en Configuración → Familias"
+                        @onclick="() => AplicarUtilidadAsync(us)" @onclick:preventDefault="true">
+                    <i class="bi bi-magic"></i> @(string.IsNullOrWhiteSpace(GrupoSugerido) ? "El grupo" : GrupoSugerido) usa @us.ToString("0.##")% · <u>aplicar</u>
+                </button>
+            }
+        </label>
+
+        @* ================= PRECIO VENTA ================= *@
+        <label class="pp-tile is-venta">
+            <span class="pp-tile-label"><i class="bi bi-cash-stack"></i> Precio de venta <small>@TextoVenta</small></span>
+            <span class="pp-money">
+                <span>$</span>
+                <input type="text" inputmode="decimal" class="pp-big js-monto" onfocus="this.select()"
+                       value="@(Producto.ObtenerPrecioVentaMostrar("Principal", State, argCulture))"
+                       @onchange="OnPrecioVentaPrincipalChanged" />
+            </span>
+        </label>
+    </div>
+
+    @* ================= REDONDEO (por producto) ================= *@
+    @if (State.UsarRedondeo && State.MultiploRedondeo > 0)
+    {
+        <div class="pp-link-row">
+            <label class="gp-switch" title="Sacalo en cosas chicas que se venden sueltas: gomitas a $30, caramelos, clavos...">
+                <input type="checkbox" checked="@(Producto.SinRedondeo != true)" @onchange="CambiarRedondeo" />
+                <span class="gp-switch-track"></span>
+                <span class="gp-switch-text">Redondear el precio de a $ @State.MultiploRedondeo.ToString("N0", argCulture)
+                    @if (Producto.SinRedondeo == true) { <small style="color:var(--gp-warn); font-weight:700">· precio exacto (ej: $ 30)</small> }
+                    else { <small style="color:var(--gp-muted)">· sacalo para cosas chicas (gomitas a $ 30...)</small> }
+                </span>
+            </label>
+        </div>
+    }
+
+    @* ================= COSTO DESDE EL BULTO ================= *@
+    @if (!Producto.EsVentaPorPeso())
+    {
+        @if (!mostrarCalcBulto)
+        {
+            <div class="pp-link-row">
+                <button type="button" class="gp-link" @onclick="() => mostrarCalcBulto = true"><i class="bi bi-box-seam"></i> Lo compro por bulto: calcular el costo por unidad</button>
+            </div>
+        }
+        else
+        {
+            <div class="pp-bulto-calc">
+                @if (ultPrecio > 0 && ultUnidades > 0)
+                {
+                    <div class="pp-bulto-ult">
+                        <i class="bi bi-clock-history"></i>
+                        <span>Última vez: <b>$@ultPrecio.Value.ToString("#,##0.##", argCulture)</b> el bulto de <b>@ultUnidades u</b>
+                            @if (ultFecha is DateTime uf) { <span>· @uf.ToLocalTime().ToString("dd/MM/yyyy")</span> }
+                        </span>
+                        @if (VariacionBulto is decimal v && v != 0)
+                        {
+                            <span class="pp-bulto-var @(v > 0 ? "is-sube" : "is-baja")">
+                                <i class="bi @(v > 0 ? "bi-arrow-up-right" : "bi-arrow-down-right")"></i> @(v > 0 ? "Aumentó" : "Bajó") @Math.Abs(v).ToString("0.#", argCulture)%
+                            </span>
+                        }
+                        else if (VariacionBulto == 0)
+                        {
+                            <span class="pp-bulto-var">Mismo precio</span>
+                        }
+                    </div>
+                }
+                <div>
+                    <label class="cf-lbl">Precio del bulto</label>
+                    <div class="pp-addon">
+                        <span>$</span>
+                        <InputMonto class="gp-control" Placeholder="Ej: 8.334" @bind-Value="precioBulto" />
+                    </div>
+                </div>
+                <div>
+                    <label class="cf-lbl">Unidades que trae</label>
+                    <div class="pp-addon">
+                        <input type="number" min="1" inputmode="numeric" class="gp-control" onfocus="this.select()" placeholder="Ej: 100" @bind="unidadesBulto" @bind:event="oninput" />
+                        <span>unid.</span>
+                    </div>
+                </div>
+                @if (bultoDelProveedor)
+                {
+                    <div class="pp-bulto-ult"><i class="bi bi-truck"></i>
+                        <span>Cargado con lo del proveedor (viene por <b>@unidadesBulto u</b>, al costo actual). Tocá <b>Usar este costo</b> para dejarlo guardado en el producto.</span>
+                    </div>
+                }
+                <div class="pp-bulto-res">
+                    <span class="cf-lbl" style="margin:0">Costo por unidad</span>
+                    <strong>$@CostoUnidadBulto.ToString("#,##0.00", argCulture)</strong>
+                </div>
+                <div class="pp-bulto-acc">
+                    <button type="button" class="gp-btn gp-btn-primary gp-btn-sm" disabled="@(CostoUnidadBulto <= 0)" @onclick="UsarCostoBulto"><i class="bi bi-check-lg"></i> Usar este costo</button>
+                    @if (usado) { <span class="pp-bulto-ok"><i class="bi bi-check-circle-fill"></i> Costo puesto. Se guarda al tocar Guardar.</span> }
+                    <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm" @onclick="() => mostrarCalcBulto = false">Cerrar</button>
+                </div>
+            </div>
+        }
+    }
+
+    @* ================= LISTA 2 (opcional) ================= *@
+    @if (MostrarLista2 && !string.IsNullOrEmpty(NombreLista2Efectivo))
+    {
+        <div class="pp-sublist">
+            <div>
+                <label class="cf-lbl">Utilidad @NombreLista2Efectivo</label>
+                <div class="pp-addon">
+                    <input type="number" inputmode="decimal" class="gp-control" onfocus="this.select()"
+                           @bind="Producto.UtilidadLista2"
+                           @bind:event="oninput"
+                           @onchange="OnUtilidadLista2Changed" />
+                    <span>%</span>
+                </div>
+            </div>
+            <div>
+                <label class="cf-lbl">Precio @NombreLista2Efectivo @Producto.ObtenerTextoModoPesoVentaCorto()</label>
+                <div class="pp-addon">
+                    <span>$</span>
+                    <input type="text" inputmode="decimal" class="gp-control js-monto" onfocus="this.select()"
+                           value="@(Producto.ObtenerPrecioVentaMostrar("Lista2", State, argCulture))"
+                           @onchange="OnPrecioLista2Changed" />
+                </div>
+            </div>
+        </div>
+    }
+
+    @* ================= POR MAYOR (si la lista está tildada en Configuración → Listas de precios) ================= *@
+    @if (MostrarPorMayor && !string.IsNullOrEmpty(nombreMayor))
+    {
+        <div class="pp-sublist">
+            <div>
+                <label class="cf-lbl">Utilidad @nombreMayor</label>
+                <div class="pp-addon">
+                    <input type="number" inputmode="decimal" class="gp-control" onfocus="this.select()"
+                           @bind="Producto.UtilidadVentaxMayor"
+                           @bind:event="oninput"
+                           @onchange="OnUtilidadMayorChanged" />
+                    <span>%</span>
+                </div>
+            </div>
+            <div>
+                <label class="cf-lbl">@nombreMayor @Producto.ObtenerTextoModoPesoVentaCorto()</label>
+                <div class="pp-addon">
+                    <span>$</span>
+                    <input type="text" inputmode="decimal" class="gp-control js-monto" onfocus="this.select()"
+                           value="@(Producto.ObtenerPrecioVentaMostrar("XMayor", State, argCulture))"
+                           @onchange="OnPrecioMayorChanged" />
+                </div>
+            </div>
+            <div>
+                <label class="cf-lbl">Desde cantidad</label>
+                <div class="pp-addon">
+                    <span><i class="bi bi-boxes"></i></span>
+                    <input type="number" inputmode="numeric" class="gp-control" onfocus="this.select()" @bind="Producto.CantxMayor" />
+                </div>
+            </div>
+        </div>
+    }
+}
+
+<style>
+    .pp-sug { margin-top: .35rem; padding: .15rem .55rem; border: 1px dashed #a78bfa; border-radius: 999px; background: #f5f0ff; color: #6d28d9; font-size: .74rem; font-weight: 800; cursor: pointer; align-self: flex-start; }
+    .pp-sug:hover { background: #ede4ff; }
+    .pp-bulto-ult { grid-column: 1 / -1; flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .6rem;
+                    padding: .45rem .7rem; border-radius: 10px; background: #f3f5fa; font-size: .86rem; font-weight: 600; }
+    .pp-bulto-ult > i { color: var(--gp-primary); }
+    .pp-bulto-var { padding: .15rem .55rem; border-radius: 999px; background: #e9edf5; font-weight: 800; font-size: .8rem; white-space: nowrap; }
+    .pp-bulto-var.is-sube { background: #fde8e8; color: #b42318; }
+    .pp-bulto-var.is-baja { background: #e3f6ea; color: #137a3a; }
+    .pp-bulto-acc { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: .5rem .75rem;
+                    padding-top: .6rem; border-top: 1px dashed var(--gp-primary-line); }
+    .pp-bulto-ok { display: inline-flex; align-items: center; gap: .3rem; padding: .25rem .6rem; border-radius: 999px;
+                   background: #e3f6ea; color: #137a3a; font-weight: 700; font-size: .82rem; white-space: nowrap; }
+    @@media (max-width: 575.98px) { .pp-bulto-acc { justify-content: stretch; } .pp-bulto-acc .gp-btn { flex: 1 1 auto; } .pp-bulto-ok { white-space: normal; } }
+</style>
+
+@code {
+    // ---------- Datos ----------
+    [Parameter] public Producto? Producto { get; set; }
+
+    /// <summary>Se dispara cada vez que cambia algún precio/utilidad. La página padre se vuelve a renderizar sola.</summary>
+    [Parameter] public EventCallback OnCambio { get; set; }
+
+    /// <summary>Nombre de la Lista 2. Si no se pasa, el componente lo busca solo.</summary>
+    [Parameter] public string? NombreLista2 { get; set; }
+    /// <summary>Utilidad de la familia / subfamilia elegida (Configuración → Familias): si es distinta, se ofrece aplicarla.</summary>
+    [Parameter] public decimal? UtilidadSugerida { get; set; }
+    [Parameter] public string? GrupoSugerido { get; set; }
+    [Parameter] public bool MostrarLista2 { get; set; } = true;
+    [Parameter] public bool MostrarPorMayor { get; set; } = true;
+
+    // nombre de la lista por mayor que eligió el negocio ("" = no la usa)
+    private string nombreMayor = "";
+
+    // ---------- Internos ----------
+    private readonly CultureInfo argCulture = CultureInfo.GetCultureInfo("es-AR");
+    private string? nombreLista2Cargado;
+    private string NombreLista2Efectivo => NombreLista2 ?? nombreLista2Cargado ?? "";
+    private string TextoVenta => Producto.PrecioCada100g() ? "x 100 g" : Producto.IsMedidaKilos() ? "x 1 kg" : "final";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await PrecioServ.AsegurarReglasAsync(State.KioscoId);   // recargos de la Lista 2 del negocio
+        if (NombreLista2 == null && MostrarLista2)
+        {
+            nombreLista2Cargado = await PrecioServ.ObtenerNombreColumnaAsync(State.KioscoId, "precio_lista2");
+        }
+        // solo se muestran las listas tildadas en Configuración → Listas de precios
+        if (MostrarPorMayor)
+            nombreMayor = PrecioService.NombreLista(State.KioscoId, "precio_venta_por_mayor");
+    }
+
+    // ---------- Por mayor ----------
+    private async Task OnUtilidadMayorChanged(ChangeEventArgs e)
+    {
+        if (Producto == null || !TryParseNumero(e.Value, out decimal margen)) return;
+        Producto.UtilidadVentaxMayor = margen;
+        Producto.PrecioVentaxMayor = Producto.CalcularPrecioPorUtilidad(Producto.PrecioCosto, Producto.UtilidadVentaxMayor, State);
+        await OnCambio.InvokeAsync();
+    }
+
+    private async Task OnPrecioMayorChanged(ChangeEventArgs e)
+    {
+        if (Producto == null) return;
+        Producto.CalcularMargenDesdeVenta(e, "XMayor", argCulture);
+        await OnCambio.InvokeAsync();
+    }
+
+    // ---------- Costo desde el bulto ----------
+    private bool mostrarCalcBulto;
+    private decimal? precioBulto;
+    private int? unidadesBulto;
+
+    // lo último que se guardó en el producto (para comparar si el bulto aumentó)
+    private decimal? ultPrecio;
+    private int? ultUnidades;
+    private DateTime? ultFecha;
+    private Producto? cargadoDe;
+    private bool usado;   // tocó "Usar este costo"
+
+    /// <summary>% que cambió el precio del bulto contra lo último guardado (por unidad, por si cambió la cantidad).</summary>
+    private decimal? VariacionBulto
+    {
+        get
+        {
+            if ((ultPrecio ?? 0) <= 0 || (ultUnidades ?? 0) <= 0 || CostoUnidadBulto <= 0) return null;
+            decimal antes = ultPrecio!.Value / ultUnidades!.Value;
+            decimal ahora = precioBulto!.Value / unidadesBulto!.Value;
+            return Math.Round((ahora - antes) / antes * 100m, 1);
+        }
+    }
+
+    private bool bultoDelProveedor;   // no tenía bulto guardado: se completó con las unidades del proveedor (importación / Armar pedido)
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // al abrir el producto: la calculadora arranca con lo último que se cargó
+        if (Producto == null || ReferenceEquals(Producto, cargadoDe)) return;
+        cargadoDe = Producto;
+        ultPrecio = Producto.BultoPrecio;
+        ultUnidades = Producto.BultoUnidades;
+        ultFecha = Producto.BultoFecha;
+        precioBulto = ultPrecio;
+        unidadesBulto = ultUnidades;
+        bultoDelProveedor = false;
+        mostrarCalcBulto = (ultPrecio ?? 0) > 0 && (ultUnidades ?? 0) > 0;
+        if (!mostrarCalcBulto && Producto.Id > 0 && !Producto.EsVentaPorPeso())
+            await CompletarBultoDelProveedorAsync(Producto);
+    }
+
+    /// <summary>
+    /// Producto sin bulto guardado (por ej. importado antes de que se guardara): si algún proveedor lo trae
+    /// "x N u." (se confirmó al importar el Excel), la calculadora arranca con N unidades y bulto = costo × N.
+    /// </summary>
+    private async Task CompletarBultoDelProveedorAsync(Producto p)
+    {
+        try
+        {
+            long idP = p.Id;
+            var links = (await SupaBulto.From<ProductoProveedor>().Where(x => x.IdProducto == idP).Get()).Models ?? new();
+            var link = links.Where(x => x.UnidadesPorBulto > 1)
+                            .OrderByDescending(x => x.IdProveedor == (p.ProveedorId ?? 0))
+                            .ThenByDescending(x => x.EsPrincipal)
+                            .FirstOrDefault();
+            if (link == null || !ReferenceEquals(p, Producto)) return;
+            unidadesBulto = link.UnidadesPorBulto;
+            decimal costo = p.PrecioCosto ?? 0m;
+            precioBulto = costo > 0 ? Math.Round(costo * link.UnidadesPorBulto, 2) : null;
+            bultoDelProveedor = true;
+            mostrarCalcBulto = true;
+        }
+        catch { /* sin conexión o sin la tabla: queda vacía como antes */ }
+    }
+    private decimal CostoUnidadBulto => (precioBulto ?? 0) > 0 && (unidadesBulto ?? 0) > 0
+        ? Math.Round(precioBulto!.Value / unidadesBulto!.Value, 2) : 0m;
+
+    private async Task UsarCostoBulto()
+    {
+        if (Producto == null || CostoUnidadBulto <= 0) return;
+        Producto.PrecioCosto = CostoUnidadBulto;
+        // queda guardado en el producto al tocar Guardar (script 32)
+        Producto.BultoPrecio = precioBulto;
+        Producto.BultoUnidades = unidadesBulto;
+        Producto.BultoFecha = DateTime.UtcNow;
+        bultoDelProveedor = false;
+        usado = true;
+        RecalcularTodasLasListas();
+        await OnCambio.InvokeAsync();
+    }
+
+    // Los <input type="number"> siempre envían el valor con punto decimal (cultura invariante)
+    private static bool TryParseNumero(object? valor, out decimal resultado) =>
+        decimal.TryParse(valor?.ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out resultado);
+
+    private async Task OnCostoChanged(ChangeEventArgs e)
+    {
+        if (Producto == null) return;
+
+        if (decimal.TryParse(e.Value?.ToString(), NumberStyles.Currency, argCulture, out decimal costo))
+        {
+            Producto.PrecioCosto = costo;
+            RecalcularTodasLasListas();
+            await OnCambio.InvokeAsync();
+        }
+    }
+
+    private async Task OnUtilidadPVInput(ChangeEventArgs e)
+    {
+        if (Producto == null || !TryParseNumero(e.Value, out decimal margen)) return;
+        bool igual = MismoPrecioDiaNoche;   // ej: gomitas, mismo precio de día y de noche
+
+        Producto.UtilidadPV = margen;
+        Producto.PrecioVenta = Producto.CalcularPrecioPorUtilidad(Producto.PrecioCosto, Producto.UtilidadPV, State);
+        ProcesarLista2(igual);
+
+        await OnCambio.InvokeAsync();
+    }
+
+    /// <summary>Prende / apaga el redondeo para ESTE producto. Si se vuelve a prender, recalcula con el redondeo.</summary>
+    private async Task CambiarRedondeo(ChangeEventArgs e)
+    {
+        if (Producto == null) return;
+        bool igual = MismoPrecioDiaNoche;   // ej: gomitas, mismo precio de día y de noche
+        bool redondear = e.Value is bool b && b;
+        Producto.SinRedondeo = !redondear;
+        if (redondear && (Producto.PrecioCosto ?? 0) > 0 && Producto.UtilidadPV.HasValue)
+            Producto.PrecioVenta = Producto.CalcularPrecioPorUtilidad(Producto.PrecioCosto, Producto.UtilidadPV, State);
+        ProcesarLista2(igual);
+        await OnCambio.InvokeAsync();
+    }
+
+    private async Task OnPrecioVentaPrincipalChanged(ChangeEventArgs e)
+    {
+        if (Producto == null) return;
+        bool igual = MismoPrecioDiaNoche;   // ej: gomitas, mismo precio de día y de noche
+
+        Producto.CalcularMargenDesdeVenta(e, "Principal", argCulture);
+        ProcesarLista2(igual);
+
+        await OnCambio.InvokeAsync();
+    }
+
+    private async Task OnUtilidadLista2Changed(ChangeEventArgs e)
+    {
+        if (Producto == null) return;
+
+        if (TryParseNumero(e.Value, out decimal nuevaUtilidad))
+        {
+            PrecioService.CalcularPrecioLista2DesdeUtilidad(Producto, nuevaUtilidad, State);
+            await OnCambio.InvokeAsync();
+        }
+    }
+
+    private async Task OnPrecioLista2Changed(ChangeEventArgs e)
+    {
+        if (Producto == null) return;
+
+        Producto.CalcularMargenDesdeVenta(e, "Lista2", argCulture);
+        await OnCambio.InvokeAsync();
+    }
+
+    /// <summary>La Lista 2 está cargada IGUAL al precio de venta (a propósito: mismo precio de día y de noche).</summary>
+    private bool MismoPrecioDiaNoche => (Producto?.PrecioLista2 ?? 0) > 0 && Producto!.PrecioLista2 == Producto.PrecioVenta;
+
+    /// <summary>Recalcula la Lista 2 con la regla, salvo que estuviera igual al precio de venta: ahí la sigue igualando.</summary>
+    private void ProcesarLista2(bool igual)
+    {
+        if (Producto == null) return;
+        if (igual)
+        {
+            Producto.PrecioLista2 = Producto.PrecioVenta;
+            decimal c = Producto.PrecioCosto ?? 0;
+            Producto.UtilidadLista2 = c > 0 ? Math.Round(((Producto.PrecioLista2 ?? 0) - c) / c * 100m, 2) : 0m;
+            return;
+        }
+        PrecioService.ProcesarLista2Automatico(Producto, State.KioscoId, State);
+    }
+
+    /// <summary>Pone la utilidad (la del grupo) y recalcula el precio de venta y la Lista 2 como si se hubiera escrito a mano.</summary>
+    public void AplicarUtilidad(decimal util)
+    {
+        if (Producto == null) return;
+        bool igual = MismoPrecioDiaNoche;
+        Producto.UtilidadPV = util;
+        if ((Producto.PrecioCosto ?? 0) > 0)
+        {
+            Producto.PrecioVenta = Producto.CalcularPrecioPorUtilidad(Producto.PrecioCosto, util, State);
+            ProcesarLista2(igual);
+        }
+        StateHasChanged();
+    }
+
+    private async Task AplicarUtilidadAsync(decimal util)
+    {
+        AplicarUtilidad(util);
+        await OnCambio.InvokeAsync();
+    }
+
+    /// <summary>Al cambiar el costo se recalculan TODAS las listas (principal, 2, 3 y por mayor).</summary>
+    private void RecalcularTodasLasListas()
+    {
+        if (Producto == null) return;
+        bool igual = MismoPrecioDiaNoche;   // ej: gomitas, mismo precio de día y de noche
+
+        Producto.PrecioVenta = Producto.CalcularPrecioPorUtilidad(Producto.PrecioCosto, Producto.UtilidadPV, State);
+        ProcesarLista2(igual);
+        Producto.PrecioLista3 = Producto.CalcularPrecioPorUtilidad(Producto.PrecioCosto, Producto.UtilidadLista3, State);
+        Producto.PrecioVentaxMayor = Producto.CalcularPrecioPorUtilidad(Producto.PrecioCosto, Producto.UtilidadVentaxMayor, State);
+    }
+}

@@ -1,0 +1,1501 @@
+@using BlazorKioscoCompartido.Components
+@using BlazorKioscoCompartido.Models
+@using System.Globalization
+@inject PrecioService PrecioServ
+@inject Supabase.Client SupaClient
+@inject AppState State
+
+<AvisosPagina @ref="avisos" />
+
+<div class="gp-scope">
+
+@if (vista == VistaInicio)
+{
+    <!-- ===================== INICIO: ¿QUÉ SE RECIBE? ===================== -->
+    <section class="gp-card gp-card-pad mb-3">
+        <div class="gp-card-head">
+            <span class="gp-bubble"><i class="bi bi-box-arrow-in-down"></i></span>
+            <h2>¿Qué vas a recibir?</h2>
+        </div>
+
+        <div class="rm-start">
+            <button type="button" class="rm-card @(panel == "boleta" ? "is-active" : "")" @onclick="NuevaBoleta">
+                <span class="gp-bubble"><i class="bi bi-receipt"></i></span>
+                <strong>Cargar una boleta</strong>
+                <span>Papel o foto que mandó el proveedor</span>
+            </button>
+            <button type="button" class="rm-card @(panel == "pedidos" ? "is-active" : "")" @onclick='() => panel = "pedidos"'>
+                <span class="gp-bubble"><i class="bi bi-truck"></i></span>
+                <strong>Recibir un pedido</strong>
+                <span>@(pedidosPorRecibir.Count) esperando</span>
+            </button>
+            <button type="button" class="rm-card @(panel == "listas" ? "is-active" : "")" @onclick='() => panel = "listas"'>
+                <span class="gp-bubble"><i class="bi bi-calculator"></i></span>
+                <strong>Lista de la calculadora</strong>
+                <span>@(listasCerradas.Count) cerradas sin confirmar</span>
+            </button>
+        </div>
+    </section>
+
+    @if (cargandoOrigenes)
+    {
+        <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>Buscando pedidos y listas...</p></div>
+    }
+    else if (panel == "pedidos")
+    {
+        <section class="gp-card gp-card-pad">
+            <div class="gp-card-head" style="margin-bottom:.9rem">
+                <span class="gp-bubble gp-bubble-sm"><i class="bi bi-truck"></i></span>
+                <h2 style="font-size:1.1rem">Pedidos para recibir</h2>
+            </div>
+            @if (!pedidosPorRecibir.Any())
+            {
+                <div class="gp-empty">
+                    <span class="gp-bubble"><i class="bi bi-check2-all"></i></span>
+                    <strong>No hay pedidos esperando</strong>
+                    <span>Los pedidos que armás en "Gestión de pedidos" aparecen acá cuando están enviados.</span>
+                </div>
+            }
+            else
+            {
+                <div class="cm-compras">
+                    @foreach (var p in pedidosPorRecibir)
+                    {
+                        <button type="button" class="cm-compra" @onclick="() => AbrirPedidoAsync(p)">
+                            <b style="color:var(--gp-text)">@(string.IsNullOrWhiteSpace(p.NombreListado) ? "Pedido sin nombre" : p.NombreListado)</b>
+                            <span>@NombreProveedor(p.ProveedorId)</span>
+                            <span><i class="bi bi-calendar3"></i> @p.Fecha.ToLocalTime().ToString("dd/MM/yyyy")</span>
+                            <b>$@p.MontoEstimado.ToString("N2", cultura)</b>
+                            <span class="gp-pill @(p.Estado == "Pendiente" ? "is-pend" : "is-env")" style="align-self:flex-start">@p.Estado</span>
+                        </button>
+                    }
+                </div>
+            }
+        </section>
+    }
+    else if (panel == "listas")
+    {
+        <section class="gp-card gp-card-pad">
+            <div class="gp-card-head" style="margin-bottom:.9rem">
+                <span class="gp-bubble gp-bubble-sm"><i class="bi bi-calculator"></i></span>
+                <h2 style="font-size:1.1rem">Listas de la calculadora</h2>
+            </div>
+            @if (!listasCerradas.Any())
+            {
+                <div class="gp-empty">
+                    <span class="gp-bubble"><i class="bi bi-check2-all"></i></span>
+                    <strong>No hay listas para confirmar</strong>
+                    <span>Cuando cierres una lista en la calculadora, aparece acá.</span>
+                </div>
+            }
+            else
+            {
+                <div class="cm-compras">
+                    @foreach (var c in listasCerradas)
+                    {
+                        <button type="button" class="cm-compra" @onclick="() => AbrirListaAsync(c)">
+                            <span><i class="bi bi-calendar3"></i> @c.Fecha.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</span>
+                            <b>$@c.TotalCompra.ToString("N2", cultura)</b>
+                        </button>
+                    }
+                </div>
+            }
+        </section>
+    }
+}
+else
+{
+    <!-- ===================== EDITOR ===================== -->
+    <div class="gp-banner @(origen == CompraOrigen.Boleta ? "is-neutral" : "")">
+        <i class="bi @(origen == CompraOrigen.Pedido ? "bi-truck" : origen == CompraOrigen.Calculadora ? "bi-calculator" : origen == CompraOrigen.Excel ? "bi-file-earmark-excel" : "bi-receipt")"></i>
+        <p>@TextoOrigen</p>
+        <button type="button" class="gp-btn gp-btn-outline gp-btn-sm" @onclick="VolverAlInicioAsync"><i class="bi bi-arrow-left"></i> Cambiar</button>
+    </div>
+
+    <!-- DATOS DE LA BOLETA -->
+    <section class="gp-card gp-card-pad mb-3">
+        <div class="gp-card-head">
+            <span class="gp-bubble"><i class="bi bi-receipt"></i></span>
+            <h2>Datos de la boleta</h2>
+        </div>
+
+        <div class="ing-grid">
+            <div class="gp-field">
+                <label class="gp-field-label" for="rmProv"><i class="bi bi-truck"></i> Proveedor</label>
+                <select id="rmProv" class="gp-control" value="@proveedorId" @onchange="OnProveedorChanged">
+                    <option value="0">-- Sin proveedor / compra varia --</option>
+                    @foreach (var prov in listaProveedores.Where(p => !EsSinProveedor(p) && (p.EstaActivo() || p.Id == proveedorId)))
+                    {
+                        <option value="@prov.Id">@prov.Nombre</option>
+                    }
+                </select>
+            </div>
+            <div class="gp-field">
+                <label class="gp-field-label" for="rmNro"><i class="bi bi-hash"></i> N° remito / factura</label>
+                <input id="rmNro" type="text" class="gp-control" placeholder="Ej: 0001-000452" maxlength="40" @bind="numeroComprobante" />
+            </div>
+            <div class="gp-field">
+                <label class="gp-field-label" for="rmFecha"><i class="bi bi-calendar-event"></i> Fecha de la boleta</label>
+                <input id="rmFecha" type="date" class="gp-control" @bind="fechaCompra" />
+            </div>
+            <div class="gp-field">
+                <label class="gp-field-label" for="rmTotal"><i class="bi bi-cash-coin"></i> Total de la boleta <small>(opcional)</small></label>
+                <div class="ing-money">
+                    <span>$</span>
+                    <InputMonto id="rmTotal" class="gp-control" Placeholder="Para controlar lo cargado" @bind-Value="totalBoleta" />
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- PRODUCTOS -->
+    <section class="gp-card gp-card-pad">
+        <div class="gp-card-head" style="margin-bottom:.9rem">
+            <span class="gp-bubble"><i class="bi bi-boxes"></i></span>
+            <h2>Productos recibidos</h2>
+        </div>
+
+        <div class="ing-search-row">
+            <div class="gp-buscador" style="flex:1 1 280px; min-width:0">
+                <BuscadorProducto CargarAlInicio="false"
+                                  MostrarPrimeraLista="false"
+                                  MostrarSegundaLista="false"
+                                  OnProductoEncontrado="AgregarProducto" />
+            </div>
+            <button type="button" class="gp-btn gp-btn-ok-soft" style="height:3rem" @onclick="AbrirModalNuevoProducto">
+                <i class="bi bi-plus-lg"></i> Producto nuevo
+            </button>
+        </div>
+
+        @if (proveedorId > 0)
+        {
+            <div class="rm-codprov">
+                <label for="rmCodProv"><i class="bi bi-upc-scan"></i> Código del proveedor</label>
+                <input id="rmCodProv" type="text" class="gp-control" autocomplete="off" placeholder="El código que trae la boleta, y Enter"
+                       @bind="codigoProvInput" @bind:event="oninput" @onkeyup="OnCodigoProvKeyUp" />
+                <button type="button" class="gp-btn gp-btn-outline gp-btn-sm" @onclick="BuscarPorCodigoProveedorAsync"><i class="bi bi-search"></i></button>
+            </div>
+            @if (!string.IsNullOrEmpty(codigoProvPendiente))
+            {
+                <div class="gp-banner" style="margin:.6rem 0 0">
+                    <i class="bi bi-link-45deg"></i>
+                    <p>El código <b>@codigoProvPendiente</b> no está asociado a ningún producto de este proveedor. Elegí el producto arriba y se lo guardamos al confirmar.</p>
+                    <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm gp-btn-icon" aria-label="Descartar" @onclick="() => codigoProvPendiente = null"><i class="bi bi-x-lg"></i></button>
+                </div>
+            }
+        }
+
+        <div class="gp-filtros" style="margin:.9rem 0">
+            <label class="gp-switch">
+                <input type="checkbox" @bind="mostrarPrecios" />
+                <span class="gp-switch-track"></span>
+                <span class="gp-switch-text">Mostrar utilidad y precios de venta</span>
+            </label>
+            <div class="gp-hint">
+                <i class="bi bi-lightbulb-fill"></i>
+                <span>Tip: escaneá, escribí la cantidad, <b>Tab</b> y el costo. Cargá en el mismo orden que el papel.</span>
+            </div>
+        </div>
+
+        <div class="gp-table-wrap gp-stack-wrap">
+            <table class="gp-table gp-stack">
+                <thead>
+                    <tr>
+                        <th>Código</th>
+                        <th>Producto</th>
+                        <th class="t-center">Cantidad</th>
+                        <th class="t-center">Costo ($)</th>
+                        @if (mostrarPrecios)
+                        {
+                            <th class="t-center">Utilidad %</th>
+                            <th class="t-center">Precio venta ($)</th>
+                            @if (nombreLista2 != "")
+                            {
+                                <th class="t-center">Util. @nombreLista2 %</th>
+                                <th class="t-center">@nombreLista2 ($)</th>
+                            }
+                        }
+                        <th class="t-right">Subtotal costo</th>
+                        <th class="t-center"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (!items.Any())
+                    {
+                        <tr class="gp-empty-row">
+                            <td colspan="10">
+                                <div class="gp-empty">
+                                    <span class="gp-bubble"><i class="bi bi-cart-x"></i></span>
+                                    <strong>Todavía no hay productos</strong>
+                                    <span>Escaneá un código o buscalo arriba. Si no existe, usá "Producto nuevo".</span>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var item in items)
+                        {
+                            var esGramos = item.Producto.IsMedidaGramos();
+                            decimal difCosto = item.CostoAnterior > 0 && item.CostoPV > 0 ? (item.CostoPV - item.CostoAnterior) / item.CostoAnterior * 100m : 0m;
+                            <tr class="@(item.Impactado ? "is-off" : "")">
+                                <td class="gp-td-code" data-label="Código">@(string.IsNullOrEmpty(item.Producto.CodigoBarras) ? "S/D" : item.Producto.CodigoBarras)</td>
+
+                                <td class="gp-td-main" data-label="Producto">
+                                    <div class="gp-product">@item.Producto.Nombre</div>
+                                    @if (item.Impactado)
+                                    {
+                                        <span class="gp-pill is-env" style="margin-top:.25rem">Guardado</span>
+                                    }
+                                    @if (proveedorId > 0)
+                                    {
+                                        <input type="text" class="rm-codinput" placeholder="Cód. proveedor" maxlength="60" disabled="@item.Impactado"
+                                               @bind="item.CodigoProveedor" onfocus="this.select()" />
+                                    }
+                                </td>
+
+                                <td class="t-center" data-label="Cantidad">
+                                    <div class="ing-cell">
+                                        @if (item.CantidadPedida.HasValue)
+                                        {
+                                            <span class="ing-ant" style="background:var(--gp-primary-soft); border-color:var(--gp-primary-line); color:var(--gp-primary)">Pedido: @(item.PorBulto && item.UnidadesPorBulto > 1 && item.CantidadPedida % item.UnidadesPorBulto == 0 ? $"{item.CantidadPedida / item.UnidadesPorBulto} bto." : item.CantidadPedida.ToString())</span>
+                                        }
+                                        <span class="gp-muted" style="font-size:.72rem">Stock: @item.StockAnterior → @(item.StockAnterior + item.Cantidad)</span>
+                                        @if (!esGramos && !item.Impactado)
+                                        {
+                                            <div class="rm-modo" role="group" aria-label="Cargar por unidad o por bulto">
+                                                <button type="button" class="@(item.PorBulto ? "" : "is-active")" @onclick="() => CambiarModo(item, false)">Unid.</button>
+                                                <button type="button" class="@(item.PorBulto ? "is-active" : "")" @onclick="() => CambiarModo(item, true)">Bulto</button>
+                                            </div>
+                                        }
+                                        <input type="number" min="1" class="ing-input" style="width:5.2rem" @ref="refCantidadUltima" disabled="@item.Impactado"
+                                               value="@(item.PorBulto ? item.Bultos : item.Cantidad)" @onchange="@(e => ActualizarCantidad(item, e))" onfocus="this.select()" />
+                                        @if (item.PorBulto)
+                                        {
+                                            <span class="rm-bulto">
+                                                x <input type="number" min="1" class="rm-bulto-n" disabled="@item.Impactado" title="Unidades que trae cada bulto"
+                                                         value="@item.UnidadesPorBulto" @onchange="@(e => CambiarUnidadesBulto(item, e))" onfocus="this.select()" /> u.
+                                                = <b>@item.Cantidad u.</b>
+                                            </span>
+                                        }
+                                        @if (esGramos) { <small class="gp-muted" style="font-size:.7rem">(x Gr)</small> }
+                                    </div>
+                                </td>
+
+                                <td class="t-center" data-label="Costo ($)">
+                                    <div class="ing-cell">
+                                        <span class="ing-ant">@(item.PorBulto ? "Ant. bulto" : "Ant"): $@((item.PorBulto ? item.CostoAnterior * item.UnidadesPorBulto : item.CostoAnterior).ToString("N2", cultura))</span>
+                                        <input type="text" inputmode="decimal" class="ing-input cost js-monto" disabled="@item.Impactado"
+                                               value="@CostoMostrar(item)" @onchange="@(e => ActualizarCosto(item, e))" onfocus="this.select()" />
+                                        @if (esGramos) { <small class="gp-muted" style="font-size:.7rem">(x Kg)</small> }
+                                        @if (item.PorBulto)
+                                        {
+                                            <small class="rm-bulto">x bulto · <b>$@item.CostoPV.ToString("N2", cultura) c/u</b></small>
+                                        }
+                                        @if (item.EsEstimado && !item.CostoEditado)
+                                        {
+                                            <span class="ing-delta" style="background:var(--gp-warn-soft); color:var(--gp-warn)">Costo estimado</span>
+                                        }
+                                        else if (Math.Abs(difCosto) >= 0.05m)
+                                        {
+                                            <span class="ing-delta @(difCosto > 0 ? "up" : "down")">@(difCosto > 0 ? "▲ +" : "▼ ")@difCosto.ToString("0.#", cultura)%</span>
+                                        }
+                                    </div>
+                                </td>
+
+                                @if (mostrarPrecios)
+                                {
+                                    <td class="t-center" data-label="Utilidad %">
+                                        <div class="ing-cell">
+                                            <span class="ing-ant">Ant: @item.UtilidadAnterior.ToString("N0")%</span>
+                                            <input type="number" class="ing-input" disabled="@item.Impactado" @bind="item.UtilidadPV" @bind:after="() => RecalcularPrecios(item)" onfocus="this.select()" />
+                                        </div>
+                                    </td>
+
+                                    <td class="t-center" data-label="Precio venta ($)">
+                                        <div class="ing-cell">
+                                            <span class="ing-ant">Ant: $@item.PrecioVentaAntes</span>
+                                            <input type="text" inputmode="decimal" class="ing-input sale js-monto" disabled="@item.Impactado"
+                                                   value="@Plata.Texto(ObtenerPrecioCalculadoMostrar(item.Producto, item.PrecioVentaCalculado))"
+                                                   @onchange="@(e => ActualizarPrecioVenta(item, e))" onfocus="this.select()" />
+                                            @if (esGramos) { <small class="gp-muted" style="font-size:.7rem">@item.Producto.ObtenerTextoModoPesoVentaCorto()</small> }
+                                        </div>
+                                    </td>
+
+                                    @if (nombreLista2 != "")
+                                    {
+                                        <td class="t-center" data-label="@("Util. " + nombreLista2 + " %")">
+                                            <div class="ing-cell">
+                                                <span class="ing-ant">Ant: @item.UtilidadL2Anterior.ToString("N0")%</span>
+                                                <input type="number" class="ing-input" disabled="@item.Impactado" @bind="item.UtilidadLista2" @bind:after="() => RecalcularPrecios(item)" onfocus="this.select()" />
+                                            </div>
+                                        </td>
+
+                                        <td class="t-center" data-label="@nombreLista2">
+                                            <div class="ing-cell">
+                                                <span class="ing-ant">Ant: $@item.PrecioL2Antes</span>
+                                                <input type="text" inputmode="decimal" class="ing-input sale js-monto" disabled="@item.Impactado"
+                                                       value="@Plata.Texto(ObtenerPrecioCalculadoMostrar(item.Producto, item.PrecioVentaLista2Calculado))"
+                                                       @onchange="@(e => ActualizarPrecioLista2(item, e))" onfocus="this.select()" />
+                                                @if (esGramos) { <small class="gp-muted" style="font-size:.7rem">@item.Producto.ObtenerTextoModoPesoVentaCorto()</small> }
+                                            </div>
+                                        </td>
+                                    }
+                                }
+
+                                <td class="t-right gp-money" data-label="Subtotal costo">$@item.SubtotalCosto.ToString("N2", cultura)</td>
+
+                                <td class="gp-td-check t-center" data-label="">
+                                    @if (!item.Impactado)
+                                    {
+                                        <button type="button" class="gp-btn gp-btn-danger-soft gp-btn-sm gp-btn-icon" title="Quitar (no llegó / no va)" aria-label="Quitar" @onclick="() => EliminarItem(item)">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- BARRA INFERIOR -->
+    @if (items.Any())
+    {
+        <div class="ing-bar-wrap">
+            <div class="gp-selbar ing-bar">
+                <div class="ing-bar-info">
+                    <div>
+                        <span class="ing-bar-label">Total de la compra</span>
+                        <span class="ing-bar-total">$@TotalCompra.ToString("N2", cultura)</span>
+                    </div>
+                    <div class="ing-bar-meta">
+                        <span>@items.Count ítems · @items.Sum(i => i.Cantidad) unidades</span>
+                        @if (estimadoOrigen > 0)
+                        {
+                            <span>Estimado: $@estimadoOrigen.ToString("N2", cultura)</span>
+                        }
+                        @if (HayTotalBoleta)
+                        {
+                            @if (Math.Abs(Diferencia) < 1m)
+                            {
+                                <span class="ing-chk ok"><i class="bi bi-check-circle-fill"></i> Coincide con la boleta</span>
+                            }
+                            else
+                            {
+                                <span class="ing-chk bad"><i class="bi bi-exclamation-triangle-fill"></i> Difiere $@Math.Abs(Diferencia).ToString("N2", cultura) de la boleta (@(Diferencia > 0 ? "cargaste de más" : "falta cargar"))</span>
+                            }
+                        }
+                    </div>
+                </div>
+                <div class="gp-btn-group">
+                    <button type="button" class="gp-btn gp-btn-ok" style="height:3rem" @onclick="ConfirmarAsync" disabled="@guardando">
+                        @if (guardando)
+                        {
+                            <span class="gp-spinner" style="width:1rem;height:1rem;border-width:2px;border-color:rgba(255,255,255,.4);border-top-color:#fff"></span> <span>Procesando...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-check-circle-fill"></i> <span>Confirmar ingreso</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+}
+</div>
+
+<!-- VENTANA: ALTA RÁPIDA DE PRODUCTO -->
+@if (mostrarModalNuevoProducto)
+{
+    <div class="gp-scope gp-modal-backdrop" @onclick="CerrarModalNuevoProducto">
+        <div class="gp-modal" role="dialog" aria-modal="true" aria-labelledby="rmAltaTitulo" style="max-width: 30rem;"
+             @onclick:stopPropagation="true" @onkeydown="OnAltaKey">
+            <div class="gp-modal-head">
+                <span class="gp-bubble gp-bubble-sm"><i class="bi bi-box-seam"></i></span>
+                <div>
+                    <h3 id="rmAltaTitulo">Alta rápida de producto</h3>
+                    <p>Se crea el producto y se suma a esta compra.</p>
+                </div>
+                <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm gp-btn-icon gp-modal-x" aria-label="Cerrar" @onclick="CerrarModalNuevoProducto"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="gp-modal-body">
+                <div class="gp-field" style="margin-bottom:.8rem">
+                    <label class="gp-field-label" for="altaCodigo"><i class="bi bi-upc-scan"></i> Código de barras</label>
+                    <input id="altaCodigo" type="text" class="gp-control" @bind="nuevoProducto.CodigoBarras" placeholder="Escaneá o ingresá el código" />
+                </div>
+                <div class="gp-field" style="margin-bottom:.8rem">
+                    <label class="gp-field-label" for="altaNombre"><i class="bi bi-pencil-square"></i> Nombre del producto *</label>
+                    <input id="altaNombre" type="text" class="gp-control" @bind="nuevoProducto.Nombre" placeholder="Ej: Galletitas Donas 100g" />
+                </div>
+                <div class="ing-alta-grid">
+                    <div class="gp-field">
+                        <label class="gp-field-label" for="altaCosto"><i class="bi bi-currency-dollar"></i> Precio costo</label>
+                        <InputMonto id="altaCosto" class="gp-control" Inmediato="false" @bind-Value="nuevoProducto.PrecioCosto" />
+                    </div>
+                    <div class="gp-field">
+                        <label class="gp-field-label" for="altaUtil"><i class="bi bi-percent"></i> Utilidad (%)</label>
+                        <input id="altaUtil" type="number" step="any" class="gp-control" @bind="nuevoProducto.UtilidadPV" onfocus="this.select()" />
+                    </div>
+                </div>
+            </div>
+            <div class="gp-modal-foot">
+                <button type="button" class="gp-btn gp-btn-ghost" @onclick="CerrarModalNuevoProducto">Cancelar</button>
+                <button type="button" class="gp-btn gp-btn-ok" disabled="@guardandoNuevo" @onclick="GuardarNuevoProductoYSumarALista">
+                    <i class="bi bi-check2-circle"></i> Guardar y sumar a la compra
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .rm-start { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .8rem; }
+    .rm-card { display: flex; flex-direction: column; align-items: flex-start; gap: .35rem; padding: 1rem; text-align: left; background: #fff; border: 1px solid var(--gp-line); border-radius: 16px; font: inherit; color: var(--gp-text); cursor: pointer; transition: border-color .15s, box-shadow .15s, background .15s; }
+    .rm-card:hover { border-color: var(--gp-primary-line); box-shadow: 0 6px 18px rgba(22,33,72,.1); }
+    .rm-card.is-active { background: var(--gp-primary-soft); border-color: var(--gp-primary); }
+    .rm-card strong { font-size: 1.05rem; font-weight: 900; }
+    .rm-card span:last-child { color: var(--gp-muted); font-size: .85rem; font-weight: 600; }
+    .rm-codprov { display: flex; align-items: center; gap: .6rem; margin-top: .8rem; }
+    .rm-codprov label { flex: none; margin: 0; font-weight: 800; font-size: .88rem; white-space: nowrap; }
+    .rm-codprov label i { color: var(--gp-primary); }
+    .rm-codprov .gp-control { height: 2.6rem; max-width: 26rem; }
+    .rm-codinput { display: block; width: 100%; max-width: 11rem; margin-top: .35rem; height: 1.9rem; padding: .1rem .5rem; border: 1px dashed var(--gp-line); border-radius: 8px; background: #fff; color: var(--gp-muted); font: inherit; font-size: .78rem; font-weight: 700; }
+    .rm-modo { display: inline-flex; gap: 2px; padding: 2px; background: #eef1f8; border-radius: 8px; }
+    .rm-modo button { padding: .15rem .55rem; border: 0; border-radius: 6px; background: transparent; color: var(--gp-muted); font: inherit; font-size: .72rem; font-weight: 800; cursor: pointer; }
+    .rm-modo button.is-active { background: #fff; color: var(--gp-primary); box-shadow: 0 1px 2px rgba(22,33,72,.16); }
+    .rm-bulto { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .25rem; color: var(--gp-muted); font-size: .72rem; font-weight: 700; }
+    .rm-bulto b { color: var(--gp-primary); }
+    .rm-bulto-n { width: 3.4rem; height: 1.75rem; padding: 0 .2rem; border: 1px solid var(--gp-line); border-radius: 6px; background: #fff; color: var(--gp-text); font: inherit; font-weight: 800; text-align: center; }
+    .rm-bulto-n:focus { outline: 0; border-color: var(--gp-primary); box-shadow: 0 0 0 3px var(--gp-primary-soft); }
+    .rm-codinput:focus { outline: 0; border-style: solid; border-color: var(--gp-primary); color: var(--gp-text); }
+
+    .ing-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1rem; }
+    .ing-alta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; }
+    .ing-search-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: .75rem; }
+    .ing-money { position: relative; }
+    .ing-money > span { position: absolute; left: .85rem; top: 50%; transform: translateY(-50%); color: var(--gp-muted); font-weight: 800; }
+    .ing-money .gp-control { padding-left: 1.7rem; font-weight: 800; }
+    .ing-cell { display: flex; flex-direction: column; align-items: center; gap: .3rem; }
+    .ing-ant { padding: .05rem .5rem; border: 1px solid var(--gp-danger-line); border-radius: 999px; background: var(--gp-danger-soft); color: var(--gp-danger); font-size: .7rem; font-weight: 800; white-space: nowrap; }
+    .ing-input { width: 6.5rem; height: 2.3rem; padding: .2rem .4rem; border: 1px solid var(--gp-line); border-radius: 9px; background: #fff; color: var(--gp-text); font: inherit; font-weight: 800; text-align: center; }
+    .ing-input:focus { outline: 0; border-color: var(--gp-primary); box-shadow: 0 0 0 3px var(--gp-primary-soft); }
+    .ing-input:disabled { background: #f3f5fa; color: #9aa3bd; }
+    .ing-input.cost { color: var(--gp-primary); }
+    .ing-input.sale { color: var(--gp-ok); }
+    .ing-delta { padding: .05rem .5rem; border-radius: 999px; font-size: .7rem; font-weight: 800; }
+    .ing-delta.up { background: var(--gp-danger-soft); color: var(--gp-danger); }
+    .ing-delta.down { background: var(--gp-ok-soft); color: var(--gp-ok); }
+    .ing-bar-wrap { position: sticky; bottom: 0; z-index: 30; padding: .75rem 0 .75rem; }
+    .ing-bar { position: static; margin-top: 0; }
+    .ing-bar-info { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1.5rem; }
+    .ing-bar-label { display: block; font-size: .7rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: rgba(255,255,255,.7); }
+    .ing-bar-total { display: block; font-size: 1.55rem; font-weight: 900; line-height: 1.1; }
+    .ing-bar-meta { display: flex; flex-direction: column; align-items: flex-start; gap: .3rem; font-size: .85rem; font-weight: 700; color: rgba(255,255,255,.85); }
+    .ing-chk { display: inline-flex; align-items: center; gap: .4rem; padding: .2rem .7rem; border-radius: 999px; font-size: .78rem; font-weight: 800; }
+    .ing-chk.ok { background: var(--gp-ok-soft); color: var(--gp-ok); }
+    .ing-chk.bad { background: var(--gp-danger-soft); color: var(--gp-danger); }
+
+    @@media (max-width: 767.98px) {
+        .gp-stack td.gp-td-main { padding-right: 2.8rem; }
+        .ing-bar .gp-btn-group { width: 100%; }
+        .ing-bar .gp-btn-group .gp-btn-ok { flex: 1 1 auto; }
+        .ing-search-row .gp-btn { width: 100%; }
+        .rm-codprov { flex-wrap: wrap; }
+        .rm-codprov .gp-control { max-width: none; flex: 1 1 10rem; }
+    }
+    @@media (max-width: 420px) {
+        .ing-alta-grid { grid-template-columns: 1fr; }
+    }
+</style>
+
+@code {
+    private const string VistaInicio = "inicio";
+    private const string VistaEditor = "editor";
+
+    /// <summary>Abre directo el editor con este pedido (botón "Recibir" del Gestor de pedidos).</summary>
+    [Parameter] public long? PedidoIdInicial { get; set; }
+    /// <summary>Abre directo el editor con esta lista cerrada de la calculadora.</summary>
+    [Parameter] public long? CompraIdInicial { get; set; }
+    /// <summary>Se confirmó una compra (la página principal refresca contadores).</summary>
+    [Parameter] public EventCallback OnConfirmada { get; set; }
+
+    private AvisosPagina avisos = default!;
+    private readonly CultureInfo cultura = CultureInfo.GetCultureInfo("es-AR");
+
+    // Navegación interna
+    private string vista = VistaInicio;
+    private string panel = "";
+    private bool cargandoOrigenes = true;
+
+    // Orígenes disponibles
+    private List<ListaPedido> pedidosPorRecibir = new();
+    private List<CompraMayorista> listasCerradas = new();
+    private List<Proveedor> listaProveedores = new();
+
+    // Compra en edición
+    private string origen = CompraOrigen.Boleta;
+    private CompraMayorista? compra;             // cabecera ya guardada (lista de calculadora, o una que se empezó a guardar)
+    private ListaPedido? pedidoOrigen;
+    private decimal estimadoOrigen;
+    private List<ItemRecepcion> items = new();
+    private List<long> detallesQuitados = new();
+
+    private long proveedorId = 0;
+    private string numeroComprobante = "";
+    private DateTime fechaCompra = DateTime.Today;
+    private decimal? totalBoleta;
+    private bool mostrarPrecios = true;
+    private bool guardando = false;
+    private string nombreLista2 = "";
+
+    // Relaciones producto <-> proveedor elegido
+    private Dictionary<long, string?> relacionesProveedor = new();
+    private Dictionary<long, int> bultosProveedor = new();     // producto → unidades que trae el bulto de este proveedor
+    private string codigoProvInput = "";
+    private string? codigoProvPendiente;
+
+    // Alta rápida
+    private bool mostrarModalNuevoProducto = false;
+    private bool guardandoNuevo = false;
+    private Producto nuevoProducto = new();
+
+    // Foco al agregar
+    private ElementReference refCantidadUltima;
+    private bool enfocarUltimo;
+
+    private decimal TotalCompra => items.Sum(i => i.SubtotalCosto);
+    private bool HayTotalBoleta => totalBoleta.HasValue && totalBoleta.Value > 0;
+    private decimal Diferencia => TotalCompra - (totalBoleta ?? 0m);
+
+    private string TextoOrigen => origen switch
+    {
+        CompraOrigen.Pedido => $"Recibiendo el pedido \"{(string.IsNullOrWhiteSpace(pedidoOrigen?.NombreListado) ? "sin nombre" : pedidoOrigen!.NombreListado)}\". Corregí cantidades y costos con lo que dice la boleta; podés agregar o quitar productos.",
+        CompraOrigen.Calculadora => "Lista de la calculadora (costos estimados). Completá los datos de la boleta si la tenés y revisá los costos.",
+        CompraOrigen.Excel => "Factura importada desde Excel. Revisá cantidades y costos; al confirmar se suma el stock y se actualizan los precios.",
+        _ => "Boleta nueva. Cargá los productos como figuran en el papel."
+    };
+
+    // ======================= INICIO =======================
+
+    protected override async Task OnInitializedAsync()
+    {
+        await PrecioServ.AsegurarReglasAsync(State.KioscoId);   // recargos de la Lista 2 del negocio
+        try { nombreLista2 = await PrecioServ.ObtenerNombreColumnaAsync(State.KioscoId, "precio_lista2"); }
+        catch { nombreLista2 = ""; }
+
+        await CargarOrigenesAsync();
+
+        if (PedidoIdInicial.HasValue)
+        {
+            var p = pedidosPorRecibir.FirstOrDefault(x => x.Id == PedidoIdInicial.Value);
+            if (p != null) await AbrirPedidoAsync(p);
+        }
+        else if (CompraIdInicial.HasValue)
+        {
+            var c = listasCerradas.FirstOrDefault(x => x.Id == CompraIdInicial.Value);
+            if (c != null) await AbrirListaAsync(c);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (enfocarUltimo)
+        {
+            enfocarUltimo = false;
+            try { await refCantidadUltima.FocusAsync(); } catch { /* sin foco no pasa nada */ }
+        }
+    }
+
+    private async Task CargarOrigenesAsync()
+    {
+        try
+        {
+            cargandoOrigenes = true;
+            long kiosco = State.KioscoId;
+
+            var resProv = await SupaClient.From<Proveedor>().Where(p => p.KioscoId == kiosco).Get();
+            listaProveedores = resProv.Models ?? new List<Proveedor>();
+
+            var resPed = await SupaClient.From<ListaPedido>()
+                .Where(p => p.KioscoId == kiosco)
+                .Filter(p => p.Estado, Supabase.Postgrest.Constants.Operator.In, new List<object> { "Enviado", "Pendiente" })
+                .Order("fecha", Supabase.Postgrest.Constants.Ordering.Descending)
+                .Limit(60)
+                .Get();
+            pedidosPorRecibir = (resPed.Models ?? new List<ListaPedido>())
+                .OrderByDescending(p => p.Estado == "Enviado")
+                .ThenByDescending(p => p.Fecha)
+                .ToList();
+
+            var resListas = await SupaClient.From<CompraMayorista>()
+                .Where(c => c.KioscoId == kiosco)
+                .Where(c => c.Estado == CompraEstado.Cerrada)
+                .Order("fecha", Supabase.Postgrest.Constants.Ordering.Descending)
+                .Limit(60)
+                .Get();
+            listasCerradas = resListas.Models ?? new List<CompraMayorista>();
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudieron cargar los pedidos y listas", ex.Message, "peligro");
+        }
+        finally
+        {
+            cargandoOrigenes = false;
+        }
+    }
+
+    private string NombreProveedor(long id) => listaProveedores.FirstOrDefault(p => p.Id == id)?.Nombre ?? "Proveedor N/D";
+
+    private static bool EsSinProveedor(Proveedor p) =>
+        string.Equals(p.Nombre?.Trim(), "SIN PROVEEDOR", StringComparison.OrdinalIgnoreCase);
+
+    private void Reiniciar()
+    {
+        compra = null;
+        pedidoOrigen = null;
+        estimadoOrigen = 0;
+        items = new();
+        detallesQuitados = new();
+        proveedorId = 0;
+        numeroComprobante = "";
+        fechaCompra = DateTime.Today;
+        totalBoleta = null;
+        relacionesProveedor = new();
+        codigoProvInput = "";
+        codigoProvPendiente = null;
+        origen = CompraOrigen.Boleta;
+    }
+
+    private void NuevaBoleta()
+    {
+        Reiniciar();
+        origen = CompraOrigen.Boleta;
+        panel = "boleta";
+        vista = VistaEditor;
+    }
+
+    private async Task VolverAlInicioAsync()
+    {
+        if (items.Any(i => !i.Impactado) && origen == CompraOrigen.Boleta)
+        {
+            if (!await avisos.ConfirmarAsync("¿Descartar lo cargado?", "La boleta todavía no se guardó: si volvés, se pierde lo que cargaste.", "Descartar")) return;
+        }
+
+        Reiniciar();
+        vista = VistaInicio;
+        panel = "";
+        await CargarOrigenesAsync();
+    }
+
+    // ======================= ABRIR UN PEDIDO / UNA LISTA =======================
+
+    private async Task<List<Producto>> CargarProductosPorIdsAsync(List<long> ids)
+    {
+        var lista = new List<Producto>();
+        foreach (var tanda in ids.Chunk(100))
+        {
+            var criterio = tanda.Cast<object>().ToList();
+            var res = await SupaClient.From<Producto>()
+                .Where(p => p.KioscoId == State.KioscoId)
+                .Filter(p => p.Id, Supabase.Postgrest.Constants.Operator.In, criterio)
+                .Get();
+            lista.AddRange(res.Models);
+        }
+        return lista;
+    }
+
+    private async Task AbrirPedidoAsync(ListaPedido pedido)
+    {
+        try
+        {
+            var idPedido = pedido.Id;
+            var res = await SupaClient.From<ListaPedidoDetalle>().Where(d => d.PedidoId == idPedido).Get();
+            var detalles = res.Models ?? new List<ListaPedidoDetalle>();
+
+            var ids = detalles.Select(d => (long?)d.ProductoId).Where(x => x.HasValue && x.Value > 0).Select(x => x!.Value).Distinct().ToList();
+            var productos = await CargarProductosPorIdsAsync(ids);
+
+            Reiniciar();
+            origen = CompraOrigen.Pedido;
+            pedidoOrigen = pedido;
+            estimadoOrigen = pedido.MontoEstimado;
+
+            var provPedido = listaProveedores.FirstOrDefault(p => p.Id == pedido.ProveedorId);
+            proveedorId = (provPedido != null && !EsSinProveedor(provPedido)) ? pedido.ProveedorId : 0;
+            if (proveedorId > 0) await CargarRelacionesProveedorAsync();
+
+            int omitidos = 0;
+            foreach (var d in detalles)
+            {
+                var prod = productos.FirstOrDefault(p => p.Id == d.ProductoId);
+                if (prod == null) { omitidos++; continue; }
+
+                int cant = (int)Math.Round(d.CantidadComprar, MidpointRounding.AwayFromZero);
+                if (cant < 1) cant = 1;
+
+                // si se pidió por bulto: cantidad en bultos y costo del bulto → se pasan a unidades
+                int nPedido = d.UnidadesPorBulto > 1 && !prod.EsVentaPorPeso() ? d.UnidadesPorBulto : 1;
+                int unidades = cant * nPedido;
+                decimal costoUnidad = nPedido > 1 ? Math.Round(d.PrecioCosto / nPedido, 4) : d.PrecioCosto;
+
+                var item = ConstruirItem(prod, unidades, costoUnidad, estimado: true, cantidadPedida: unidades);
+                item.CodigoProveedor = !string.IsNullOrWhiteSpace(d.CodigoBarrasProveedor) ? d.CodigoBarrasProveedor : CodigoRelacion(prod.Id);
+                AplicarBulto(item, nPedido > 1 ? nPedido : BultoRelacion(prod.Id), soloSiExacto: true);
+                items.Add(item);
+            }
+
+            vista = VistaEditor;
+            if (omitidos > 0)
+                await avisos.InformarAsync("Algunos productos no se trajeron", $"{omitidos} producto(s) del pedido ya no existen en el sistema.", "aviso");
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudo abrir el pedido", ex.Message, "peligro");
+        }
+    }
+
+    private async Task AbrirListaAsync(CompraMayorista lista)
+    {
+        try
+        {
+            var idCompra = lista.Id;
+            var res = await SupaClient.From<CompraMayoristaDetalle>().Where(d => d.CompraId == idCompra).Get();
+            var detalles = res.Models ?? new List<CompraMayoristaDetalle>();
+
+            var ids = detalles.Where(d => d.ProductoId.HasValue && d.ProductoId.Value > 0).Select(d => d.ProductoId!.Value).Distinct().ToList();
+            var productos = await CargarProductosPorIdsAsync(ids);
+
+            Reiniciar();
+            origen = lista.Origen ?? CompraOrigen.Calculadora;
+            compra = lista;
+            estimadoOrigen = lista.TotalCompra;
+            proveedorId = lista.ProveedorId ?? 0;
+            numeroComprobante = lista.NumeroComprobante ?? "";
+            fechaCompra = lista.FechaCompra ?? DateTime.Today;
+            totalBoleta = lista.TotalBoleta;
+            if (proveedorId > 0) await CargarRelacionesProveedorAsync();
+
+            int omitidos = 0;
+            foreach (var d in detalles)
+            {
+                var prod = productos.FirstOrDefault(p => p.Id == d.ProductoId);
+                if (prod == null) { omitidos++; continue; }
+
+                // El costo de un Excel es el real de la factura; el de la calculadora es una estimación
+                var item = ConstruirItem(prod, d.Cantidad, d.PrecioCosto, estimado: lista.Origen != CompraOrigen.Excel, cantidadPedida: d.CantidadPedida);
+                item.DetalleId = d.Id;
+                item.CodigoProveedor = !string.IsNullOrWhiteSpace(d.CodigoBarrasProveedor) ? d.CodigoBarrasProveedor : CodigoRelacion(prod.Id);
+                AplicarBulto(item, d.UnidadesPorBulto > 1 ? d.UnidadesPorBulto : BultoRelacion(prod.Id), soloSiExacto: true);
+                items.Add(item);
+            }
+
+            vista = VistaEditor;
+            if (omitidos > 0)
+                await avisos.InformarAsync("Algunos productos no se trajeron", $"{omitidos} renglón(es) no tenían un producto asociado y quedaron afuera. Podés agregarlos a mano.", "aviso");
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudo abrir la lista", ex.Message, "peligro");
+        }
+    }
+
+    // ======================= PROVEEDOR Y SUS CÓDIGOS =======================
+
+    private async Task OnProveedorChanged(ChangeEventArgs e)
+    {
+        proveedorId = long.TryParse(e.Value?.ToString(), out long id) ? id : 0;
+        codigoProvPendiente = null;
+        relacionesProveedor = new();
+        bultosProveedor = new();
+
+        if (proveedorId > 0) await CargarRelacionesProveedorAsync();
+
+        // Se completan los códigos (y el bulto) del proveedor nuevo en los productos ya cargados
+        foreach (var it in items.Where(i => !i.Impactado))
+        {
+            it.CodigoProveedor = CodigoRelacion(it.Producto.Id);
+            if (!it.PorBulto) AplicarBulto(it, BultoRelacion(it.Producto.Id), soloSiExacto: false);
+        }
+    }
+
+    private async Task CargarRelacionesProveedorAsync()
+    {
+        try
+        {
+            long prov = proveedorId;
+            var todas = new List<ProductoProveedor>();
+            const int pagina = 1000;   // la base devuelve como máximo 1000 filas por consulta
+            for (int desde = 0; ; desde += pagina)
+            {
+                var res = await SupaClient.From<ProductoProveedor>()
+                    .Where(r => r.IdProveedor == prov)
+                    .Where(r => r.IdKiosco == State.KioscoId)
+                    .Range(desde, desde + pagina - 1)
+                    .Get();
+                var lote = res.Models ?? new List<ProductoProveedor>();
+                todas.AddRange(lote);
+                if (lote.Count < pagina) break;
+            }
+
+            relacionesProveedor = todas
+                .GroupBy(r => r.IdProducto)
+                .ToDictionary(g => g.Key, g => g.First().CodigoBarrasProveedor);
+
+            bultosProveedor = todas
+                .GroupBy(r => r.IdProducto)
+                .ToDictionary(g => g.Key, g => Math.Max(1, g.First().UnidadesPorBulto));
+        }
+        catch (Exception ex)
+        {
+            relacionesProveedor = new();
+            bultosProveedor = new();
+            await avisos.InformarAsync("No se pudieron cargar los productos del proveedor", ex.Message, "aviso");
+        }
+    }
+
+    private int BultoRelacion(long productoId) =>
+        bultosProveedor.TryGetValue(productoId, out var n) && n > 1 ? n : 1;
+
+    private string? CodigoRelacion(long productoId) =>
+        relacionesProveedor.TryGetValue(productoId, out var cod) && !string.IsNullOrWhiteSpace(cod) ? cod : null;
+
+    private async Task OnCodigoProvKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await BuscarPorCodigoProveedorAsync();
+    }
+
+    /// <summary>Busca por el código que usa el proveedor (el que trae la boleta).</summary>
+    private async Task BuscarPorCodigoProveedorAsync()
+    {
+        var codigo = codigoProvInput?.Trim();
+        if (string.IsNullOrEmpty(codigo)) return;
+
+        var par = relacionesProveedor.FirstOrDefault(kv => string.Equals(kv.Value?.Trim(), codigo, StringComparison.OrdinalIgnoreCase));
+        codigoProvInput = "";
+
+        if (par.Key == 0)
+        {
+            // No está asociado: se recuerda el código y se lo asigna al próximo producto que se elija
+            codigoProvPendiente = codigo;
+            avisos.Toast("Código nuevo para este proveedor: elegí el producto", "info", 3500);
+            return;
+        }
+
+        try
+        {
+            long pid = par.Key;
+            var res = await SupaClient.From<Producto>()
+                .Where(p => p.Id == pid)
+                .Where(p => p.KioscoId == State.KioscoId)
+                .Get();
+
+            var prod = res.Models?.FirstOrDefault();
+            if (prod != null) AgregarProducto(prod);
+            else await avisos.InformarAsync("Producto no encontrado", "El producto asociado a ese código ya no existe.", "aviso");
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudo buscar el producto", ex.Message, "peligro");
+        }
+    }
+
+    // ======================= ÍTEMS =======================
+
+    private ItemRecepcion ConstruirItem(Producto prod, int cantidad, decimal costo, bool estimado, int? cantidadPedida)
+    {
+        // Los valores "anteriores" se guardan ANTES de recalcular (el recálculo modifica el producto en memoria)
+        var item = new ItemRecepcion
+        {
+            Producto = prod,
+            Cantidad = cantidad < 1 ? 1 : cantidad,
+            CantidadPedida = cantidadPedida,
+            CostoPV = costo,
+            UtilidadPV = prod.UtilidadPV ?? 40m,
+            UtilidadLista2 = prod.UtilidadLista2 ?? 0m,
+            EsEstimado = estimado,
+
+            StockAnterior = prod.StockActual ?? 0,
+            CostoAnterior = prod.PrecioCosto ?? 0m,
+            UtilidadAnterior = prod.UtilidadPV ?? 0m,
+            UtilidadL2Anterior = prod.UtilidadLista2 ?? 0m,
+            PrecioVentaAntes = Convert.ToString(prod.ObtenerPrecioVentaMostrar("Principal", State, cultura), cultura) ?? "",
+            PrecioL2Antes = nombreLista2 != "" ? Convert.ToString(prod.ObtenerPrecioVentaMostrar("Lista2", State, cultura), cultura) ?? "" : ""
+        };
+
+        if (costo > 0) RecalcularPrecios(item);
+        return item;
+    }
+
+    private void AgregarProducto(Producto prod)
+    {
+        var existente = items.FirstOrDefault(i => i.Producto.Id == prod.Id);
+        if (existente != null)
+        {
+            if (!existente.Impactado)
+            {
+                if (existente.PorBulto) { existente.Bultos++; existente.Cantidad = existente.Bultos * existente.UnidadesPorBulto; }
+                else existente.Cantidad++;
+            }
+            if (!string.IsNullOrEmpty(codigoProvPendiente) && string.IsNullOrWhiteSpace(existente.CodigoProveedor))
+            {
+                existente.CodigoProveedor = codigoProvPendiente;
+                codigoProvPendiente = null;
+            }
+            avisos.Toast(existente.PorBulto
+                ? $"{prod.Nombre}: ya estaba, ahora son {existente.Bultos} bultos ({existente.Cantidad} u.)"
+                : $"{prod.Nombre}: ya estaba, ahora son {existente.Cantidad}", "info", 2200);
+            return;
+        }
+
+        var item = ConstruirItem(prod, 1, prod.PrecioCosto ?? 0m, estimado: false, cantidadPedida: null);
+        item.CodigoProveedor = CodigoRelacion(prod.Id);
+        AplicarBulto(item, BultoRelacion(prod.Id), soloSiExacto: false);   // si el proveedor lo vende por bulto, arranca en 1 bulto
+
+        if (!string.IsNullOrEmpty(codigoProvPendiente))
+        {
+            item.CodigoProveedor = codigoProvPendiente;
+            codigoProvPendiente = null;
+        }
+
+        items.Add(item);
+        enfocarUltimo = true;
+    }
+
+    private void ActualizarCantidad(ItemRecepcion item, ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out int val) || val <= 0) return;
+
+        if (item.PorBulto)
+        {
+            item.Bultos = val;
+            item.Cantidad = val * item.UnidadesPorBulto;
+        }
+        else item.Cantidad = val;
+    }
+
+    // ======================= BULTOS =======================
+    // Cantidad y CostoPV del renglón SIEMPRE quedan por unidad (lo que se suma al stock y lo que se guarda como costo).
+    // En modo bulto solo cambia lo que se muestra y se escribe: cantidad de bultos y costo del bulto.
+
+    /// <summary>Pasa el renglón a "por bulto" con n unidades por bulto. soloSiExacto: solo si la cantidad actual entra justa en bultos.</summary>
+    private void AplicarBulto(ItemRecepcion item, int n, bool soloSiExacto)
+    {
+        if (n <= 1 || item.Impactado || item.Producto.EsVentaPorPeso()) return;
+
+        if (soloSiExacto)
+        {
+            if (item.Cantidad % n != 0) return;
+            item.Bultos = item.Cantidad / n;
+        }
+        else
+        {
+            item.Bultos = Math.Max(1, (int)Math.Round(item.Cantidad / (decimal)n, MidpointRounding.AwayFromZero));
+        }
+
+        item.UnidadesPorBulto = n;
+        item.PorBulto = true;
+        item.Cantidad = item.Bultos * n;
+    }
+
+    private void CambiarModo(ItemRecepcion item, bool porBulto)
+    {
+        if (item.Impactado || item.PorBulto == porBulto) return;
+
+        if (porBulto)
+        {
+            var n = item.UnidadesPorBulto > 1 ? item.UnidadesPorBulto : BultoRelacion(item.Producto.Id);
+            item.UnidadesPorBulto = n;
+            item.PorBulto = true;
+            item.Bultos = n > 1 ? Math.Max(1, (int)Math.Round(item.Cantidad / (decimal)n, MidpointRounding.AwayFromZero)) : Math.Max(1, item.Cantidad);
+            item.Cantidad = item.Bultos * n;
+            if (n <= 1) avisos.Toast("Completá cuántas unidades trae el bulto", "info", 2500);
+        }
+        else
+        {
+            item.PorBulto = false;   // la cantidad en unidades queda igual
+        }
+    }
+
+    private void CambiarUnidadesBulto(ItemRecepcion item, ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out int n) || n < 1) return;
+
+        // Lo que el usuario copió de la boleta es el costo del bulto: se mantiene y se reparte entre las nuevas unidades
+        var costoBulto = item.CostoPV * item.UnidadesPorBulto;
+        item.UnidadesPorBulto = n;
+        item.Cantidad = item.Bultos * n;
+        if (costoBulto > 0)
+        {
+            item.CostoPV = Math.Round(costoBulto / n, 4);
+            AlCambiarCosto(item);
+        }
+    }
+
+    /// <summary>Costo que se muestra en el input: el del bulto o el de la unidad (formato con punto para el input numérico).</summary>
+    private string CostoMostrar(ItemRecepcion item)
+    {
+        var v = item.PorBulto ? item.CostoPV * item.UnidadesPorBulto : item.CostoPV;
+        return Plata.Texto(Math.Round(v, 2));   // 3.000 · 1.500,50
+    }
+
+    private void ActualizarCosto(ItemRecepcion item, ChangeEventArgs e)
+    {
+        if (!Plata.TryLeer(e.Value, out decimal v) || v < 0) return;
+        item.CostoPV = item.PorBulto && item.UnidadesPorBulto > 1 ? Math.Round(v / item.UnidadesPorBulto, 4) : v;
+        AlCambiarCosto(item);
+    }
+
+    private void AlCambiarCosto(ItemRecepcion item)
+    {
+        item.CostoEditado = true;
+        RecalcularPrecios(item);
+    }
+
+    private void ActualizarPrecioVenta(ItemRecepcion item, ChangeEventArgs e)
+    {
+        if (Plata.TryLeer(e.Value, out decimal val))
+            item.PrecioVentaCalculado = item.Producto.PrecioCada100g() ? val * 10m : val;
+    }
+
+    private void ActualizarPrecioLista2(ItemRecepcion item, ChangeEventArgs e)
+    {
+        if (Plata.TryLeer(e.Value, out decimal val))
+            item.PrecioVentaLista2Calculado = item.Producto.PrecioCada100g() ? val * 10m : val;
+    }
+
+    private void RecalcularPrecios(ItemRecepcion item)
+    {
+        if (item.CostoPV <= 0) return;
+
+        bool igual = PrecioService.EraMismoPrecioDiaNoche(item.Producto);   // gomitas: mismo precio de día y de noche
+        // Costo y utilidad al modelo temporal del producto para que el servicio pueda calcular
+        item.Producto.PrecioCosto = item.CostoPV;
+        item.Producto.UtilidadPV = item.UtilidadPV;
+
+        item.PrecioVentaCalculado = item.Producto.CalcularPrecioPorUtilidad(item.CostoPV, item.UtilidadPV, State) ?? 0m;
+        item.Producto.PrecioVenta = item.PrecioVentaCalculado;
+
+        // Lista 2 automática (reglas del kiosco / recargos sobre el precio de venta)
+        PrecioService.ProcesarLista2Automatico(item.Producto, State.KioscoId, State, igual);
+
+        item.UtilidadLista2 = item.Producto.UtilidadLista2 ?? 0m;
+        item.PrecioVentaLista2Calculado = item.Producto.PrecioLista2 ?? 0m;
+    }
+
+    private void EliminarItem(ItemRecepcion item)
+    {
+        items.Remove(item);
+        if (item.DetalleId.HasValue) detallesQuitados.Add(item.DetalleId.Value);
+    }
+
+    private decimal? ObtenerPrecioCalculadoMostrar(Producto prod, decimal precioCalculado)
+    {
+        if (precioCalculado == 0m) return null;
+        return prod.PrecioCada100g() ? precioCalculado / 10m : precioCalculado;
+    }
+
+    // ======================= ALTA RÁPIDA =======================
+
+    private void AbrirModalNuevoProducto()
+    {
+        nuevoProducto = new Producto
+        {
+            KioscoId = State.KioscoId,
+            FamiliaId = null,
+            Activo = true,
+            UtilidadPV = 40
+        };
+        mostrarModalNuevoProducto = true;
+    }
+
+    private void CerrarModalNuevoProducto() => mostrarModalNuevoProducto = false;
+
+    private async Task OnAltaKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") CerrarModalNuevoProducto();
+        await Task.CompletedTask;
+    }
+
+    private async Task GuardarNuevoProductoYSumarALista()
+    {
+        if (guardandoNuevo) return;
+
+        if (string.IsNullOrWhiteSpace(nuevoProducto.Nombre))
+        {
+            await avisos.InformarAsync("Falta el nombre", "Ingresá un nombre para el nuevo producto.", "aviso");
+            return;
+        }
+
+        try
+        {
+            guardandoNuevo = true;
+
+            var codigo = nuevoProducto.CodigoBarras?.Trim();
+            if (!string.IsNullOrEmpty(codigo))
+            {
+                long kiosco = State.KioscoId;
+                var dup = await SupaClient.From<Producto>()
+                    .Where(p => p.CodigoBarras == codigo && p.KioscoId == kiosco)
+                    .Get();
+                var yaExiste = dup.Models?.FirstOrDefault();
+
+                if (yaExiste != null)
+                {
+                    if (await avisos.ConfirmarAsync("Ese código ya existe",
+                            $"'{yaExiste.Nombre}' ya tiene ese código de barras. ¿Lo agregamos a la compra en vez de crear uno nuevo?",
+                            "Agregar el existente", "aviso"))
+                    {
+                        AgregarProducto(yaExiste);
+                        CerrarModalNuevoProducto();
+                    }
+                    return;
+                }
+            }
+
+            nuevoProducto.CodigoBarras = string.IsNullOrEmpty(codigo) ? null : codigo;
+            nuevoProducto.Nombre = nuevoProducto.Nombre.Trim();
+            nuevoProducto.PrecioVenta = nuevoProducto.CalcularPrecioPorUtilidad(
+                nuevoProducto.PrecioCosto ?? 0m,
+                nuevoProducto.UtilidadPV ?? 40m,
+                State);
+
+            var res = await SupaClient.From<Producto>().Insert(nuevoProducto);
+            var prodGuardado = res.Models.FirstOrDefault();
+
+            if (prodGuardado != null)
+            {
+                AgregarProducto(prodGuardado);
+                CerrarModalNuevoProducto();
+                _ = avisos.GuardadoAsync($"Producto creado: {prodGuardado.Nombre}");
+            }
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudo dar de alta el producto", ex.Message, "peligro");
+        }
+        finally
+        {
+            guardandoNuevo = false;
+        }
+    }
+
+    // ======================= CONFIRMAR =======================
+
+    private async Task ConfirmarAsync()
+    {
+        if (!items.Any() || guardando) return;
+
+        var pendientes = items.Where(i => !i.Impactado).ToList();
+        int cantidadItems = pendientes.Count;
+        int unidades = pendientes.Sum(i => i.Cantidad);
+        int sinCosto = pendientes.Count(i => i.CostoPV <= 0);
+        int costoSinRevisar = pendientes.Count(i => i.EsEstimado && !i.CostoEditado && i.CostoPV > 0);
+        bool hayDiferencia = HayTotalBoleta && Math.Abs(Diferencia) >= 1m;
+
+        // Boleta repetida: mismo proveedor y mismo número ya confirmados
+        var nro = numeroComprobante?.Trim();
+        string avisoRepetida = "";
+        if (proveedorId > 0 && !string.IsNullOrEmpty(nro))
+        {
+            try
+            {
+                long kiosco = State.KioscoId;
+                long prov = proveedorId;
+                var rep = await SupaClient.From<CompraMayorista>()
+                    .Where(c => c.KioscoId == kiosco)
+                    .Where(c => c.ProveedorId == prov)
+                    .Where(c => c.NumeroComprobante == nro)
+                    .Where(c => c.Estado == CompraEstado.Confirmada)
+                    .Get();
+
+                var otra = rep.Models?.FirstOrDefault(c => compra == null || c.Id != compra.Id);
+                if (otra != null)
+                    avisoRepetida = $"\nATENCIÓN: ya se confirmó la boleta {nro} de este proveedor el {otra.Fecha.ToLocalTime():dd/MM/yyyy}. ¿Seguro que no es la misma?";
+            }
+            catch { /* el control es un aviso, no debe frenar la carga */ }
+        }
+
+        var mensaje = $"Se suma stock a {cantidadItems} productos ({unidades} unidades) y se actualizan costo y precios en {cantidadItems - sinCosto}.";
+        if (sinCosto > 0) mensaje += $"\n{sinCosto} sin costo: solo suman stock.";
+        if (costoSinRevisar > 0) mensaje += $"\n{costoSinRevisar} con costo estimado sin revisar.";
+        if (hayDiferencia) mensaje += $"\nOjo: lo cargado difiere de la boleta en ${Math.Abs(Diferencia).ToString("N2", cultura)}.";
+        mensaje += avisoRepetida;
+
+        bool aviso = hayDiferencia || costoSinRevisar > 0 || avisoRepetida != "";
+        if (!await avisos.ConfirmarAsync("¿Confirmar el ingreso?", mensaje, "Confirmar ingreso", aviso ? "aviso" : "exito")) return;
+
+        guardando = true;
+        int procesados = 0;
+        var idsProcesados = new List<long>();
+
+        try
+        {
+            // 1. Cabecera (se crea la primera vez y después se va actualizando)
+            await GuardarCabeceraAsync();
+
+            // 2. Renglones: nuevos se insertan, existentes se actualizan, quitados se borran
+            foreach (var it in items.Where(i => !i.Impactado))
+            {
+                var det = ArmarDetalle(it);
+                if (it.DetalleId.HasValue)
+                {
+                    det.Id = it.DetalleId.Value;
+                    await SupaClient.From<CompraMayoristaDetalle>().Update(det);
+                }
+                else
+                {
+                    var res = await SupaClient.From<CompraMayoristaDetalle>().Insert(det);
+                    it.DetalleId = res.Models?.FirstOrDefault()?.Id;
+                }
+            }
+
+            foreach (var idQuitado in detallesQuitados.ToList())
+            {
+                await SupaClient.From<CompraMayoristaDetalle>().Where(d => d.Id == idQuitado).Delete();
+                detallesQuitados.Remove(idQuitado);
+            }
+
+            // 3. Impacto en stock y precios (cada producto se marca al terminar: un reintento no suma dos veces)
+            foreach (var it in items.Where(i => !i.Impactado).ToList())
+            {
+                var prod = it.Producto;
+                prod.StockActual = (prod.StockActual ?? 0) + it.Cantidad;
+
+                var query = SupaClient.From<Producto>()
+                    .Where(p => p.Id == prod.Id && p.KioscoId == State.KioscoId)
+                    .Set(p => p.StockActual, prod.StockActual);
+
+                if (it.CostoPV > 0)
+                {
+                    prod.PrecioCosto = it.CostoPV;
+                    prod.UtilidadPV = it.UtilidadPV;
+                    prod.PrecioVenta = it.PrecioVentaCalculado;
+                    prod.UtilidadLista2 = it.UtilidadLista2;
+                    prod.PrecioLista2 = it.PrecioVentaLista2Calculado;
+
+                    query = query
+                        .Set(p => p.PrecioCosto, prod.PrecioCosto)
+                        .Set(p => p.UtilidadPV, prod.UtilidadPV)
+                        .Set(p => p.PrecioVenta, prod.PrecioVenta)
+                        .Set(p => p.UtilidadLista2, prod.UtilidadLista2)
+                        .Set(p => p.PrecioLista2, prod.PrecioLista2);
+                }
+
+                await query.Update();
+                it.Impactado = true;
+                procesados++;
+                idsProcesados.Add(prod.Id);
+            }
+
+            // 4. Cierre: renglones procesados, cabecera confirmada, pedido recibido
+            var idCompra = compra!.Id;
+            await SupaClient.From<CompraMayoristaDetalle>()
+                .Where(d => d.CompraId == idCompra)
+                .Set(d => d.Procesado, true)
+                .Update();
+
+            compra.Estado = CompraEstado.Confirmada;
+            compra.Procesado = true;
+            compra.FechaConfirmada = DateTime.UtcNow;
+            compra.TotalCompra = TotalCompra;
+            await SupaClient.From<CompraMayorista>().Update(compra);
+
+            if (pedidoOrigen != null)
+            {
+                var idPedido = pedidoOrigen.Id;
+                await SupaClient.From<ListaPedido>().Where(p => p.Id == idPedido).Set(p => p.Estado, "Recibido").Update();
+            }
+        }
+        catch (Exception ex)
+        {
+            guardando = false;
+            await avisos.InformarAsync("La compra quedó a medias",
+                $"Se guardaron {procesados} producto(s) y quedaron marcados como \"Guardado\". Podés volver a tocar \"Confirmar ingreso\": solo se procesan los que faltan, sin sumar dos veces.\n\nDetalle: {ex.Message}",
+                "peligro");
+            return;
+        }
+
+        // Todo guardado
+        var totalGuardado = TotalCompra;
+        var cantidadGuardada = items.Count;
+        var provCompra = proveedorId;
+        var itemsGuardados = items.ToList();
+
+        guardando = false;
+        await AsociarProveedorYCodigosAsync(provCompra, itemsGuardados);
+
+        Reiniciar();
+        vista = VistaInicio;
+        panel = "";
+        await CargarOrigenesAsync();
+        await OnConfirmada.InvokeAsync();
+
+        _ = avisos.GuardadoAsync($"Ingreso confirmado: {cantidadGuardada} productos por ${totalGuardado.ToString("N2", cultura)}");
+    }
+
+    private async Task GuardarCabeceraAsync()
+    {
+        var nro = numeroComprobante?.Trim();
+
+        if (compra == null)
+        {
+            compra = new CompraMayorista
+            {
+                KioscoId = State.KioscoId,
+                Fecha = DateTime.UtcNow,
+                Origen = origen,
+                Estado = CompraEstado.EnCurso,
+                Procesado = false,
+                PedidoId = pedidoOrigen?.Id
+            };
+        }
+
+        compra.ProveedorId = proveedorId > 0 ? proveedorId : null;
+        compra.NumeroComprobante = string.IsNullOrEmpty(nro) ? null : nro;
+        compra.FechaCompra = fechaCompra;
+        compra.TotalBoleta = HayTotalBoleta ? totalBoleta : null;
+        compra.TotalCompra = TotalCompra;
+
+        if (compra.Id == 0)
+        {
+            var res = await SupaClient.From<CompraMayorista>().Insert(compra);
+            compra = res.Models.First();
+        }
+        else
+        {
+            await SupaClient.From<CompraMayorista>().Update(compra);
+        }
+    }
+
+    private CompraMayoristaDetalle ArmarDetalle(ItemRecepcion it) => new CompraMayoristaDetalle
+    {
+        CompraId = compra!.Id,
+        ProductoId = it.Producto.Id,
+        CodigoBarras = it.Producto.CodigoBarras,
+        NombreProducto = it.Producto.Nombre ?? "",
+        PrecioCosto = it.CostoPV,
+        Cantidad = it.Cantidad,
+        Subtotal = it.SubtotalCosto,
+        EsNuevo = false,
+        Procesado = false,
+        CodigoBarrasProveedor = string.IsNullOrWhiteSpace(it.CodigoProveedor) ? null : it.CodigoProveedor.Trim(),
+        CostoAnterior = it.CostoAnterior,
+        CantidadPedida = it.CantidadPedida,
+        UnidadesPorBulto = it.PorBulto && it.UnidadesPorBulto > 1 ? it.UnidadesPorBulto : 1
+    };
+
+    /// <summary>
+    /// Vincula el proveedor con cada producto (si todavía no estaban asociados) y guarda el código que usa el proveedor.
+    /// No pisa un código que ya existía.
+    /// </summary>
+    private async Task AsociarProveedorYCodigosAsync(long idProveedor, List<ItemRecepcion> guardados)
+    {
+        if (idProveedor <= 0 || !guardados.Any()) return;
+
+        try
+        {
+            long prov = idProveedor;
+            var res = await SupaClient.From<ProductoProveedor>()
+                .Where(r => r.IdProveedor == prov)
+                .Where(r => r.IdKiosco == State.KioscoId)
+                .Get();
+
+            var existentes = (res.Models ?? new List<ProductoProveedor>())
+                .GroupBy(r => r.IdProducto)
+                .ToDictionary(g => g.Key, g => g.First());
+
+            var nuevas = new List<ProductoProveedor>();
+            foreach (var it in guardados)
+            {
+                var codigo = string.IsNullOrWhiteSpace(it.CodigoProveedor) ? null : it.CodigoProveedor.Trim();
+                int bulto = it.PorBulto && it.UnidadesPorBulto > 1 ? it.UnidadesPorBulto : 1;
+
+                if (!existentes.TryGetValue(it.Producto.Id, out var rel))
+                {
+                    nuevas.Add(new ProductoProveedor
+                    {
+                        IdProducto = it.Producto.Id,
+                        IdProveedor = idProveedor,
+                        IdKiosco = State.KioscoId,
+                        CodigoBarrasProveedor = codigo,
+                        Habilitado = true,
+                        UnidadesPorBulto = bulto
+                    });
+                    continue;
+                }
+
+                // Se compró por bulto y el proveedor tenía otro tamaño de bulto (o ninguno): se recuerda el nuevo
+                if (bulto > 1 && rel.UnidadesPorBulto != bulto)
+                {
+                    long pidB = it.Producto.Id;
+                    await SupaClient.From<ProductoProveedor>()
+                        .Where(r => r.IdProveedor == prov)
+                        .Where(r => r.IdProducto == pidB)
+                        .Where(r => r.IdKiosco == State.KioscoId)
+                        .Set(r => r.UnidadesPorBulto, bulto)
+                        .Update();
+                }
+                if (codigo != null && string.IsNullOrWhiteSpace(rel.CodigoBarrasProveedor))
+                {
+                    long pid = it.Producto.Id;
+                    await SupaClient.From<ProductoProveedor>()
+                        .Where(r => r.IdProveedor == prov)
+                        .Where(r => r.IdProducto == pid)
+                        .Where(r => r.IdKiosco == State.KioscoId)
+                        .Set(r => r.CodigoBarrasProveedor, codigo)
+                        .Update();
+                }
+            }
+
+            if (nuevas.Any())
+                await SupaClient.From<ProductoProveedor>().Insert(nuevas);
+        }
+        catch (Exception ex)
+        {
+            // El stock y los precios ya quedaron guardados; solo falló la asociación
+            await avisos.InformarAsync("La compra se guardó", "No se pudo asociar el proveedor y sus códigos a los productos: " + ex.Message, "aviso");
+        }
+    }
+
+    public class ItemRecepcion
+    {
+        public Producto Producto { get; set; } = new();
+        public int Cantidad { get; set; } = 1;
+        public int? CantidadPedida { get; set; }
+        public decimal CostoPV { get; set; }
+        public decimal UtilidadPV { get; set; }
+        public decimal PrecioVentaCalculado { get; set; }
+        public decimal UtilidadLista2 { get; set; }
+        public decimal PrecioVentaLista2Calculado { get; set; }
+        public string? CodigoProveedor { get; set; }
+
+        // Compra por bulto (Cantidad y CostoPV siguen siendo por unidad)
+        public bool PorBulto { get; set; }
+        public int UnidadesPorBulto { get; set; } = 1;
+        public int Bultos { get; set; }
+
+        // Estado del renglón
+        public bool EsEstimado { get; set; }        // el costo viene de una estimación (pedido / calculadora)
+        public bool CostoEditado { get; set; }      // el usuario ya lo revisó
+        public long? DetalleId { get; set; }        // renglón ya guardado en la base
+        public bool Impactado { get; set; }         // stock y precios ya actualizados
+
+        // Valores que tenía el producto antes de esta compra (para mostrar "Ant:")
+        public int StockAnterior { get; set; }
+        public decimal CostoAnterior { get; set; }
+        public decimal UtilidadAnterior { get; set; }
+        public decimal UtilidadL2Anterior { get; set; }
+        public string PrecioVentaAntes { get; set; } = "";
+        public string PrecioL2Antes { get; set; } = "";
+
+        public decimal SubtotalCosto =>
+            Producto.IsMedidaGramos()
+                ? (Cantidad / 1000m) * CostoPV
+                : Cantidad * CostoPV;
+    }
+}

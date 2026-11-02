@@ -1,0 +1,374 @@
+﻿@inject AppState State
+@inject IJSRuntime JS
+
+@* Cuenta corriente con un proveedor: deudas y entregas (solo totales), con historial de quién cargó qué.
+   Los movimientos no se borran: se ANULAN (quedan tachados). Script 17 + 35.
+   Se usa en Mercadería → Cuentas con proveedores (EnPagina = true) o como ventana. *@
+<AvisosPagina @ref="avisos" />
+
+@if (EnPagina)
+{
+    <section class="gp-card gp-card-pad">
+        <div class="gp-card-head" style="flex-wrap:wrap">
+            <span class="gp-bubble"><i class="bi bi-journal-text"></i></span>
+            <div class="vt-head-text">
+                <h2>Cuenta con @Proveedor.Nombre</h2>
+                <p>Lo que le debés y lo que le vas entregando, con quién lo cargó.</p>
+            </div>
+            <button type="button" class="gp-btn gp-btn-soft gp-btn-sm vt-head-right" disabled="@(generando || movs == null || !movs.Any())" @onclick="BajarComprobante">
+                <i class="bi bi-file-earmark-pdf-fill"></i> @(generando ? "Armando..." : "Comprobante PDF")
+            </button>
+        </div>
+        @Cuerpo
+    </section>
+}
+else
+{
+    <div class="gp-scope gp-modal-backdrop" @onclick="Cerrar">
+        <div class="gp-modal cp-modal" role="dialog" aria-modal="true" @onclick:stopPropagation="true">
+            <div class="gp-modal-head">
+                <span class="gp-bubble"><i class="bi bi-journal-text"></i></span>
+                <div style="flex:1 1 auto; min-width:0">
+                    <h3>Cuenta con @Proveedor.Nombre</h3>
+                    <p>Lo que le debés y lo que le vas entregando.</p>
+                </div>
+                <button type="button" class="gp-btn gp-btn-ghost gp-btn-icon" title="Cerrar" @onclick="Cerrar"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="gp-modal-body">@Cuerpo</div>
+        </div>
+    </div>
+}
+
+<style>
+    .cp-modal { max-width: 36rem; width: 100%; }
+    .cp-saldo { display: flex; flex-direction: column; align-items: center; gap: .1rem; margin: 0 0 1rem; padding: 1rem; border-radius: 16px; text-align: center; }
+    .cp-saldo.is-debe { background: var(--gp-danger-soft); color: var(--gp-danger); }
+    .cp-saldo.is-favor { background: var(--gp-ok-soft); color: var(--gp-ok); }
+    .cp-saldo.is-cero { background: #eef1f8; color: var(--gp-muted); }
+    .cp-saldo-lbl { font-size: .75rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+    .cp-saldo strong { font-size: 2rem; font-weight: 900; line-height: 1.1; }
+    .cp-saldo small { color: var(--gp-muted); font-weight: 600; }
+    .cp-seg { width: 100%; }
+    .cp-seg button { flex: 1 1 0; }
+    /* verde = entrego plata (pago) · rojo = le debo (deuda): que no se confundan */
+    .cp-seg button.cp-tab-pago { color: var(--gp-ok) !important; }
+    .cp-seg button.cp-tab-deuda { color: var(--gp-danger) !important; }
+    .cp-seg button.cp-tab-pago.is-active { background: var(--gp-ok) !important; color: #fff !important; box-shadow: 0 4px 12px rgba(0,0,0,.12); }
+    .cp-seg button.cp-tab-deuda.is-active { background: var(--gp-danger) !important; color: #fff !important; box-shadow: 0 4px 12px rgba(0,0,0,.12); }
+    .gp-btn.cp-btn-deuda, .gp-btn.cp-btn-deuda:hover, .gp-btn.cp-btn-deuda:focus { background: var(--gp-danger) !important; border-color: var(--gp-danger) !important; color: #fff !important; }
+    .cp-hist-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .4rem .8rem; }
+    .cp-hist-head label { display: inline-flex; align-items: center; gap: .35rem; color: var(--gp-muted); font-weight: 700; font-size: .82rem; cursor: pointer; }
+    .cp-movs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .4rem; }
+    .cp-mov { display: flex; align-items: center; gap: .6rem; padding: .55rem .7rem; border: 1px solid var(--gp-line); border-radius: 12px; background: #fff; }
+    .cp-mov-ico { font-size: 1.3rem; }
+    .cp-mov.is-pago .cp-mov-ico, .cp-mov.is-pago .cp-mov-monto { color: var(--gp-ok); }
+    .cp-mov.is-deuda .cp-mov-ico, .cp-mov.is-deuda .cp-mov-monto { color: var(--gp-danger); }
+    .cp-mov.is-anulado { background: #f6f7fb; border-style: dashed; }
+    .cp-mov.is-anulado .cp-mov-ico, .cp-mov.is-anulado .cp-mov-monto, .cp-mov.is-anulado .cp-mov-txt b { color: #9aa3bd; }
+    .cp-mov.is-anulado .cp-mov-monto, .cp-mov.is-anulado .cp-mov-txt b { text-decoration: line-through; }
+    .cp-mov-txt { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+    .cp-mov-txt small { color: var(--gp-muted); font-weight: 600; }
+    .cp-mov-txt .cp-quien { font-size: .72rem; color: #8a93ab; }
+    .cp-mov-txt .cp-anul { font-size: .74rem; color: var(--gp-danger); font-weight: 700; }
+    .cp-mov-monto { white-space: nowrap; font-weight: 900; }
+</style>
+
+@code {
+    [Parameter] public long KioscoId { get; set; }
+    [Parameter, EditorRequired] public Proveedor Proveedor { get; set; } = default!;
+    [Parameter] public EventCallback OnCerrar { get; set; }
+    /// <summary>Se avisa cuando cambia el saldo (para refrescar la lista de proveedores).</summary>
+    [Parameter] public EventCallback OnCambio { get; set; }
+    /// <summary>true = se muestra dentro de la página (Mercadería → Cuentas con proveedores); false = como ventana.</summary>
+    [Parameter] public bool EnPagina { get; set; }
+
+    [Inject] private Supabase.Client Db { get; set; } = default!;
+
+    private AvisosPagina avisos = default!;
+    private List<ProveedorCuenta>? movs;
+    private List<string> Medios = new() { "EFECTIVO", "TRANSFERENCIA" };
+    private string tipo = ProveedorCuenta.Pago;
+    private string montoTexto = "";
+    private string medio = "EFECTIVO";
+    private DateTime fecha = DateTime.Today;
+    private string? nota;
+    private bool guardando, generando, verAnulados = true;
+    private string error = "";
+    private long cargadoDe;
+
+    private IEnumerable<ProveedorCuenta> Vigentes => movs?.Where(m => !m.EstaAnulado()) ?? Enumerable.Empty<ProveedorCuenta>();
+    private decimal TotalDeuda => Vigentes.Where(m => !m.EsPago()).Sum(m => m.Monto);
+    private decimal TotalPagado => Vigentes.Where(m => m.EsPago()).Sum(m => m.Monto);
+    private decimal Saldo => TotalDeuda - TotalPagado;
+    private int CantAnulados => movs?.Count(m => m.EstaAnulado()) ?? 0;
+
+    /// <summary>"15.000,50" / "15000.5" / "$ 15000" → 15000,50</summary>
+    private decimal Monto => Plata.TryLeer(montoTexto, out var v) && v > 0 ? Math.Round(v, 2) : 0;
+
+    private RenderFragment Cuerpo => __builder =>
+    {
+        @* ---- saldo ---- *@
+        <div class="cp-saldo @(Saldo > 0 ? "is-debe" : Saldo < 0 ? "is-favor" : "is-cero")">
+            <span class="cp-saldo-lbl">@(Saldo > 0 ? "Le debés" : Saldo < 0 ? "A tu favor" : "Estás al día")</span>
+            <strong>$ @Math.Abs(Saldo).ToString("N2")</strong>
+            <small>Deudas $ @TotalDeuda.ToString("N2") · Entregado $ @TotalPagado.ToString("N2")</small>
+        </div>
+
+        @* ---- nuevo movimiento ---- *@
+        <div class="gp-seg cp-seg" role="group" aria-label="Tipo de movimiento">
+            <button type="button" class="cp-tab-pago @(tipo == ProveedorCuenta.Pago ? "is-active" : "")" @onclick="() => tipo = ProveedorCuenta.Pago"><i class="bi bi-cash-coin"></i> Registrar entrega</button>
+            <button type="button" class="cp-tab-deuda @(tipo == ProveedorCuenta.Deuda ? "is-active" : "")" @onclick="() => tipo = ProveedorCuenta.Deuda"><i class="bi bi-plus-circle"></i> Cargar deuda</button>
+        </div>
+
+        <div class="cf-grid" style="margin-top:.8rem">
+            <div>
+                <label class="cf-lbl">@(tipo == ProveedorCuenta.Pago ? "Monto que entregás" : "Monto que le debés") *</label>
+                <input class="gp-control js-monto" inputmode="decimal" placeholder="Ej: 15.000" @bind="montoTexto" @bind:event="oninput" />
+            </div>
+            @if (tipo == ProveedorCuenta.Pago)
+            {
+                <div>
+                    <label class="cf-lbl">Cómo le pagaste</label>
+                    <select class="gp-control" @bind="medio">
+                        @foreach (var m in Medios)
+                        {
+                            <option value="@m">@m</option>
+                        }
+                    </select>
+                </div>
+            }
+            <div>
+                <label class="cf-lbl">Fecha</label>
+                <input type="date" class="gp-control" @bind="fecha" />
+            </div>
+            <div class="cf-col-full">
+                <label class="cf-lbl">Nota (opcional)</label>
+                <input class="gp-control" maxlength="200" placeholder="@(tipo == ProveedorCuenta.Pago ? "Ej: le pagué a Juan, el repartidor" : "Ej: factura 0001-1234, mercadería del 20/10")" @bind="nota" />
+            </div>
+        </div>
+        @if (tipo == ProveedorCuenta.Pago && Monto > 0 && Saldo > 0 && Monto > Saldo)
+        {
+            <div class="gp-hint" style="margin-top:.5rem"><i class="bi bi-exclamation-triangle-fill"></i> Es más de lo que debés: te va a quedar $ @((Monto - Saldo).ToString("N2")) a favor.</div>
+        }
+        <div class="cf-form-actions">
+            <button type="button" class="gp-btn @(tipo == ProveedorCuenta.Pago ? "gp-btn-ok" : "gp-btn-ok cp-btn-deuda")" disabled="@(guardando || Monto <= 0)" @onclick="Guardar">
+                <i class="bi bi-check-lg"></i> @(guardando ? "Guardando..." : tipo == ProveedorCuenta.Pago ? "Guardar entrega" : "Guardar deuda")
+            </button>
+        </div>
+
+        @* ---- historial ---- *@
+        <div class="cf-section cp-hist-head">
+            <span><i class="bi bi-clock-history"></i> Historial de movimientos <small>(los últimos primero)</small></span>
+            @if (CantAnulados > 0)
+            {
+                <label><input type="checkbox" @bind="verAnulados" /> Ver anulados (@CantAnulados)</label>
+            }
+        </div>
+        @if (!string.IsNullOrEmpty(error))
+        {
+            <div class="gp-banner is-danger"><i class="bi bi-exclamation-octagon-fill"></i><p>@error</p></div>
+        }
+        else if (movs == null)
+        {
+            <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>Cargando...</p></div>
+        }
+        else if (!movs.Any())
+        {
+            <p class="gp-muted" style="margin:0">Todavía no hay movimientos con este proveedor.</p>
+        }
+        else
+        {
+            <ul class="cp-movs">
+                @foreach (var m in movs.Where(x => verAnulados || !x.EstaAnulado()))
+                {
+                    <li class="cp-mov @(m.EsPago() ? "is-pago" : "is-deuda") @(m.EstaAnulado() ? "is-anulado" : "")">
+                        <span class="cp-mov-ico"><i class="bi @(m.EsPago() ? "bi-arrow-down-circle-fill" : "bi-arrow-up-circle-fill")"></i></span>
+                        <div class="cp-mov-txt">
+                            <b>@(m.EsPago() ? "Entrega" : "Deuda")@(m.EsPago() && !string.IsNullOrWhiteSpace(m.Medio) ? " · " + m.Medio : "")</b>
+                            <small>@m.Fecha.ToString("dd/MM/yyyy")@(string.IsNullOrWhiteSpace(m.Nota) ? "" : " · " + m.Nota)</small>
+                            <span class="cp-quien"><i class="bi bi-person"></i> Cargó @(string.IsNullOrWhiteSpace(m.UsuarioNombre) ? "—" : m.UsuarioNombre)@(m.Creado is DateTime c ? " · " + Hora(c).ToString("dd/MM/yyyy HH:mm") : "")</span>
+                            @if (m.EstaAnulado())
+                            {
+                                <span class="cp-anul"><i class="bi bi-slash-circle"></i> Anulado por @(m.AnuladoPor ?? "—")@(m.AnuladoEl is DateTime a ? " el " + Hora(a).ToString("dd/MM/yyyy HH:mm") : "")@(string.IsNullOrWhiteSpace(m.AnuladoMotivo) ? "" : " · " + m.AnuladoMotivo)</span>
+                            }
+                        </div>
+                        <strong class="cp-mov-monto">@(m.EsPago() ? "−" : "+") $ @m.Monto.ToString("N2")</strong>
+                        @if (!m.EstaAnulado())
+                        {
+                            <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm gp-btn-icon" title="Anular este movimiento (queda en el historial)" @onclick="() => Anular(m)"><i class="bi bi-slash-circle"></i></button>
+                        }
+                    </li>
+                }
+            </ul>
+        }
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var fp = await Db.From<FormaPago>().Where(f => f.KioscoId == KioscoId).Get();
+            var nombres = fp.Models
+                .Where(f => f.Activo != false && !string.Equals(f.Nombre?.Trim(), "FIADO", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(f => f.Orden).Select(f => (f.Nombre ?? "").Trim().ToUpper()).Where(n => n != "").Distinct().ToList();
+            if (nombres.Any()) Medios = nombres;
+            medio = Medios.First();
+        }
+        catch { /* se usan EFECTIVO y TRANSFERENCIA */ }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // en la página se puede cambiar de proveedor sin cerrar
+        if (Proveedor != null && Proveedor.Id != cargadoDe)
+        {
+            cargadoDe = Proveedor.Id;
+            movs = null;
+            montoTexto = ""; nota = null; fecha = DateTime.Today;
+            await Cargar();
+        }
+    }
+
+    private async Task Cargar()
+    {
+        try
+        {
+            long k = KioscoId, prov = Proveedor.Id;
+            var res = await Db.From<ProveedorCuenta>()
+                .Where(m => m.KioscoId == k)
+                .Where(m => m.ProveedorId == prov)
+                .Order("fecha", Supabase.Postgrest.Constants.Ordering.Descending)
+                .Order("id", Supabase.Postgrest.Constants.Ordering.Descending)
+                .Get();
+            movs = res.Models ?? new();
+            error = "";
+        }
+        catch (Exception ex)
+        {
+            movs = new();
+            error = ex.Message.Contains("proveedores_cuenta")
+                ? "Falta correr el SQL de deudas con proveedores (_sql\\17.deudas_proveedores.sql)."
+                : ConfiguracionService.MensajeError(ex);
+        }
+    }
+
+    private async Task Guardar()
+    {
+        var monto = Monto;
+        if (monto <= 0) { avisos.Toast("Escribí el monto.", "peligro"); return; }
+
+        guardando = true;
+        try
+        {
+            await Db.From<ProveedorCuenta>().Insert(new ProveedorCuenta
+            {
+                KioscoId = KioscoId,
+                ProveedorId = Proveedor.Id,
+                Fecha = fecha.Date,
+                Tipo = tipo,
+                Monto = monto,
+                Medio = tipo == ProveedorCuenta.Pago ? medio : null,
+                Nota = string.IsNullOrWhiteSpace(nota) ? null : nota.Trim(),
+                UsuarioId = State.UsuarioId,
+                UsuarioNombre = State.UsuarioNombre       // queda quién lo cargó (script 35)
+            });
+            _ = avisos.GuardadoAsync(tipo == ProveedorCuenta.Pago ? $"Entrega de $ {monto:N2} guardada" : $"Deuda de $ {monto:N2} cargada");
+            montoTexto = ""; nota = null; fecha = DateTime.Today;
+            await Cargar();
+            await OnCambio.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            var msg = ConfiguracionService.MensajeError(ex);
+            if (ex.Message.Contains("usuario_nombre")) msg = "Falta correr el script 35 (_sql\\35.historial_cuenta_proveedores.sql).";
+            await avisos.InformarAsync("No se pudo guardar", msg, "peligro");
+        }
+        finally { guardando = false; }
+    }
+
+    /// <summary>No se borra: queda en el historial tachado, con quién lo anuló y cuándo. El saldo ya no lo cuenta.</summary>
+    private async Task Anular(ProveedorCuenta m)
+    {
+        if (!await avisos.ConfirmarAsync("¿Anular este movimiento?",
+                $"{(m.EsPago() ? "Entrega" : "Deuda")} de $ {m.Monto:N2} del {m.Fecha:dd/MM/yyyy}. Queda en el historial como ANULADO y el saldo se recalcula.", "Anular")) return;
+        try
+        {
+            long id = m.Id;
+            await Db.From<ProveedorCuenta>().Where(x => x.Id == id)
+                .Set(x => x.Anulado!, true)
+                .Set(x => x.AnuladoPor!, State.UsuarioNombre ?? "")
+                .Set(x => x.AnuladoEl!, DateTime.UtcNow)
+                .Update();
+            avisos.Toast("Movimiento anulado", "exito");
+            await Cargar();
+            await OnCambio.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            var msg = ex.Message.Contains("anulado") ? "Falta correr el script 35 (_sql\\35.historial_cuenta_proveedores.sql)." : ConfiguracionService.MensajeError(ex);
+            await avisos.InformarAsync("No se pudo anular", msg, "peligro");
+        }
+    }
+
+    private Task Cerrar() => OnCerrar.InvokeAsync();
+
+    /// <summary>
+    /// La base ya devuelve la hora de acá (sin marcar la zona): solo se convierte si viene marcada como UTC.
+    /// Antes se le restaban 3 horas de más.
+    /// </summary>
+    private static DateTime Hora(DateTime d) => d.Kind == DateTimeKind.Utc ? d.ToLocalTime() : d;
+
+    // ---------------- Comprobante PDF (para mostrarle al proveedor) ----------------
+    private async Task BajarComprobante()
+    {
+        if (movs == null || !movs.Any()) return;
+        generando = true;
+        try
+        {
+            var cult = System.Globalization.CultureInfo.GetCultureInfo("es-AR");
+            string P(decimal v) => "$ " + v.ToString("N2", cult);
+            var orden = movs.OrderBy(m => m.Fecha).ThenBy(m => m.Id).ToList();
+            decimal saldo = 0;
+            var filas = new List<object[]>();
+            foreach (var m in orden)
+            {
+                if (!m.EstaAnulado()) saldo += m.EsPago() ? -m.Monto : m.Monto;
+                var detalle = (m.EsPago() ? "Entrega" + (string.IsNullOrWhiteSpace(m.Medio) ? "" : " · " + m.Medio) : "Deuda")
+                              + (string.IsNullOrWhiteSpace(m.Nota) ? "" : "\n" + m.Nota)
+                              + (m.EstaAnulado() ? "\nANULADO" + (m.AnuladoEl is DateTime a ? " el " + Hora(a).ToString("dd/MM/yyyy") : "") : "");
+                filas.Add(new object[]
+                {
+                    m.Fecha.ToString("dd/MM/yyyy"), detalle,
+                    m.EsPago() ? "" : P(m.Monto), m.EsPago() ? P(m.Monto) : "",
+                    m.EstaAnulado() ? "—" : P(saldo)
+                });
+            }
+            var archivo = $"Cuenta {Proveedor.Nombre} {DateTime.Now:yyyy-MM-dd}.pdf";
+            foreach (var c in System.IO.Path.GetInvalidFileNameChars()) archivo = archivo.Replace(c, '_');
+            var datos = new
+            {
+                archivo,
+                grupos = new[]
+                {
+                    new
+                    {
+                        titulo = $"Cuenta con {Proveedor.Nombre}",
+                        columnas = new object[] { new { titulo = "Fecha", numerica = false, ancho = 66 }, new { titulo = "Movimiento", numerica = false, ancho = 0 },
+                                                  new { titulo = "Deuda", numerica = true, ancho = 75 }, new { titulo = "Entrega", numerica = true, ancho = 75 },
+                                                  new { titulo = "Saldo", numerica = true, ancho = 80 } },
+                        pedidos = new object[]
+                        {
+                            new { titulo = Saldo > 0 ? $"Le debemos {P(Saldo)}" : Saldo < 0 ? $"Saldo a nuestro favor {P(-Saldo)}" : "Cuenta al día",
+                                  fecha = "", subtitulo = $"{State.NombreNegocio} · al {DateTime.Now:dd/MM/yyyy HH:mm}", filas }
+                        }
+                    }
+                }
+            };
+            var js = await JS.InvokeAsync<IJSObjectReference>("import", "./_content/BlazorKioscoCompartido/js/descargas.js?v=4");
+            await js.InvokeVoidAsync("generarPdf", datos);
+            avisos.Toast("Comprobante descargado", "exito");
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo armar el comprobante", ex.Message, "peligro"); }
+        finally { generando = false; }
+    }
+}

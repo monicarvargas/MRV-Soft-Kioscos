@@ -1,0 +1,89 @@
+﻿@using BlazorKioscoCompartido.Models
+@inject Supabase.Client SupaClient
+@inject BlazorKioscoCompartido.Services.AppState State
+
+@code {
+    [Parameter] public Producto? ProductoInput { get; set; }
+
+    /// <summary>
+    /// Inserta el producto (omitimos Id) y devuelve el Id asignado por la BD.
+    /// Si el Insert no devuelve id, hace un lookup por kiosco_id + codigo_barras + nombre.
+    /// </summary>
+    public async Task<long> CrearAsync()
+    {
+        if (ProductoInput == null) return 0;
+
+        // Crear instancia de Producto (no asignar Id)
+        var nuevo = new Producto
+        {
+            KioscoId = ProductoInput.KioscoId,
+            CodigoBarras = ProductoInput.CodigoBarras,
+            Nombre = ProductoInput.Nombre,
+            Marca = ProductoInput.Marca,
+            FamiliaId = ProductoInput.FamiliaId,
+            SubfamiliaId = ProductoInput.SubfamiliaId,
+            SinRedondeo = ProductoInput.SinRedondeo,
+            AdmiteImporte = ProductoInput.AdmiteImporte,
+            BultoPrecio = ProductoInput.BultoPrecio,
+            BultoUnidades = ProductoInput.BultoUnidades,
+            BultoFecha = ProductoInput.BultoFecha,
+            ProveedorId = ProductoInput.ProveedorId,
+            PrecioCosto = ProductoInput.PrecioCosto,
+            UtilidadPV = ProductoInput.UtilidadPV,
+            PrecioVenta = ProductoInput.PrecioVenta,
+            UnidadMedida = ProductoInput.UnidadMedida,
+            VentaxPeso = ProductoInput.VentaxPeso,
+            PrecioLista2 = ProductoInput.PrecioLista2,
+            UtilidadLista2 = ProductoInput.UtilidadLista2,
+            PrecioLista3 = ProductoInput.PrecioLista3,
+            UtilidadLista3 = ProductoInput.UtilidadLista3,
+            PrecioVentaxMayor = ProductoInput.PrecioVentaxMayor,
+            UtilidadVentaxMayor = ProductoInput.UtilidadVentaxMayor,
+            CantxMayor = ProductoInput.CantxMayor,
+            StockActual = ProductoInput.StockActual,
+            StockMinimo = ProductoInput.StockMinimo,
+            StockIdeal = ProductoInput.StockIdeal,
+            Activo = ProductoInput.Activo,
+            FechaActualizacion = ProductoInput.FechaActualizacion
+        };
+
+        try
+        {
+            var resp = await SupaClient.From<Producto>().Insert(nuevo);
+            var created = resp?.Models?.FirstOrDefault();
+            long id = created?.Id ?? 0;
+
+            // Fallback: buscar por kiosco + codigo_barras
+            if (id == 0)
+            {
+                if (!string.IsNullOrWhiteSpace(ProductoInput.CodigoBarras))
+                {
+                    var q = await SupaClient.From<Producto>()
+                        .Where(p => p.KioscoId == ProductoInput.KioscoId)
+                        .Where(p => p.CodigoBarras == ProductoInput.CodigoBarras)
+                        .Get();
+
+                    id = q?.Models?.FirstOrDefault()?.Id ?? 0;
+                }
+
+                // Último recurso: buscar por nombre + kiosco (ILike)
+                if (id == 0 && !string.IsNullOrWhiteSpace(ProductoInput.Nombre))
+                {
+                    var q2 = await SupaClient.From<Producto>()
+                        .Where(p => p.KioscoId == ProductoInput.KioscoId)
+                        .Filter("nombre", Supabase.Postgrest.Constants.Operator.ILike, ProductoInput.Nombre)
+                        .Get();
+
+                    id = q2?.Models?.FirstOrDefault()?.Id ?? 0;
+                }
+            }
+
+            return id;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"ProductoCreator: error al insertar producto: {ex.Message}");
+            throw;
+        }
+    }
+}

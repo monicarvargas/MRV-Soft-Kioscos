@@ -1,0 +1,194 @@
+<AvisosPagina @ref="avisos" />
+
+<section class="gp-card gp-card-pad">
+    <div class="gp-card-head">
+        <span class="gp-bubble"><i class="bi bi-credit-card-2-front-fill"></i></span>
+        <div class="cf-head-text">
+            <h2>Formas de pago</h2>
+            <p>Las que aparecen al cobrar, en este orden.</p>
+        </div>
+        <button type="button" class="gp-btn gp-btn-primary gp-btn-sm cf-head-btn" @onclick="AbrirNuevo"><i class="bi bi-plus-lg"></i> Nueva forma de pago</button>
+    </div>
+
+    @if (formAbierto)
+    {
+    <div class="cf-modal-fondo" @onclick="CerrarForm">
+        <div class="cf-form cf-modal cf-m-pago @(editando.Id == 0 ? "" : "is-editing")" @onclick:stopPropagation="true" role="dialog" aria-modal="true">
+            <div class="cf-form-title">
+                <i class="bi @(editando.Id == 0 ? "bi-plus-circle-fill" : "bi-pencil-fill")"></i>
+                @(editando.Id == 0 ? "Nueva forma de pago" : "Editar forma de pago")
+            <button type="button" class="cf-modal-x" title="Cerrar" @onclick="CerrarForm"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="cf-grid">
+                <div>
+                    <label class="cf-lbl">Nombre *</label>
+                    <input class="gp-control cf-control" placeholder="ej: MERCADO PAGO, DÉBITO" @bind="editando.Nombre" disabled="@EsDefaultEditando" />
+                </div>
+                <div class="cf-switches">
+                    <label class="gp-switch">
+                        <input type="checkbox" @bind="pideComprobante" />
+                        <span class="gp-switch-track"></span>
+                        <span class="gp-switch-text">Pide comprobante</span>
+                    </label>
+                    <label class="gp-switch">
+                        <input type="checkbox" @bind="activo" />
+                        <span class="gp-switch-track"></span>
+                        <span class="gp-switch-text">Activa</span>
+                    </label>
+                </div>
+            </div>
+            <div class="cf-form-actions">
+                <button type="button" class="gp-btn gp-btn-outline" @onclick="CerrarForm">Cancelar</button>
+                <button type="button" class="gp-btn gp-btn-ok" disabled="@guardando" @onclick="Guardar">
+                    <i class="bi @(editando.Id == 0 ? "bi-plus-lg" : "bi-check-lg")"></i> @(editando.Id == 0 ? "Agregar" : "Guardar")
+                </button>
+            </div>
+        </div>
+    </div>
+    }
+
+    @if (!string.IsNullOrEmpty(error))
+    {
+        <div class="gp-banner is-danger"><i class="bi bi-exclamation-octagon-fill"></i><p>@error</p></div>
+    }
+
+    @if (lista == null)
+    {
+        <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>Cargando formas de pago...</p></div>
+    }
+    else
+    {
+        <div class="gp-table-wrap gp-stack-wrap">
+            <table class="gp-table gp-stack">
+                <thead><tr><th style="width:110px">Orden</th><th>Nombre</th><th class="t-center">Comprobante</th><th class="t-center">Estado</th><th class="t-center">Acciones</th></tr></thead>
+                <tbody>
+                    @if (!lista.Any())
+                    {
+                        <tr class="gp-empty-row">
+                            <td colspan="5">
+                                <div class="gp-empty">
+                                    <span class="gp-bubble"><i class="bi bi-credit-card"></i></span>
+                                    <strong>Todavía no hay formas de pago</strong>
+                                    <span>Cargá la primera con el formulario de arriba.</span>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                    @for (int i = 0; i < lista.Count; i++)
+                    {
+                        var f = lista[i]; var idx = i;
+                        var esDefault = EsDefault(f);
+                        <tr class="@(f.Activo == false ? "is-off" : "") @(editando.Id == f.Id ? "is-selected" : "")">
+                            <td data-label="Orden">
+                                <div class="cf-order">
+                                    <button type="button" class="gp-btn gp-btn-outline gp-btn-sm gp-btn-icon" title="Subir" disabled="@(idx == 0)" @onclick="() => Mover(idx, -1)"><i class="bi bi-arrow-up"></i></button>
+                                    <button type="button" class="gp-btn gp-btn-outline gp-btn-sm gp-btn-icon" title="Bajar" disabled="@(idx == lista.Count - 1)" @onclick="() => Mover(idx, 1)"><i class="bi bi-arrow-down"></i></button>
+                                </div>
+                            </td>
+                            <td class="gp-td-main" data-label="Nombre">
+                                <span class="gp-product">@f.Nombre</span>
+                                @if (esDefault) { <span class="cf-tag">por defecto</span> }
+                            </td>
+                            <td class="t-center" data-label="Comprobante">
+                                <span class="gp-pill @(f.PideComprobante == true ? "cf-pill-admin" : "cf-pill-neutral")">@(f.PideComprobante == true ? "Sí" : "No")</span>
+                            </td>
+                            <td class="t-center" data-label="Estado">
+                                <span class="gp-pill @(f.Activo == false ? "cf-pill-off" : "is-env")">@(f.Activo == false ? "Inactiva" : "Activa")</span>
+                            </td>
+                            <td class="t-center gp-td-actions" data-label="">
+                                <div class="gp-cell-actions">
+                                    <button type="button" class="gp-btn gp-btn-soft gp-btn-sm gp-btn-icon" title="Editar" @onclick="() => Editar(f)"><i class="bi bi-pencil-fill"></i></button>
+                                    @if (!esDefault)
+                                    {
+                                        <button type="button" class="gp-btn gp-btn-danger-soft gp-btn-sm gp-btn-icon" title="Eliminar" @onclick="() => Eliminar(f)"><i class="bi bi-trash3-fill"></i></button>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <div class="gp-hint cf-foot-note"><i class="bi bi-info-circle-fill"></i> Las formas de pago por defecto no se borran: si no las usás, desactivalas.</div>
+    }
+</section>
+
+@code {
+    bool formAbierto;
+    void AbrirNuevo() { Limpiar(); formAbierto = true; }
+    void CerrarForm() { Limpiar(); formAbierto = false; }
+    [Parameter] public long KioscoId { get; set; }
+
+    private AvisosPagina avisos = default!;
+    List<FormaPago>? lista;
+    FormaPago editando = new();
+    bool pideComprobante, activo = true, guardando;
+    string error = "";
+
+    static bool EsDefault(FormaPago f) =>
+        ConfiguracionService.FormasPagoDefault.Any(n => string.Equals(f.Nombre?.Trim(), n, StringComparison.OrdinalIgnoreCase));
+    bool EsDefaultEditando => editando.Id != 0 && EsDefault(editando);
+
+    protected override async Task OnParametersSetAsync() { Limpiar(); await Cargar(); }
+
+    async Task Cargar()
+    {
+        try { lista = await Config.GetFormasPago(KioscoId); error = ""; }
+        catch (Exception ex) { error = ConfiguracionService.MensajeError(ex); }
+    }
+
+    void Limpiar() { editando = new FormaPago { KioscoId = KioscoId }; pideComprobante = false; activo = true; }
+
+    void Editar(FormaPago f)
+    {
+        formAbierto = true;
+        editando = new FormaPago { Id = f.Id, KioscoId = f.KioscoId, Nombre = f.Nombre, Orden = f.Orden, FechaCreacion = f.FechaCreacion };
+        pideComprobante = f.PideComprobante == true;
+        activo = f.Activo != false;
+    }
+
+    async Task Guardar()
+    {
+        if (string.IsNullOrWhiteSpace(editando.Nombre)) { avisos.Toast("El nombre es obligatorio.", "peligro"); return; }
+        editando.Nombre = editando.Nombre.Trim().ToUpper();
+        if (lista!.Any(x => x.Id != editando.Id && string.Equals(x.Nombre, editando.Nombre, StringComparison.OrdinalIgnoreCase)))
+        { avisos.Toast("Ya existe una forma de pago con ese nombre.", "peligro"); return; }
+
+        editando.PideComprobante = pideComprobante;
+        editando.Activo = activo;
+        if (editando.Id == 0) editando.Orden = lista!.Count == 0 ? 1 : lista.Max(x => x.Orden) + 1;
+
+        guardando = true;
+        try
+        {
+            await Config.Guardar(editando, editando.Id == 0);
+            _ = avisos.GuardadoAsync("Forma de pago guardada");
+            Limpiar(); formAbierto = false;
+            await Cargar();
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo guardar", ConfiguracionService.MensajeError(ex), "peligro"); }
+        finally { guardando = false; }
+    }
+
+    async Task Mover(int idx, int dir)
+    {
+        var a = lista![idx]; var b = lista[idx + dir];
+        lista[idx] = b; lista[idx + dir] = a;
+        try
+        {
+            // renumera todo para que quede prolijo (1,2,3...)
+            for (int i = 0; i < lista.Count; i++)
+            {
+                if (lista[i].Orden != i + 1) { lista[i].Orden = i + 1; await Config.Guardar(lista[i], false); }
+            }
+        }
+        catch (Exception ex) { avisos.Toast(ConfiguracionService.MensajeError(ex), "peligro"); await Cargar(); }
+    }
+
+    async Task Eliminar(FormaPago f)
+    {
+        if (!await avisos.ConfirmarAsync($"¿Eliminar {f.Nombre}?", "Se borra la forma de pago. No se puede deshacer.", "Eliminar")) return;
+        try { await Config.Eliminar(f); avisos.Toast("Forma de pago eliminada", "exito"); await Cargar(); }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo eliminar", ConfiguracionService.MensajeError(ex), "peligro"); }
+    }
+}

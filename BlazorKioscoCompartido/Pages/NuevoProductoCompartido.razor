@@ -1,546 +1,544 @@
-﻿@inject Supabase.Client SupaClient
+@using BlazorKioscoCompartido.Constants
+@using BlazorKioscoCompartido.Models
+@using BlazorKioscoCompartido.Components
+@inject Supabase.Client SupaClient
 @inject NavigationManager Nav
 @inject BlazorKioscoCompartido.Services.AppState State
 @inject PrecioService PrecioServ
-@using BlazorKioscoCompartido.Constants
-@using BlazorKioscoCompartido.Models
 @using System.Globalization
 
-<div class="container-fluid px-3 py-2 bg-light min-vh-100 style-notebook mb-5">
+<PedidosEstilos />
+<ConfigEstilos />
+<ProductoEstilos />
+<AvisosPagina @ref="avisos" />
+<AltaRapida @ref="altaFamilia" OnCreado="FamiliaCreada" />
+<AltaRapida @ref="altaProveedor" OnCreado="ProveedorCreado" />
 
-    @* === ENCABEZADO === *@
-    <div class="d-flex justify-content-between align-items-center mb-2 bg-white p-2 rounded-3 shadow-sm border-start border-success border-4">
-        <div class="d-flex align-items-center">
-            <div class="bg-success text-white p-2 rounded-3 me-2 d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;">
-                <i class="bi bi-plus-circle fs-4"></i>
+<div class="container-fluid px-3 py-2 min-vh-100 style-notebook gp-scope gp-page">
+    <EncabezadoPagina Titulo="Nuevo producto"
+                      Subtitulo="Cargá un artículo nuevo al sistema"
+                      IconoClass="bi-plus-circle-fill"
+                      ColorBorde="success"
+                      ColorIcono="success"
+                      MostrarBotonAyuda="false"
+                      RutaVolver="/productos" />
+
+    <div class="pp-wrap pp-stack">
+
+        @if (origen != null)
+        {
+            <div class="gp-banner" style="margin:0">
+                <i class="bi bi-copy"></i>
+                <p>Variante de <b>@origen.Nombre</b>: se copiaron los precios, la familia y los proveedores. Cambiá el <b>nombre</b> (aroma, color, sabor...) y escaneá el <b>código</b> de esta variante.</p>
             </div>
-            <div>
-                <h4 class="mb-0 fw-bold text-dark-custom">Nuevo Producto</h4>
-                <span class="text-success fw-bold text-uppercase x-small-text">Carga un nuevo artículo al sistema.</span>
-            </div>
-        </div>
-    </div>
+        }
 
-    <div class="row g-2">
-        @* ======================================================= *@
-        @* BLOQUE 1: DATOS PRINCIPALES                             *@
-        @* ======================================================= *@
-        <div class="col-12">
-            <div class="card shadow-sm border-0 rounded-3">
-                <div class="card-header bg-white py-2 border-bottom">
-                    <span class="fw-bold titulo-seccion text-success"><i class="bi bi-card-text me-2"></i>Datos Principales del Artículo</span>
-                </div>
-                <div class="card-body p-3">
-                    <div class="row g-2 mb-2">
-                        <div class="col-12 col-md-4">
-                            <label class="form-label x-small-text fw-bold text-dark-custom mb-1">
-                                <i class="bi bi-barcode me-1 text-success"></i>Código (Cód. Barra)
-                            </label>
-                            <div class="input-group border rounded-3 overflow-hidden border-secondary">
-                                <span class="input-group-text bg-light border-0 text-dark-custom fw-bold"><i class="bi bi-upc"></i></span>
-                                <input type="text"
-                                       class="form-control border-0 fw-bold text-dark-custom fs-6"
-                                       value="@producto.CodigoBarras"
-                                       @onchange="BuscarProductoPorCodigo" />
-                            </div>
-                        </div>
-                        <div class="col-12 col-md-8">
-                            <label class="form-label x-small-text fw-bold text-dark-custom mb-1"><i class="bi bi-blockquote-left me-1 text-success"></i>Descripción / Nombre</label>
-                            <div class="input-group border rounded-3 overflow-hidden border-secondary">
-                                <span class="input-group-text bg-light border-0 text-dark-custom fw-bold"><i class="bi bi-tag"></i></span>
-                                <input type="text" class="form-control border-0 fw-bold text-dark-custom fs-6" placeholder="Ej: Alfajor Milka 55g" @bind="producto.Nombre" />
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="row g-2">
-                        <div class="col-12 col-md-4">
-                            <label class="form-label x-small-text fw-bold text-dark-custom mb-1"><i class="bi bi-folder2 me-1 text-success"></i>Familia / Categoría</label>
-                            <div class="input-group border rounded-3 overflow-hidden border-secondary">
-                                <span class="input-group-text bg-light border-0 text-dark-custom fw-bold"><i class="bi bi-bookmark"></i></span>
-                                <select class="form-select border-0 text-dark-custom fw-bold fs-6" @bind="producto.FamiliaId">
-                                    <option value="0">-- Seleccione Familia --</option>
-                                    @foreach (var fam in familias)
-                                    {
-                                        <option value="@fam.Id">@fam.Nombre</option>
-                                    }
-                                </select>
-                            </div>
-                        </div>
-                        <div class="col-12 col-md-4">
-                            <label class="form-label x-small-text fw-bold text-dark-custom mb-1"><i class="bi bi-truck me-1 text-success"></i>Proveedor</label>
-                            <div class="input-group border rounded-3 overflow-hidden border-secondary">
-                                <span class="input-group-text bg-light border-0 text-dark-custom fw-bold"><i class="bi bi-person-badge"></i></span>
-                                <select class="form-select border-0 text-dark-custom fw-bold fs-6" @bind="producto.ProveedorId">
-                                    <option value="0">-- Seleccione Proveedor --</option>
-                                    @foreach (var prov in proveedores)
-                                    {
-                                        <option value="@prov.Id">@prov.Nombre</option>
-                                    }
-                                </select>
-                            </div>
-                        </div>
-                        <div class="col-12 col-md-4">
-                            <label class="form-label x-small-text fw-bold text-dark-custom mb-1"><i class="bi bi-award me-1 text-success"></i>Marca</label>
-                            <div class="input-group border rounded-3 overflow-hidden border-secondary">
-                                <span class="input-group-text bg-light border-0 text-dark-custom fw-bold"><i class="bi bi-registered"></i></span>
-                                <input type="text" class="form-control border-0 text-dark-custom fw-bold fs-6" placeholder="Ej: Terrabusi" @bind="producto.Marca" />
-                            </div>
-                        </div>
-                    </div>
+        @* ================= DATOS DEL ARTÍCULO ================= *@
+        <section class="gp-card gp-card-pad">
+            <div class="gp-card-head">
+                <span class="gp-bubble"><i class="bi bi-box-seam-fill"></i></span>
+                <div class="cf-head-text">
+                    <h2>Datos del artículo</h2>
+                    <p>Si escaneás un código que ya existe, te ofrezco abrirlo para editar.</p>
                 </div>
             </div>
-        </div>
 
-        @* ======================================================= *@
-        @* BLOQUE 2: PRECIOS Y COSTOS (Mismo diseño lindo)         *@
-        @* ======================================================= *@
-        <div class="col-12">
-            <div class="card shadow-sm border-0 rounded-3 card-rentabilidad">
-                <div class="card-body p-3">
-                    <div class="row g-2 align-items-center">
-                        <div class="col-6 col-md-4">
-                            <div class="p-2 border rounded-3 bg-white border-primary-custom shadow-sm">
-                                <label class="form-label text-primary fw-bold mb-1 d-block fs-6 shadow-text">
-                                    <i class="bi bi-currency-dollar"></i> Precio Costo ($)
-                                </label>
-                                <input type="text" class="form-control form-control-lg border-0 fw-black p-0 text-dark-custom fs-3"
-                                       value="@((producto.PrecioCosto ?? 0).ToString("#,##0.00", argCulture))"
-                                       @onchange="CalcularPrecioVentaCosto" />
-                            </div>
-                        </div>
+            <div class="cf-grid">
+                <div>
+                    <label class="cf-lbl">Código de barras</label>
+                    <div class="pp-icon-input pp-codigo">
+                        <i class="bi bi-upc-scan"></i>
+                        <input type="text" class="gp-control" placeholder="Escaneá o escribí"
+                               value="@producto.CodigoBarras" @onchange="BuscarProductoPorCodigo" />
+                    </div>
+                    @if (string.IsNullOrWhiteSpace(producto.CodigoBarras))
+                    {
+                        <button type="button" class="pp-crear-cod" disabled="@creandoCodigo" @onclick="CrearCodigoPropio"
+                                title="Para productos sueltos que no traen código (gomitas, fiambre...). Después imprimís la etiqueta en Carteles → Códigos de barras.">
+                            <i class="bi bi-magic"></i> @(creandoCodigo ? "Creando..." : "No tiene: crear un código")
+                        </button>
+                    }
+                </div>
+                <div class="cf-col-2 pp-nombre">
+                    <label class="cf-lbl">Descripción / nombre *</label>
+                    <input type="text" class="gp-control" placeholder="Ej: Alfajor Milka 55g" @bind="producto.Nombre" />
+                </div>
 
-                        <div class="col-6 col-md-3">
-                            <div class="p-2 border rounded-3 bg-white border-dark shadow-sm">
-                                <label class="form-label text-dark-custom fw-bold mb-1 fs-6"><i class="bi bi-graph-up-arrow text-success"></i> Utilidad %</label>
-                                <div class="input-group border-0">
-                                    <input type="number" class="form-control border-0 fw-black p-0 text-dark-custom fs-3" @bind="producto.UtilidadPV" @oninput="CalcularPrecioVentaMargen" />
-                                    <span class="bg-white border-0 text-dark-custom fw-black ps-1 fs-3">%</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="col-12 col-md-5 mt-2 mt-md-0">
-                            <div class="p-2 border rounded-3 card-final-price shadow text-end pe-4">
-                                <label class="form-label fw-black text-success text-uppercase mb-1 d-block fs-5"><i class="bi bi-cash-stack"></i> Precio Venta FINAL ($)</label>
-                                <div class="d-flex align-items-center justify-content-end">
-                                    <span class="fs-2 fw-black text-success me-2">$</span>
-                                    <input type="text" class="form-control form-control-lg border-0 fw-black text-success text-end bg-transparent p-0 fs-2" style="width: 80%;"
-                                           value="@((producto.PrecioVenta ?? 0).ToString("#,##0.00", argCulture))"
-                                           @onchange="@(e => CalcularMargenDesdeVenta(e, "Principal"))" />
-                                </div>
-                            </div>
-                        </div>
+                <div>
+                    <label class="cf-lbl">Familia / categoría</label>
+                    <div class="sf-fila">
+                        <select class="gp-control" @bind="producto.FamiliaId" @bind:after="CambioFamilia">
+                            <option value="0">-- Elegí --</option>
+                            @foreach (var fam in familias)
+                            {
+                                <option value="@fam.Id">@fam.Nombre</option>
+                            }
+                        </select>
+                        <button type="button" class="gp-btn gp-btn-soft gp-btn-icon" title="Nueva familia" @onclick="() => altaFamilia.Abrir(AltaRapida.Tipo.Familia)"><i class="bi bi-plus-lg"></i></button>
                     </div>
                 </div>
-            </div>
-        </div>
+                <SelectorSubfamilia FamiliaId="producto.FamiliaId" FamiliaNombre="@(familias.FirstOrDefault(f => f.Id == producto.FamiliaId)?.Nombre)" @bind-Value="producto.SubfamiliaId" @bind-Value:after="CambioGrupo" />
+                <div>
+                    <label class="cf-lbl">Proveedor principal</label>
+                    <div class="sf-fila">
+                        <select class="gp-control" @bind="producto.ProveedorId">
+                            <option value="0">-- Elegí --</option>
+                            @foreach (var prov in proveedores)
+                            {
+                                <option value="@prov.Id">@prov.Nombre</option>
+                            }
+                        </select>
+                        <button type="button" class="gp-btn gp-btn-soft gp-btn-icon" title="Nuevo proveedor" @onclick="() => altaProveedor.Abrir(AltaRapida.Tipo.Proveedor)"><i class="bi bi-plus-lg"></i></button>
+                    </div>
+                </div>
+                <div>
+                    <label class="cf-lbl">Marca</label>
+                    <input type="text" class="gp-control" placeholder="Ej: Terrabusi" @bind="producto.Marca" />
+                </div>
 
-        @* === TOGGLE PARA PANTALLAS CHICAS === *@
-        <div class="col-12 d-md-none text-center my-1">
-            <button type="button" class="btn btn-sm btn-outline-secondary w-100 rounded-3 py-2 fw-bold bg-white shadow-sm"
-                    @onclick="() => mostrarAvanzadoMobile = !mostrarAvanzadoMobile">
-                <i class="bi @(mostrarAvanzadoMobile ? "bi-chevron-up" : "bi-sliders") me-1"></i>
-                @(mostrarAvanzadoMobile ? "Ocultar Opciones Avanzadas" : "Ver Más Listas y Configurar Stock")
+                <div class="cf-col-full">
+                    <label class="cf-lbl">Se vende por</label>
+                    <div class="gp-seg pp-units" role="group" aria-label="Unidad de medida">
+                        @foreach (var unidad in Unidades.ParaElegir(State.UnidadesNegocio, producto.UnidadMedida))
+                        {
+                            <button type="button" class="@(EsUnidad(unidad) ? "is-active" : "")" @onclick="() => CambiarUnidad(unidad)">
+                                <i class="bi @IconoUnidad(unidad)"></i> @TextoUnidad(unidad)
+                            </button>
+                        }
+                    </div>
+                    @if (producto.IsMedidaKilos())
+                    {
+                        <div class="gp-hint" style="margin-top:.55rem"><i class="bi bi-info-circle-fill"></i> El costo y los precios de venta van <b>por kilo</b>. Al vender se pesa en gramos.</div>
+                    }
+                    else if (producto.IsMedidaGramos())
+                    {
+                        <div class="gp-hint" style="margin-top:.55rem"><i class="bi bi-info-circle-fill"></i> El costo se carga por kilo y el precio de venta se muestra cada 100 g.</div>
+                    }
+                </div>
+            </div>
+        </section>
+
+        @* ================= PRECIOS ================= *@
+        <section class="gp-card gp-card-pad">
+            <div class="gp-card-head">
+                <span class="gp-bubble"><i class="bi bi-currency-dollar"></i></span>
+                <div class="cf-head-text">
+                    <h2>Precios</h2>
+                    <p>Cambiá el costo o la utilidad y el precio de venta se calcula solo (o al revés).</p>
+                </div>
+            </div>
+            <PreciosProducto @ref="preciosRef" Producto="producto" OnCambio="StateHasChanged" UtilidadSugerida="UtilidadDelGrupo" GrupoSugerido="@NombreGrupo" />
+        </section>
+
+        @* ================= PRECIOS POR CANTIDAD (packs) ================= *@
+        @if (listo)
+        {
+            <PreciosPorCantidad @ref="preciosCantRef" Producto="producto" CopiarDeProductoId="@(origen?.Id ?? 0)" />
+        }
+
+        @* ================= STOCK ================= *@
+        <section class="gp-card gp-card-pad">
+            <div class="gp-card-head">
+                <span class="gp-bubble"><i class="bi bi-boxes"></i></span>
+                <div class="cf-head-text">
+                    <h2>Stock inicial</h2>
+                    <p>Cuánto tenés hoy y cuándo avisarte que se está terminando @producto.ObtenerTituloModoPesoVenta().</p>
+                </div>
+            </div>
+            <div class="pp-stock">
+                <label class="pp-tile is-main">
+                    <span class="pp-tile-label"><i class="bi bi-box-fill"></i> Stock actual @if (hayBultos && !producto.EsVentaPorPeso()) { <span class="pp-xunidad">x unidad</span> }</span>
+                    <input type="number" inputmode="numeric" class="pp-big" onfocus="this.select()" @bind="producto.StockActual" @bind:event="oninput" />
+                        @if (producto.IsMedidaGramos()) { <span class="pp-kg">≈ @KgAprox(producto.StockActual)</span> }
+                    <span class="pp-help">@(hayBultos && !producto.EsVentaPorPeso() ? "Unidades sueltas que tenés ahora (no bultos)" : "La cantidad que tenés ahora")</span>
+                </label>
+                <label class="pp-tile">
+                    <span class="pp-tile-label"><i class="bi bi-graph-down-arrow"></i> Mínimo @if (hayBultos && !producto.EsVentaPorPeso()) { <span class="pp-xunidad">x unidad</span> }</span>
+                    <input type="number" inputmode="numeric" class="pp-big" onfocus="this.select()" @bind="producto.StockMinimo" @bind:event="oninput" />
+                        @if (producto.IsMedidaGramos()) { <span class="pp-kg">≈ @KgAprox(producto.StockMinimo)</span> }
+                    <span class="pp-help">Avisar si baja de esto</span>
+                </label>
+                <label class="pp-tile">
+                    <span class="pp-tile-label"><i class="bi bi-bullseye"></i> Ideal @if (hayBultos && !producto.EsVentaPorPeso()) { <span class="pp-xunidad">x unidad</span> }</span>
+                    <input type="number" inputmode="numeric" class="pp-big" onfocus="this.select()" @bind="producto.StockIdeal" @bind:event="oninput" />
+                        @if (producto.IsMedidaGramos()) { <span class="pp-kg">≈ @KgAprox(producto.StockIdeal)</span> }
+                    <span class="pp-help">Si hay más de esta cantidad no pedir</span>
+                </label>
+            </div>
+        </section>
+
+        @* ================= PROVEEDORES ================= *@
+        @if (listo)
+        {
+            <GestionProveedoresProducto @ref="gestionProvNuevoRef" ProductoId="@producto.Id" KioscoId="@State.KioscoId" UnidadesBultoProducto="@producto.BultoUnidades" CopiarDeProductoId="@(origen?.Id ?? 0)" OnBultosCambio="b => hayBultos = b" />
+        }
+        <ProductoCreator @ref="productoCreatorRef" ProductoInput="producto" />
+
+        @* ================= BOTONERA ================= *@
+        <div class="pp-actions">
+            <span class="pp-actions-info"><i class="bi bi-info-circle"></i> Los campos con * son obligatorios.</span>
+            <button type="button" class="gp-btn gp-btn-outline" @onclick="Volver"><i class="bi bi-x-lg"></i> Cancelar</button>
+            @if (origen != null)
+            {
+                <button type="button" class="gp-btn gp-btn-soft" disabled="@guardando" title="Guarda esta y abre otra variante igual para seguir cargando" @onclick="() => GuardarProducto(true)">
+                    <i class="bi bi-plus-square"></i> Crear y cargar otra variante
+                </button>
+            }
+            <button type="button" class="gp-btn gp-btn-ok" disabled="@guardando" @onclick="() => GuardarProducto(false)">
+                @if (guardando)
+                {
+                    <span class="gp-spinner" style="width:1.1rem;height:1.1rem;border-width:2px"></span> <span>Guardando...</span>
+                }
+                else
+                {
+                    <i class="bi bi-plus-circle-fill"></i> <span>Crear producto</span>
+                }
             </button>
         </div>
-
-        @* ======================================================= *@
-        @* SECCIÓN AVANZADA ADAPTATIVA                             *@
-        @* ======================================================= *@
-        <div class="col-12 @(mostrarAvanzadoMobile ? "d-block" : "d-none") d-md-block">
-            <div class="row g-2">
-                <div class="col-12">
-                    <div class="card shadow-sm border-0 rounded-3">
-                        <div class="card-header bg-white py-2 border-bottom">
-                            <span class="fw-bold titulo-seccion text-info-custom"><i class="bi bi-tags text-info-custom me-2"></i>Listas Adicionales</span>
-                        </div>
-                        <div class="card-body p-3 bg-light-custom">
-
-                            @if (nombreLista2 != "")
-                            {
-                                    <div class="row g-2 mb-3">
-                                        <div class="col-6 col-md-3">
-                                        <label class="form-label x-small-text fw-bold text-dark-custom mb-1">Utilidad @nombreLista2 %</label>
-                                        <div class="input-group border rounded-3 overflow-hidden bg-white border-secondary">
-                                            <input type="number" class="form-control border-0 fw-bold text-dark-custom fs-6" @bind="producto.UtilidadLista2" @oninput="CalcularPrecioVentaMargenLista2" />
-                                            <span class="input-group-text bg-white border-0 text-dark-custom fw-bold">%</span>
-                                        </div>
-                                    </div>
-                                    <div class="col-6 col-md-3">
-                                        <label class="form-label x-small-text fw-bold text-dark-custom mb-1">@nombreLista2</label>
-                                        <div class="input-group border rounded-3 overflow-hidden bg-white border-dark">
-                                            <span class="input-group-text bg-light border-0 text-dark-custom fw-bold">$</span>
-                                            <input type="text" class="form-control border-0 fw-black text-dark-custom fs-6"
-                                                   value="@((producto.PrecioLista2 ?? 0).ToString("#,##0.00", argCulture))"
-                                                   @onchange="@(e => CalcularMargenDesdeVenta(e, "Lista2"))" />
-                                        </div>
-                                    </div>
-                                    @* <div class="col-6 col-md-3">
-                                        <label class="form-label x-small-text fw-bold text-dark-custom mb-1">Utilidad L3 %</label>
-                                        <div class="input-group border rounded-3 overflow-hidden bg-white border-secondary">
-                                            <input type="number" class="form-control border-0 fw-bold text-dark-custom fs-6" @bind="producto.UtilidadLista3" @oninput="CalcularPrecioVentaMargenLista3" />
-                                            <span class="input-group-text bg-white border-0 text-dark-custom fw-bold">%</span>
-                                        </div>
-                                    </div>
-                                    <div class="col-6 col-md-3">
-                                        <label class="form-label x-small-text fw-bold text-dark-custom mb-1">Precio Lista 3</label>
-                                        <div class="input-group border rounded-3 overflow-hidden bg-white border-dark">
-                                            <span class="input-group-text bg-light border-0 text-dark-custom fw-bold">$</span>
-                                            <input type="text" class="form-control border-0 fw-black text-dark-custom fs-6"
-                                                   value="@((producto.PrecioLista3 ?? 0).ToString("#,##0.00", argCulture))"
-                                                   @onchange="@(e => CalcularMargenDesdeVenta(e, "Lista3"))" />
-                                        </div>
-                                    </div> *@
-                                </div>
-                            }
-                            <div class="row g-2">
-                                <div class="col-6 col-md-4">
-                                    <label class="form-label x-small-text fw-bold text-dark-custom mb-1">Utilidad x Mayor %</label>
-                                    <div class="input-group border rounded-3 overflow-hidden bg-white border-secondary">
-                                        <input type="number" class="form-control border-0 fw-bold text-dark-custom fs-6" @bind="producto.UtilidadVentaxMayor" @oninput="CalcularPrecioVentaMargenXMayor" />
-                                        <span class="input-group-text bg-white border-0 text-dark-custom fw-bold">%</span>
-                                    </div>
-                                </div>
-                                <div class="col-6 col-md-4">
-                                    <label class="form-label x-small-text fw-bold text-dark-custom mb-1">Precio x Mayor</label>
-                                    <div class="input-group border rounded-3 overflow-hidden bg-white border-dark">
-                                        <span class="input-group-text bg-light border-0 text-dark-custom fw-bold">$</span>
-                                        <input type="text" class="form-control border-0 fw-black text-dark-custom fs-6"
-                                               value="@((producto.PrecioVentaxMayor ?? 0).ToString("#,##0.00", argCulture))"
-                                               @onchange="@(e => CalcularMargenDesdeVenta(e, "XMayor"))" />
-                                    </div>
-                                </div>
-                                <div class="col-12 col-md-4">
-                                    <label class="form-label x-small-text fw-bold text-dark-custom mb-1">Cant x Mayor</label>
-                                    <div class="input-group border rounded-3 overflow-hidden bg-white border-secondary">
-                                        <span class="input-group-text bg-light border-0 text-dark-custom fw-bold"><i class="bi bi-boxes"></i></span>
-                                        <input type="number" class="form-control border-0 fw-bold text-dark-custom fs-6" @bind="producto.CantxMayor" />
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-12">
-                    <div class="card shadow-sm border-0 rounded-3">
-                        <div class="card-header bg-white py-2 border-bottom">
-                            <span class="fw-bold titulo-seccion text-success"><i class="bi bi-boxes me-2"></i>Inventario Inicial</span>
-                        </div>
-                        <div class="card-body p-3">
-                            <div class="row g-2 align-items-center">
-                                <div class="col-6 col-md-3">
-                                    @* <label class="form-label x-small-text fw-bold text-dark-custom mb-1">Stock Inicial</label> *@
-                                    <label class="form-label x-small-text fw-bold text-dark-custom mb-0">Stock Inicial</label>
-                                    <div class="form-text text-muted mb-1" style="font-size: 0.75rem;">
-                                        <i>(Indicar la cantidad existente)</i>
-                                    </div>
-                                    <div class="input-group border rounded-3 overflow-hidden bg-white border-success border-2 shadow-sm">
-                                        <span class="input-group-text bg-light border-0 text-success fw-bold"><i class="bi bi-box"></i></span>
-                                        <input type="number" class="form-control border-0 fw-black text-success fs-5" @bind="producto.StockActual" />
-                                    </div>
-                                </div>
-                                <div class="col-6 col-md-3">
-                                    @* <label class="form-label x-small-text fw-bold text-dark-custom mb-1">Stock Mínimo</label> *@
-                                    <label class="form-label x-small-text fw-bold text-dark-custom mb-0">Stock Mínimo</label>
-                                    <div class="form-text text-muted mb-1" style="font-size: 0.75rem;">
-                                        <i>(Avisar si el stock es menor a esta cantidad)</i>
-                                    </div>
-                                    <div class="input-group border rounded-3 overflow-hidden bg-white border-secondary">
-                                        <span class="input-group-text bg-light border-0 text-dark-custom"><i class="bi bi-graph-down"></i></span>
-                                        <input type="number" class="form-control border-0 text-dark-custom fw-bold fs-6" @bind="producto.StockMinimo" />
-                                    </div>
-                                </div>
-                                <div class="col-6 col-md-3">
-                                   @*  <label class="form-label x-small-text fw-bold text-dark-custom mb-1">Stock Ideal(Si hay mas de esta cantidad no avisar)</label> *@
-                                    <label class="form-label x-small-text fw-bold text-dark-custom mb-0">Stock Ideal</label>
-                                    <div class="form-text text-muted mb-1" style="font-size: 0.75rem;">
-                                        <i>(No avisar si el stock supera esta cantidad)</i>
-                                    </div>
-                                    <div class="input-group border rounded-3 overflow-hidden bg-white border-secondary">
-                                        <span class="input-group-text bg-light border-0 text-dark-custom"><i class="bi bi-bullseye"></i></span>
-                                        <input type="number" class="form-control border-0 text-dark-custom fw-bold fs-6" @bind="producto.StockIdeal" />
-                                    </div>
-                                </div>
-                                <div class="col-6 col-md-3">
-                                    <label class="form-label x-small-text fw-bold text-dark-custom mb-1">Unidad Medida</label>
-                                    <div class="input-group border rounded-3 overflow-hidden bg-white border-secondary">
-                                        <span class="input-group-text bg-light border-0 text-dark-custom"><i class="bi bi-rulers"></i></span>
-                                        <select class="form-select border-0 text-dark-custom fw-bold fs-6" @bind="producto.UnidadMedida">
-                                            <option value="">-- Seleccione unidad --</option>
-                                            @foreach (var unidad in Unidades.Lista)
-                                            {
-                                                <option value="@unidad">@unidad</option>
-                                            }
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="form-check mt-3 ps-4">
-                                <input class="form-check-input border-dark fs-5" type="checkbox" id="checkVentaPeso" @bind="producto.VentaxPeso">
-                                <label class="form-check-label text-dark-custom fw-black fs-6 ms-1" for="checkVentaPeso">
-                                    <i class="bi bi-balance-scale text-primary me-1"></i> Venta por Peso / Fraccionado
-                                </label>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    @* === BOTONERA ADAPTADA (Al final del scroll en celular) === *@
-    <div class="bg-white border-top rounded-3 p-3 d-flex justify-content-end gap-2 mt-3 shadow-sm">
-        <button type="button" class="btn btn-secondary px-4 py-2 rounded-3 fw-bold" @onclick="Volver">
-            <i class="bi bi-x-circle me-1"></i> Cancelar
-        </button>
-        <button type="button" class="btn btn-success px-5 py-2 rounded-3 fw-black shadow-sm fs-6"
-                style="background-color: #00875a; border: none;" @onclick="GuardarProducto">
-            <i class="bi bi-plus-circle-fill me-1"></i> CREAR PRODUCTO
-        </button>
     </div>
 </div>
 
-<style>
-    /* ... (Los mismos estilos .style-notebook, .fw-black, etc. de Editar) ... */
-    .style-notebook {
-        font-size: 0.95rem;
-        color: #111111;
-        padding-bottom: 30px;
-    }
-
-    .x-small-text {
-        font-size: 0.82rem;
-    }
-
-    .fw-black {
-        font-weight: 850;
-    }
-
-    .text-dark-custom {
-        color: #111111 !important;
-    }
-
-    .text-info-custom {
-        color: #007acc !important;
-    }
-
-    .bg-light-custom {
-        background-color: #fcfcfc !important;
-    }
-
-    .titulo-seccion {
-        font-size: 0.98rem;
-        font-weight: 750;
-    }
-
-    .border-primary-custom {
-        border-color: #0d6efd !important;
-        border-width: 2px !important;
-    }
-
-    .card-rentabilidad {
-        background-color: #f4f6f9;
-        border: 1px solid #ced4da;
-    }
-
-    .card-final-price {
-        background-color: #e8f5e9;
-        border: 2px solid #2e7d32 !important;
-    }
-</style>
-
 @code {
     [Parameter] public string? CodigoPrecargado { get; set; }
+    /// <summary>Ruta de edición: "/producto/editar" en el celular, "/producto/editar-desktop" en la PC.</summary>
+    [Parameter] public string RutaEditar { get; set; } = "/producto/editar";
 
+    private AvisosPagina avisos = default!;
     private Producto producto = new();
-    private bool mostrarAvanzadoMobile = false;
+    private Producto? origen;          // si se está creando una variante: el producto copiado
+    private bool listo;                // los proveedores se cargan cuando ya se sabe si es variante
+    private bool guardando;
 
     private List<Familia> familias = new();
     private List<Proveedor> proveedores = new();
+
+    // ---------- Alta rápida (familia / proveedor sin ir a Configuración) ----------
+    private AltaRapida altaFamilia = default!;
+    private AltaRapida altaProveedor = default!;
+
+    private void FamiliaCreada((long Id, string Nombre) f)
+    {
+        if (!familias.Any(x => x.Id == f.Id))
+        {
+            familias.Add(new Familia { Id = f.Id, KioscoId = State.KioscoId, Nombre = f.Nombre });
+            familias = familias.OrderBy(x => x.Nombre).ToList();
+        }
+        producto.FamiliaId = f.Id;
+        producto.SubfamiliaId = null;
+        _ = CambioGrupo();
+        avisos.Toast($"Familia {f.Nombre} lista", "exito", 1800);
+    }
+
+    // ---------- utilidad de la familia / subfamilia (Configuración → Familias, script 37) ----------
+    private PreciosProducto? preciosRef;
+    private List<Subfamilia> subfamiliasUtil = new();
+    private decimal? utilAutomatica;   // la que se puso sola al elegir el grupo (si no se tocó, sigue al grupo)
+
+    private decimal UtilidadDelGrupo => Subfamilia.Para(familias, subfamiliasUtil, producto?.FamiliaId, producto?.SubfamiliaId);
+
+    private string NombreGrupo
+    {
+        get
+        {
+            var s = subfamiliasUtil.FirstOrDefault(x => x.Id == producto?.SubfamiliaId);
+            if (s?.Utilidad != null) return s.Nombre;
+            var f = familias.FirstOrDefault(x => x.Id == producto?.FamiliaId);
+            return f?.Utilidad != null ? f.Nombre : "La general";
+        }
+    }
+
+    private async Task CargarSubfamiliasUtil()
+    {
+        try { long k = State.KioscoId; subfamiliasUtil = (await SupaClient.From<Subfamilia>().Where(s => s.KioscoId == k).Get()).Models ?? new(); }
+        catch { subfamiliasUtil = new(); }
+    }
+
+    private async Task CambioFamilia()
+    {
+        if (producto != null) producto.SubfamiliaId = null;
+        await CambioGrupo();
+    }
+
+    /// <summary>Nuevo producto: si la utilidad no se escribió a mano, toma la del grupo elegido.</summary>
+    private async Task CambioGrupo()
+    {
+        if (producto?.SubfamiliaId is long sid && !subfamiliasUtil.Any(s => s.Id == sid)) await CargarSubfamiliasUtil();
+        if (producto == null) return;
+        if ((producto.UtilidadPV ?? 0m) == 0m || producto.UtilidadPV == utilAutomatica)
+        {
+            var u = UtilidadDelGrupo;
+            if (preciosRef != null) preciosRef.AplicarUtilidad(u); else producto.UtilidadPV = u;
+            utilAutomatica = u;
+        }
+    }
+
+
+    private void ProveedorCreado((long Id, string Nombre) p)
+    {
+        if (!proveedores.Any(x => x.Id == p.Id))
+        {
+            proveedores.Add(new Proveedor { Id = p.Id, KioscoId = State.KioscoId, Nombre = p.Nombre });
+            proveedores = proveedores.OrderBy(x => x.Nombre).ToList();
+        }
+        producto.ProveedorId = p.Id;
+        avisos.Toast($"Proveedor {p.Nombre} listo", "exito", 1800);
+    }
     private CultureInfo argCulture = CultureInfo.GetCultureInfo("es-AR");
-    private string nombreLista2="";
+    private string nombreLista2 = "";
+
+    // referencias a componentes
+    private GestionProveedoresProducto? gestionProvNuevoRef;
+    private PreciosPorCantidad? preciosCantRef;
+    private ProductoCreator? productoCreatorRef;
 
     protected override async Task OnInitializedAsync()
     {
+        var responseFam = await SupaClient.From<Familia>().Where(f => f.KioscoId == State.KioscoId).Get();
+        familias = responseFam.Models.OrderBy(f => f.Nombre).ToList();
+
         producto = new Producto
         {
             KioscoId = State.KioscoId,
-            CodigoBarras = CodigoPrecargado ?? "", // Mapea el código de barra automáticamente si viene de la URL
+            CodigoBarras = CodigoPrecargado ?? "",
+            FamiliaId = FamiliaPorDefecto(),
             PrecioCosto = 0,
             UtilidadPV = 0,
             PrecioVenta = 0,
             StockActual = 0,
             StockMinimo = 0,
-            StockIdeal = 0
+            StockIdeal = 0,
+            UnidadMedida = "UNIDAD",
+            VentaxPeso = false,
+            Activo = true,
         };
 
-        var responseFam = await SupaClient.From<Familia>().Where(f => f.KioscoId == State.KioscoId).Get();
-        familias = responseFam.Models.OrderBy(f => f.Nombre).ToList();
-
         var responseProv = await SupaClient.From<Proveedor>().Where(p => p.KioscoId == State.KioscoId).Get();
-        proveedores = responseProv.Models.OrderBy(p => p.Nombre).ToList();
-
+        proveedores = responseProv.Models.Where(p => p.EstaActivo()).OrderBy(p => p.Nombre).ToList();   // sin los dados de baja
 
         nombreLista2 = await PrecioServ.ObtenerNombreColumnaAsync(State.KioscoId, "precio_lista2");
+
+        await CargarSubfamiliasUtil();
+        producto.UtilidadPV = utilAutomatica = UtilidadDelGrupo;   // arranca con la del grupo (o 40%)
+
+        await CargarVarianteAsync();   // una variante trae la utilidad del producto copiado
+        if (origen != null) utilAutomatica = null;
+        listo = true;
     }
 
-    // === MÉTODOS DE CÁLCULO IDÉNTICOS A EDICIÓN ===
-    private void CalcularPrecioVentaCosto(ChangeEventArgs e)
+    /// <summary>"/producto/nuevo?copiarDe=123": arranca con todo copiado del producto 123, menos el código y el stock.</summary>
+    private async Task CargarVarianteAsync()
     {
-        if (decimal.TryParse(e.Value?.ToString(), NumberStyles.Currency, argCulture, out decimal costo))
+        long copiarDe = 0;
+        var query = new Uri(Nav.Uri).Query.TrimStart('?');
+        foreach (var par in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
         {
-            producto.PrecioCosto = costo;
-            RecalcularTodasLasListas();
+            var kv = par.Split('=', 2);
+            if (kv.Length == 2 && kv[0].Equals("copiarDe", StringComparison.OrdinalIgnoreCase)) long.TryParse(kv[1], out copiarDe);
+        }
+        if (copiarDe <= 0) return;
+
+        try
+        {
+            long k = State.KioscoId;
+            var res = await SupaClient.From<Producto>().Where(p => p.Id == copiarDe).Where(p => p.KioscoId == k).Get();
+            origen = res.Models.FirstOrDefault();
+        }
+        catch { origen = null; }
+        if (origen == null) return;
+
+        producto = new Producto
+        {
+            KioscoId = State.KioscoId,
+            CodigoBarras = CodigoPrecargado ?? "",
+            Nombre = origen.Nombre,
+            Marca = origen.Marca,
+            FamiliaId = origen.FamiliaId,
+            SubfamiliaId = origen.SubfamiliaId,
+            SinRedondeo = origen.SinRedondeo,
+            AdmiteImporte = origen.AdmiteImporte,
+            BultoPrecio = origen.BultoPrecio,
+            BultoUnidades = origen.BultoUnidades,
+            BultoFecha = origen.BultoFecha,
+            ProveedorId = origen.ProveedorId,
+            PrecioCosto = origen.PrecioCosto,
+            UtilidadPV = origen.UtilidadPV,
+            PrecioVenta = origen.PrecioVenta,
+            PrecioLista2 = origen.PrecioLista2,
+            UtilidadLista2 = origen.UtilidadLista2,
+            PrecioLista3 = origen.PrecioLista3,
+            UtilidadLista3 = origen.UtilidadLista3,
+            PrecioVentaxMayor = origen.PrecioVentaxMayor,
+            UtilidadVentaxMayor = origen.UtilidadVentaxMayor,
+            CantxMayor = origen.CantxMayor,
+            UnidadMedida = string.IsNullOrWhiteSpace(origen.UnidadMedida) ? "UNIDAD" : origen.UnidadMedida,
+            VentaxPeso = origen.VentaxPeso,
+            StockActual = 0,
+            StockMinimo = origen.StockMinimo,
+            StockIdeal = origen.StockIdeal,
+            Activo = true,
+        };
+    }
+
+    private long FamiliaPorDefecto()
+    {
+        var familiaDefault = familias.FirstOrDefault(f =>
+            f.Nombre != null &&
+            (f.Nombre.Equals("Articulo", StringComparison.OrdinalIgnoreCase) ||
+             f.Nombre.Equals("Articulos", StringComparison.OrdinalIgnoreCase) ||
+             f.Nombre.Equals("Artículo", StringComparison.OrdinalIgnoreCase) ||
+             f.Nombre.Equals("Artículos", StringComparison.OrdinalIgnoreCase)));
+        return familiaDefault?.Id ?? familias.FirstOrDefault()?.Id ?? 0;
+    }
+
+    /// <summary>
+    /// Si quedó sin familia o sin proveedor ("-- Elegí --"), se ponen los de siempre: ARTICULOS y PROVEEDOR.
+    /// Así no falla al guardar (la base no acepta familia 0).
+    /// </summary>
+    private void CompletarFamiliaYProveedor()
+    {
+        if ((producto.FamiliaId ?? 0) <= 0)
+        {
+            var fam = familias.FirstOrDefault(f => f.Nombre != null &&
+                (new[] { "ARTICULOS", "ARTÍCULOS", "ARTICULO", "ARTÍCULO" }).Contains(f.Nombre.Trim().ToUpperInvariant()));
+            producto.FamiliaId = fam?.Id;          // si no existe, queda sin familia (no 0)
+            producto.SubfamiliaId = null;
+        }
+        if ((producto.ProveedorId ?? 0) <= 0)
+        {
+            var prov = proveedores.FirstOrDefault(p => string.Equals(p.Nombre?.Trim(), ConfiguracionService.ProveedorDefault, StringComparison.OrdinalIgnoreCase));
+            producto.ProveedorId = prov?.Id;       // si no existe, queda sin proveedor (no 0)
         }
     }
 
-    private void CalcularPrecioVentaMargen(ChangeEventArgs e)
+    // ---------- Unidad de medida ----------
+    private bool EsUnidad(string u) => string.Equals(producto.UnidadMedida, u, StringComparison.OrdinalIgnoreCase);
+
+    private void CambiarUnidad(string unidad)
     {
-        if (!decimal.TryParse(e.Value?.ToString(), out decimal margen)) return;
-        producto.UtilidadPV = margen;
-        producto.PrecioVenta = CalcularPrecioPorUtilidad(producto.PrecioCosto, producto.UtilidadPV);
+        producto.UnidadMedida = unidad;
+        producto.VentaxPeso = producto.IsMedidaGramos() || producto.IsMedidaKilos();
     }
 
-    private void CalcularPrecioVentaMargenLista2(ChangeEventArgs e)
-    {
-        if (!decimal.TryParse(e.Value?.ToString(), out decimal margen)) return;
-        producto.UtilidadLista2 = margen;
-        producto.PrecioLista2 = CalcularPrecioPorUtilidad(producto.PrecioCosto, producto.UtilidadLista2);
-    }
+    private static string TextoUnidad(string u) => Unidades.Nombre(u);
+    private static string IconoUnidad(string u) => Unidades.Icono(u);
 
-    private void CalcularPrecioVentaMargenLista3(ChangeEventArgs e)
+    // ---------- Código propio (productos sueltos sin código) ----------
+    private bool creandoCodigo;
+    private async Task CrearCodigoPropio()
     {
-        if (!decimal.TryParse(e.Value?.ToString(), out decimal margen)) return;
-        producto.UtilidadLista3 = margen;
-        producto.PrecioLista3 = CalcularPrecioPorUtilidad(producto.PrecioCosto, producto.UtilidadLista3);
-    }
-
-    private void CalcularPrecioVentaMargenXMayor(ChangeEventArgs e)
-    {
-        if (!decimal.TryParse(e.Value?.ToString(), out decimal margen)) return;
-        producto.UtilidadVentaxMayor = margen;
-        producto.PrecioVentaxMayor = CalcularPrecioPorUtilidad(producto.PrecioCosto, producto.UtilidadVentaxMayor);
-    }
-
-    private void RecalcularTodasLasListas()
-    {
-        producto.PrecioVenta = CalcularPrecioPorUtilidad(producto.PrecioCosto, producto.UtilidadPV);
-        producto.PrecioLista2 = CalcularPrecioPorUtilidad(producto.PrecioCosto, producto.UtilidadLista2);
-        producto.PrecioLista3 = CalcularPrecioPorUtilidad(producto.PrecioCosto, producto.UtilidadLista3);
-        producto.PrecioVentaxMayor = CalcularPrecioPorUtilidad(producto.PrecioCosto, producto.UtilidadVentaxMayor);
-    }
-
-    private decimal? CalcularPrecioPorUtilidad(decimal? precioCosto, decimal? utilidadLista)
-    {
-        if (precioCosto == null || utilidadLista == null) return null;
-        decimal precioSugerido = precioCosto.Value + (precioCosto.Value * (utilidadLista.Value / 100));
-        return State.UsarRedondeo ? Math.Ceiling(precioSugerido / State.MultiploRedondeo) * State.MultiploRedondeo : Math.Round(precioSugerido, 2);
-    }
-
-    private void CalcularMargenDesdeVenta(ChangeEventArgs e, string tipoLista)
-    {
-        if (!decimal.TryParse(e.Value?.ToString(), NumberStyles.Currency, argCulture, out decimal venta)) return;
-        if (producto.PrecioCosto == null || producto.PrecioCosto == 0) { AsignarUtilidadYPrecio(tipoLista, venta, 0); return; }
-        decimal margenCalculado = ((venta - producto.PrecioCosto.Value) / producto.PrecioCosto.Value) * 100;
-        AsignarUtilidadYPrecio(tipoLista, venta, Math.Round(margenCalculado, 2));
-    }
-
-    private void AsignarUtilidadYPrecio(string tipoLista, decimal venta, decimal margen)
-    {
-        switch (tipoLista)
+        creandoCodigo = true;
+        try
         {
-            case "Principal": producto.PrecioVenta = venta; producto.UtilidadPV = margen; break;
-            case "Lista2": producto.PrecioLista2 = venta; producto.UtilidadLista2 = margen; break;
-            case "Lista3": producto.PrecioLista3 = venta; producto.UtilidadLista3 = margen; break;
-            case "XMayor": producto.PrecioVentaxMayor = venta; producto.UtilidadVentaxMayor = margen; break;
+            producto.CodigoBarras = await CodigoBarras.CrearCodigoPropioAsync(SupaClient, State.KioscoId);
+            avisos.Toast("Código creado. Al guardar, imprimí la etiqueta en Carteles → Códigos de barras.", "exito", 4000);
         }
+        catch (Exception ex) { avisos.Toast("No se pudo crear el código: " + ex.Message, "peligro"); }
+        finally { creandoCodigo = false; }
     }
 
-    // private async Task GuardarProducto()
-    // {
-    //     if (string.IsNullOrWhiteSpace(producto.Nombre)) return;
-    //     producto.FechaActualizacion = DateTime.UtcNow;
-    //     await SupaClient.From<Producto>().Insert(producto);
-    //     Volver();
-    // }
-    private async Task GuardarProducto()
+    // ---------- Guardar ----------
+    private async Task GuardarProducto(bool otraVariante)
     {
-        if (string.IsNullOrWhiteSpace(producto.Nombre)) return;
+        if (string.IsNullOrWhiteSpace(producto.Nombre)) { avisos.Toast("Falta la descripción del producto.", "peligro"); return; }
+        if (origen != null)
+        {
+            if (string.Equals(producto.Nombre?.Trim(), origen.Nombre?.Trim(), StringComparison.OrdinalIgnoreCase))
+            { avisos.Toast("Cambiá el nombre: agregale el aroma, color o sabor de esta variante.", "peligro", 4500); return; }
+            if (string.IsNullOrWhiteSpace(producto.CodigoBarras) || producto.CodigoBarras.Trim() == origen.CodigoBarras?.Trim())
+            { avisos.Toast("Escaneá el código de barras de esta variante (no puede ser el mismo).", "peligro", 4500); return; }
+        }
 
-        producto.FechaActualizacion = DateTime.UtcNow;
+        CompletarFamiliaYProveedor();
+        guardando = true;
+        try
+        {
+            producto.FechaActualizacion = DateTime.UtcNow;
+            producto.VentaxPeso = producto.IsMedidaGramos() || producto.IsMedidaKilos();
 
-        // Usar Upsert actualiza si ya existe o inserta si es nuevo
-        await SupaClient.From<Producto>().Upsert(producto);
+            long idGuardado = 0;
 
-        Volver();
+            if (productoCreatorRef != null)
+            {
+                idGuardado = await productoCreatorRef.CrearAsync();
+            }
+            else
+            {
+                var respuesta = await SupaClient.From<Producto>().Upsert(producto);
+                var productoGuardado = respuesta?.Models?.FirstOrDefault() ?? producto;
+                idGuardado = productoGuardado?.Id ?? producto.Id;
+            }
+
+            if (idGuardado <= 0)
+            {
+                await avisos.InformarAsync("No se pudo crear", "No se obtuvo el número del producto nuevo. Revisá la conexión y probá de nuevo.", "peligro");
+                return;
+            }
+
+            if (gestionProvNuevoRef != null)
+            {
+                await gestionProvNuevoRef.GuardarCambiosProveedoresAsync(idGuardado);
+            }
+
+            // precios por cantidad (si falla, el producto ya quedó guardado)
+            if (preciosCantRef != null)
+            {
+                try { await preciosCantRef.GuardarAsync(idGuardado); }
+                catch (Exception exPc) { await avisos.InformarAsync("No se guardaron los precios por cantidad", exPc.Message, "aviso"); }
+            }
+
+            if (otraVariante && origen != null)
+            {
+                // recarga la página limpia, otra vez copiando del mismo producto
+                _ = avisos.GuardadoAsync($"Creado: {producto.Nombre}", milisegundos: 1400);
+                Nav.NavigateTo($"{new Uri(Nav.Uri).AbsolutePath}?copiarDe={origen.Id}&n={DateTime.Now.Ticks}", forceLoad: false);
+                origen = null; listo = false;
+                await OnInitializedAsync();
+                return;
+            }
+
+            guardando = false;
+            await avisos.GuardadoAsync($"Creado: {producto.Nombre}", milisegundos: 1400);   // se ve que se guardó y vuelve a la lista
+            Volver();
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudo crear", ex.Message, "peligro");
+        }
+        finally { guardando = false; }
     }
+
+    // ---------- Código existente ----------
     private async Task BuscarProductoPorCodigo(ChangeEventArgs e)
     {
         string codigoIngresado = e.Value?.ToString()?.Trim() ?? "";
         producto.CodigoBarras = codigoIngresado;
+        if (string.IsNullOrWhiteSpace(codigoIngresado)) return;
 
-        // Si el campo quedó vacío, reseteamos el formulario
-        if (string.IsNullOrWhiteSpace(codigoIngresado))
-        {
-            LimpiarFormulario(codigoIngresado);
-            return;
-        }
-
+        Producto? existente = null;
         try
         {
-            // Buscamos si existe un producto con el mismo código de barras en el kiosco actual
             var response = await SupaClient.From<Producto>()
                 .Where(p => p.KioscoId == State.KioscoId)
                 .Where(p => p.CodigoBarras == codigoIngresado)
-                .Single();
-
-            if (response != null)
-            {
-                // ¡EXISTE! Autocompletamos la pantalla con los datos encontrados
-                producto = response;
-            }
-            else
-            {
-                // NO EXISTE: Limpiamos los campos manteniendo el código tipeado
-                LimpiarFormulario(codigoIngresado);
-            }
+                .Get();
+            existente = response.Models.FirstOrDefault();
         }
-        catch (Exception)
+        catch { /* sin conexión: se sigue cargando como nuevo */ }
+
+        if (existente == null) return;
+
+        if (await avisos.ConfirmarAsync("Ese código ya existe",
+                $"Pertenece a: {existente.Nombre}\n¿Querés abrirlo para editarlo?", "Abrir para editar", "aviso", "Seguir cargando"))
         {
-            // En caso de que no encuentre filas o de algún error de red
-            LimpiarFormulario(codigoIngresado);
+            Nav.NavigateTo($"{RutaEditar}/{existente.Id}");
         }
     }
 
-    private void LimpiarFormulario(string codigo)
-    {
-        producto = new Producto
-        {
-            KioscoId = State.KioscoId,
-            CodigoBarras = codigo,
-            Nombre = "",
-            Marca = "",
-            FamiliaId = 0,
-            ProveedorId = 0,
-            PrecioCosto = 0,
-            UtilidadPV = 0,
-            PrecioVenta = 0,
-            UtilidadLista2 = 0,
-            PrecioLista2 = 0,
-            UtilidadLista3 = 0,
-            PrecioLista3 = 0,
-            UtilidadVentaxMayor = 0,
-            PrecioVentaxMayor = 0,
-            CantxMayor = 0,
-            StockActual = 0,
-            StockMinimo = 0,
-            StockIdeal = 0,
-            UnidadMedida = "",
-            VentaxPeso = false
-        };
-    }
+    // Stock en gramos: equivalente aproximado en kilos para que se entienda mejor (ej: 1250 → "1,25 kg")
+    private string KgAprox(int? gramos) => ((gramos ?? 0) / 1000m).ToString("#,##0.###", argCulture) + " kg";
+
+    // algún proveedor lo vende por bulto: el stock se aclara "x unidad" para no confundir
+    private bool hayBultos;
+
     private void Volver() => Nav.NavigateTo("/productos");
 }

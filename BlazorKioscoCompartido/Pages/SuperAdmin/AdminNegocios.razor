@@ -1,0 +1,711 @@
+﻿@page "/superadmin/negocios"
+@* @rendermode InteractiveServer *@
+@using BlazorKioscoCompartido.Components
+@using BlazorKioscoCompartido.Models
+@using BlazorKioscoCompartido.Services
+@inject ConfiguracionService Config
+@inject AppState State
+@inject NavigationManager Nav
+@inject Supabase.Client Db
+
+<PedidosEstilos />
+<ConfigEstilos />
+<AvisosPagina @ref="avisos" />
+
+<div class="container-fluid px-3 py-2 min-vh-100 style-notebook gp-scope gp-page">
+    <EncabezadoPagina Titulo="Negocios"
+                      Subtitulo="Alta y administración de los negocios del sistema"
+                      IconoClass="bi-buildings-fill"
+                      ColorBorde="primary"
+                      ColorIcono="primary"
+                      MostrarBotonAyuda="false"
+                      MostrarBotonVolver="false" />
+
+    @if (!EsSuperAdmin)
+    {
+        <div class="gp-card gp-card-pad">
+            <div class="gp-empty">
+                <span class="gp-bubble"><i class="bi bi-shield-lock-fill"></i></span>
+                <strong>No tenés permiso para entrar acá</strong>
+                <span>Esta página es solo para el usuario <b>superadmin</b>.</span>
+            </div>
+        </div>
+    }
+    else
+    {
+        <section class="gp-card gp-card-pad">
+            <div class="gp-card-head">
+                <span class="gp-bubble"><i class="bi bi-buildings-fill"></i></span>
+                <div class="cf-head-text">
+                    <h2>Negocios</h2>
+                    <p>Cada negocio entra con su código de vinculación.</p>
+                </div>
+            </div>
+
+            <div class="gp-toolbar cf-tools">
+                <div class="gp-search">
+                    <i class="bi bi-search"></i>
+                    <input type="text" class="gp-control" placeholder="Buscar por nombre, CUIT o código..." @bind="filtro" @bind:event="oninput" />
+                    @if (!string.IsNullOrEmpty(filtro))
+                    {
+                        <button type="button" class="gp-search-clear" title="Borrar búsqueda" @onclick='() => filtro = ""'><i class="bi bi-x-lg"></i></button>
+                    }
+                </div>
+                @if (planes.Any())
+                {
+                    <button type="button" class="gp-btn gp-btn-outline" title="Qué funciones trae cada plan" @onclick="AbrirPlanes"><i class="bi bi-stars"></i> Planes</button>
+                }
+                <button type="button" class="gp-btn gp-btn-primary cf-head-btn" @onclick="Nuevo"><i class="bi bi-plus-lg"></i> Alta de negocio</button>
+            </div>
+
+            @if (lista != null && !planes.Any() && !string.IsNullOrEmpty(errorPlanes))
+            {
+                <div class="gp-hint" style="margin-bottom:.6rem"><i class="bi bi-info-circle"></i> @errorPlanes</div>
+            }
+
+            @if (lista != null)
+            {
+                <div class="gp-toolbar">
+                    <div class="gp-seg" role="group" aria-label="Filtrar por estado">
+                        <button type="button" class="@(filtroEstado == "todos" ? "is-active" : "")" @onclick='() => filtroEstado = "todos"'>Todos <span class="gp-n">@lista.Count</span></button>
+                        <button type="button" class="@(filtroEstado == "activos" ? "is-active" : "")" @onclick='() => filtroEstado = "activos"'><span class="gp-dot is-env"></span> Activos <span class="gp-n">@lista.Count(k => k.Estado != false)</span></button>
+                        <button type="button" class="@(filtroEstado == "porvencer" ? "is-active" : "")" @onclick='() => filtroEstado = "porvencer"'><span class="gp-dot is-pend"></span> Por vencer <span class="gp-n">@lista.Count(k => Situacion(k) == "porvencer")</span></button>
+                        <button type="button" class="@(filtroEstado == "vencidos" ? "is-active" : "")" @onclick='() => filtroEstado = "vencidos"'><span class="gp-dot" style="background:var(--gp-danger)"></span> Vencidos <span class="gp-n">@lista.Count(k => Situacion(k) == "vencido")</span></button>
+                        <button type="button" class="@(filtroEstado == "inactivos" ? "is-active" : "")" @onclick='() => filtroEstado = "inactivos"'>Inactivos <span class="gp-n">@lista.Count(k => k.Estado == false)</span></button>
+                    </div>
+                </div>
+            }
+
+            @if (editando != null)
+            {
+                <div class="cf-form @(esNuevo ? "" : "is-editing")">
+                    <div class="cf-form-title">
+                        <i class="bi @(esNuevo ? "bi-plus-circle-fill" : "bi-pencil-fill")"></i>
+                        @(esNuevo ? "Alta de negocio" : $"Editando: {editando.NombreKiosco}")
+                    </div>
+
+                    <div class="cf-grid">
+                        <div class="cf-col-2">
+                            <label class="cf-lbl">Nombre del negocio *</label>
+                            <input class="gp-control" @bind="editando.NombreKiosco" />
+                        </div>
+                        <div>
+                            <label class="cf-lbl">CUIT / DNI</label>
+                            <input class="gp-control" @bind="editando.CuitDni" />
+                        </div>
+                        <div>
+                            <label class="cf-lbl">Código vinculación</label>
+                            <div class="cf-input-btn">
+                                <input class="gp-control" @bind="editando.CodigoVinculacion" placeholder="automático" />
+                                <button type="button" class="gp-btn gp-btn-outline gp-btn-icon" title="Generar otro código"
+                                        @onclick="() => editando.CodigoVinculacion = ConfiguracionService.GenerarCodigo()"><i class="bi bi-arrow-repeat"></i></button>
+                            </div>
+                        </div>
+
+                        @if (planes.Any())
+                        {
+                            <div>
+                                <label class="cf-lbl">Plan</label>
+                                <select class="gp-control" @bind="editando.PlanCodigo">
+                                    @foreach (var pl in planes)
+                                    {
+                                        <option value="@pl.Codigo">@pl.Nombre@(pl.Precio > 0 ? $" (${pl.Precio:N0})" : "")</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+                        <div>
+                            <label class="cf-lbl">Vencimiento abono *</label>
+                            <input type="date" class="gp-control" @bind="editando.FechaVencimientoAbono" />
+                        </div>
+                        <div>
+                            <label class="cf-lbl">Días de aviso antes</label>
+                            <input type="number" min="0" class="gp-control" @bind="editando.DiasAnticipacionAviso" />
+                        </div>
+                        <div class="cf-switches">
+                            <label class="gp-switch">
+                                <input type="checkbox" @bind="estadoActivo" />
+                                <span class="gp-switch-track"></span>
+                                <span class="gp-switch-text">Negocio activo</span>
+                            </label>
+                        </div>
+
+                        <div class="cf-col-full">
+                            <label class="cf-lbl">Notas administrativas</label>
+                            <textarea class="gp-control" rows="2" @bind="editando.NotasAdministrativas"></textarea>
+                        </div>
+                    </div>
+
+                    @if (esNuevo)
+                    {
+                        <div class="cf-section"><i class="bi bi-person-badge-fill"></i> Usuario admin del dueño <small>(opcional, lo podés crear después)</small></div>
+                        <div class="cf-grid">
+                            <div>
+                                <label class="cf-lbl">Usuario</label>
+                                <input class="gp-control" @bind="adminUser" autocomplete="off" />
+                            </div>
+                            <div>
+                                <label class="cf-lbl">Contraseña</label>
+                                <div class="cf-input-btn">
+                                    <input type="@(verPass ? "text" : "password")" class="gp-control" @bind="adminPass" autocomplete="new-password" />
+                                    <button type="button" class="gp-btn gp-btn-outline gp-btn-icon" title="@(verPass ? "Ocultar" : "Mostrar")" @onclick="() => verPass = !verPass">
+                                        <i class="bi @(verPass ? "bi-eye-slash-fill" : "bi-eye-fill")"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="gp-banner">
+                            <i class="bi bi-magic"></i>
+                            <p>
+                                Al guardar se crean automáticamente: proveedor <b>@ConfiguracionService.ProveedorDefault</b>,
+                                familias <b>@ConfiguracionService.FamiliaDefault</b> y <b>@ConfiguracionService.FamiliaCombos</b> y formas de pago
+                                <b>@string.Join(", ", ConfiguracionService.FormasPagoDefault)</b>.
+                            </p>
+                        </div>
+                    }
+
+                    <div class="cf-form-actions">
+                        <button type="button" class="gp-btn gp-btn-outline" @onclick="() => editando = null">Cancelar</button>
+                        <button type="button" class="gp-btn gp-btn-ok" disabled="@guardando" @onclick="Guardar">
+                            <i class="bi bi-check-lg"></i> @(guardando ? "Guardando..." : "Guardar")
+                        </button>
+                    </div>
+                </div>
+            }
+
+            @if (!string.IsNullOrEmpty(error))
+            {
+                <div class="gp-banner is-danger"><i class="bi bi-exclamation-octagon-fill"></i><p>@error</p></div>
+            }
+
+            @if (lista == null)
+            {
+                @if (string.IsNullOrEmpty(error))
+                {
+                    <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>Cargando negocios...</p></div>
+                }
+            }
+            else
+            {
+                <div class="gp-table-wrap gp-stack-wrap">
+                    <table class="gp-table gp-stack">
+                        <thead>
+                            <tr>
+                                <th>#</th><th>Negocio</th><th>CUIT / DNI</th><th>Código</th>@if (planes.Any()) { <th>Plan</th> }<th>Vence</th>
+                                <th class="t-center">Estado</th><th class="t-center">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (!Filtrados.Any())
+                            {
+                                <tr class="gp-empty-row">
+                                    <td colspan="@(planes.Any() ? 8 : 7)">
+                                        <div class="gp-empty">
+                                            <span class="gp-bubble"><i class="bi bi-buildings"></i></span>
+                                            <strong>No hay negocios</strong>
+                                            <span>@(lista.Any() ? "Ninguno coincide con la búsqueda o el filtro." : "Dá de alta el primero con “Alta de negocio”.")</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                            @foreach (var k in Filtrados)
+                            {
+                                var dias = DiasParaVencer(k);
+                                var sit = Situacion(k);
+                                <tr class="@(k.Estado == false ? "is-off" : "") @(!esNuevo && editando?.Id == k.Id ? "is-selected" : "")">
+                                    <td class="gp-td-code" data-label="#">@k.Id</td>
+                                    <td class="gp-td-main" data-label="Negocio">
+                                        <span class="gp-product">@k.NombreKiosco</span>
+                                        @if (k.Id == State.KioscoId) { <span class="cf-tag is-me">el tuyo</span> }
+                                    </td>
+                                    <td class="gp-num" data-label="CUIT / DNI">@(string.IsNullOrWhiteSpace(k.CuitDni) ? "—" : k.CuitDni)</td>
+                                    <td data-label="Código"><span class="cf-code">@(string.IsNullOrWhiteSpace(k.CodigoVinculacion) ? "—" : k.CodigoVinculacion)</span></td>
+                                    @if (planes.Any())
+                                    {
+                                        var extra = k.FuncionesExtra?.Count ?? 0;
+                                        var quit = k.FuncionesQuitadas?.Count ?? 0;
+                                        <td data-label="Plan">
+                                            <button type="button" class="pn-plan pn-plan-@k.PlanCodigo" title="Cambiar el plan o las funciones de este negocio" @onclick="() => AbrirFunciones(k)">
+                                                <i class="bi bi-stars"></i> @NombrePlan(k.PlanCodigo)
+                                                @if (extra > 0) { <small class="pn-mas">+@extra</small> }
+                                                @if (quit > 0) { <small class="pn-menos">−@quit</small> }
+                                            </button>
+                                        </td>
+                                    }
+                                    <td data-label="Vence">
+                                        <div class="cf-vence">
+                                            <span class="gp-nowrap">@(k.FechaVencimientoAbono?.ToString("dd/MM/yyyy") ?? "—")</span>
+                                            @if (sit == "vencido")
+                                            {
+                                                <span class="gp-pill cf-pill-off">Vencido</span>
+                                            }
+                                            else if (sit == "porvencer")
+                                            {
+                                                <span class="gp-pill cf-pill-warn">@(dias == 0 ? "Vence hoy" : $"Faltan {dias} d")</span>
+                                            }
+                                        </div>
+                                    </td>
+                                    <td class="t-center" data-label="Estado">
+                                        <span class="gp-pill @(k.Estado == false ? "cf-pill-neutral" : "is-env")">@(k.Estado == false ? "Inactivo" : "Activo")</span>
+                                    </td>
+                                    <td class="t-center gp-td-actions" data-label="">
+                                        <div class="gp-cell-actions">
+                                            <button type="button" class="gp-btn gp-btn-soft gp-btn-sm gp-btn-icon" title="Editar" @onclick="() => Editar(k)"><i class="bi bi-pencil-fill"></i></button>
+                                            <button type="button" class="gp-btn gp-btn-ok-soft gp-btn-sm gp-btn-icon" title="Datos base: crea proveedor, familias (ARTICULOS y COMBOS) y formas de pago si faltan"
+                                                    @onclick="() => Reparar(k)"><i class="bi bi-database-fill-check"></i></button>
+                                            <button type="button" class="gp-btn gp-btn-primary gp-btn-sm" title="Entrar a este negocio como admin, encargado o vendedor (modo soporte)"
+                                                    @onclick="() => verComo = k"><i class="bi bi-eye-fill"></i> Ver como</button>
+                                            <a class="gp-btn gp-btn-outline gp-btn-sm" title="Abrir la configuración de este negocio" href="/configuracion?KioscoId=@k.Id">
+                                                <i class="bi bi-gear-fill"></i> Config
+                                            </a>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+    }
+</div>
+
+@if (verComo != null)
+{
+    <div class="gp-scope gp-modal-backdrop" @onclick="() => verComo = null">
+        <div class="gp-modal" role="dialog" aria-modal="true" style="max-width: 26rem;" @onclick:stopPropagation="true">
+            <div class="gp-modal-head">
+                <div>
+                    <h3><i class="bi bi-eye-fill"></i> Ver como…</h3>
+                    <p>@verComo.NombreKiosco</p>
+                </div>
+                <button type="button" class="gp-btn gp-btn-ghost gp-btn-icon" title="Cerrar" @onclick="() => verComo = null"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="gp-modal-body">
+                <p class="gp-muted" style="margin:0 0 .8rem">Vas a ver el sistema tal como lo ve ese usuario. Arriba vas a tener un cartel para volver.</p>
+                <div class="vc-roles">
+                    <button type="button" class="vc-rol" @onclick='() => EntrarComo("admin")'>
+                        <i class="bi bi-person-gear"></i><span><b>Admin (dueño)</b><small>Todo, incluida la recaudación</small></span>
+                    </button>
+                    <button type="button" class="vc-rol" @onclick='() => EntrarComo("encargado")'>
+                        <i class="bi bi-person-badge"></i><span><b>Encargado/a</b><small>Todo menos recaudación, deudas y usuarios</small></span>
+                    </button>
+                    <button type="button" class="vc-rol" @onclick='() => EntrarComo("vendedor")'>
+                        <i class="bi bi-person"></i><span><b>Vendedor/a</b><small>Vender, productos y carteles</small></span>
+                    </button>
+                </div>
+                <div class="gp-banner" style="margin:.9rem 0 0; background:#fffbeb; border-color:#fcd34d; color:#92400e">
+                    <i class="bi bi-exclamation-triangle-fill" style="color:#d97706"></i>
+                    <p style="color:#92400e">Lo que hagas (ventas, precios, cambios) se guarda de verdad en ese negocio y queda a tu nombre.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* ================= FUNCIONES DE UN NEGOCIO ================= *@
+@if (funcionesDe != null)
+{
+    <div class="gp-scope gp-modal-backdrop" @onclick="() => funcionesDe = null">
+        <div class="gp-modal" role="dialog" aria-modal="true" style="max-width: 40rem;" @onclick:stopPropagation="true">
+            <div class="gp-modal-head">
+                <div>
+                    <h3><i class="bi bi-stars"></i> Plan y funciones</h3>
+                    <p>@funcionesDe.NombreKiosco</p>
+                </div>
+                <button type="button" class="gp-btn gp-btn-ghost gp-btn-icon" title="Cerrar" @onclick="() => funcionesDe = null"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="gp-modal-body">
+                <label class="cf-lbl">Plan</label>
+                <div class="pn-planes">
+                    @foreach (var pl in planes)
+                    {
+                        <button type="button" class="pn-opcion @(planElegido == pl.Codigo ? "is-active" : "")" @onclick="() => CambiarPlanElegido(pl.Codigo)">
+                            <b>@pl.Nombre</b>
+                            <small>@pl.Funciones.Count función(es)@(pl.Precio > 0 ? $" · $ {pl.Precio:N0}" : "")</small>
+                        </button>
+                    }
+                </div>
+
+                <label class="cf-lbl" style="margin-top:1rem">Funciones de este negocio</label>
+                <p class="gp-muted" style="margin:0 0 .5rem">Vender, Productos, Nuevo producto y Configuración están siempre. Tildá o destildá para hacer una excepción solo para este negocio.</p>
+                <ul class="pn-lista">
+                    @foreach (var f in FuncionesPlan.Todas)
+                    {
+                        var marcada = marcadas.Contains(f.Clave);
+                        var enPlan = FuncionesDelPlan(planElegido).Contains(f.Clave);
+                        <li class="@(marcada ? "is-on" : "")" @onclick="() => AlternarFuncion(f.Clave)">
+                            <i class="bi @(marcada ? "bi-check-square-fill" : "bi-square") pn-check"></i>
+                            <i class="bi @f.Icono pn-ico"></i>
+                            <span class="pn-txt"><b>@f.Nombre</b><small>@f.Detalle</small></span>
+                            @if (marcada && !enPlan) { <span class="pn-tag is-extra">extra</span> }
+                            else if (!marcada && enPlan) { <span class="pn-tag is-quitada">quitada</span> }
+                            else if (enPlan) { <span class="pn-tag">del plan</span> }
+                        </li>
+                    }
+                </ul>
+            </div>
+            <div class="cf-form-actions" style="padding: 0 1.2rem 1.2rem">
+                <button type="button" class="gp-btn gp-btn-outline" @onclick="() => funcionesDe = null">Cancelar</button>
+                <button type="button" class="gp-btn gp-btn-ok" disabled="@guardandoPlan" @onclick="GuardarFunciones">
+                    <i class="bi bi-check-lg"></i> @(guardandoPlan ? "Guardando..." : "Guardar")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ================= PLANES ================= *@
+@if (planesEdit != null)
+{
+    <div class="gp-scope gp-modal-backdrop" @onclick="() => planesEdit = null">
+        <div class="gp-modal" role="dialog" aria-modal="true" style="max-width: 56rem; width: 100%;" @onclick:stopPropagation="true">
+            <div class="gp-modal-head">
+                <div>
+                    <h3><i class="bi bi-stars"></i> Planes</h3>
+                    <p>Qué trae cada plan. Si cambiás un plan, cambia para todos los negocios que lo tienen.</p>
+                </div>
+                <button type="button" class="gp-btn gp-btn-ghost gp-btn-icon" title="Cerrar" @onclick="() => planesEdit = null"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="gp-modal-body">
+                <div class="gp-table-wrap">
+                    <table class="gp-table pn-matriz">
+                        <thead>
+                            <tr>
+                                <th>Función</th>
+                                @foreach (var pl in planesEdit)
+                                {
+                                    <th class="t-center">
+                                        <input class="gp-control pn-nombre" @bind="pl.Nombre" title="Nombre del plan" />
+                                        <div class="pn-precio"><span>$</span><InputMonto class="gp-control" Placeholder="precio" @bind-Value="pl.Precio" title="Precio de referencia (opcional)" /></div>
+                                        <small class="gp-muted">@CantNegocios(pl.Codigo) negocio(s)</small>
+                                    </th>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var f in FuncionesPlan.Todas)
+                            {
+                                <tr>
+                                    <td><i class="bi @f.Icono" style="color:var(--gp-primary)"></i> <b>@f.Nombre</b><br /><small class="gp-muted">@f.Detalle</small></td>
+                                    @foreach (var pl in planesEdit)
+                                    {
+                                        var tiene = pl.Funciones.Contains(f.Clave);
+                                        <td class="t-center">
+                                            <button type="button" class="pn-celda @(tiene ? "is-on" : "")" title="@(tiene ? "Incluida" : "No incluida")"
+                                                    @onclick="() => AlternarEnPlan(pl, f.Clave)"><i class="bi @(tiene ? "bi-check-circle-fill" : "bi-dash-circle")"></i></button>
+                                        </td>
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <p class="gp-muted" style="margin:.6rem 0 0">Siempre incluidas en todos los planes: Vender, Productos, Nuevo producto y Configuración.</p>
+            </div>
+            <div class="cf-form-actions" style="padding: 0 1.2rem 1.2rem">
+                <button type="button" class="gp-btn gp-btn-outline" @onclick="() => planesEdit = null">Cancelar</button>
+                <button type="button" class="gp-btn gp-btn-ok" disabled="@guardandoPlan" @onclick="GuardarPlanes">
+                    <i class="bi bi-check-lg"></i> @(guardandoPlan ? "Guardando..." : "Guardar planes")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .pn-plan { display: inline-flex; align-items: center; gap: .3rem; padding: .25rem .6rem; border: 1.5px solid var(--gp-line); border-radius: 999px; background: #fff; font-weight: 800; font-size: .82rem; color: var(--gp-text); cursor: pointer; white-space: nowrap; }
+    .pn-plan:hover { border-color: var(--gp-primary); }
+    .pn-plan i { color: var(--gp-primary); }
+    .pn-plan-basico i { color: #64748b; }
+    .pn-plan-medio i { color: #2563eb; }
+    .pn-plan-avanzado i { color: #d97706; }
+    .pn-mas { color: var(--gp-ok); font-weight: 900; }
+    .pn-menos { color: var(--gp-danger); font-weight: 900; }
+    .pn-planes { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .5rem; }
+    .pn-opcion { display: flex; flex-direction: column; align-items: flex-start; gap: .1rem; padding: .6rem .8rem; border: 2px solid var(--gp-line); border-radius: 14px; background: #fff; cursor: pointer; text-align: left; }
+    .pn-opcion small { color: var(--gp-muted); font-weight: 600; }
+    .pn-opcion.is-active { border-color: var(--gp-primary); background: var(--gp-primary-soft); }
+    .pn-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .35rem; }
+    .pn-lista li { display: flex; align-items: center; gap: .6rem; padding: .5rem .7rem; border: 1px solid var(--gp-line); border-radius: 12px; cursor: pointer; }
+    .pn-lista li.is-on { border-color: var(--gp-primary-line); background: var(--gp-primary-soft); }
+    .pn-check { font-size: 1.15rem; color: var(--gp-primary); }
+    .pn-ico { font-size: 1.1rem; color: var(--gp-muted); }
+    .pn-txt { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+    .pn-txt small { color: var(--gp-muted); font-weight: 600; }
+    .pn-tag { padding: .1rem .5rem; border-radius: 999px; background: #eef1f8; color: var(--gp-muted); font-size: .72rem; font-weight: 800; white-space: nowrap; }
+    .pn-tag.is-extra { background: var(--gp-ok-soft); color: var(--gp-ok); }
+    .pn-tag.is-quitada { background: var(--gp-danger-soft); color: var(--gp-danger); }
+    .pn-matriz th { vertical-align: top; min-width: 8.5rem; }
+    .pn-nombre { font-weight: 900; text-align: center; margin-bottom: .3rem; }
+    .pn-precio { display: flex; align-items: center; gap: .25rem; margin-bottom: .2rem; }
+    .pn-precio span { font-weight: 800; color: var(--gp-muted); }
+    .pn-celda { border: 0; background: transparent; font-size: 1.35rem; color: #c3c9d8; cursor: pointer; }
+    .pn-celda.is-on { color: var(--gp-ok); }
+    .vc-roles { display: flex; flex-direction: column; gap: .5rem; }
+    .vc-rol { display: flex; align-items: center; gap: .8rem; width: 100%; padding: .75rem .9rem; text-align: left;
+              border: 1.5px solid var(--gp-line); border-radius: 14px; background: #fff; cursor: pointer; transition: border-color .15s, background .15s; }
+    .vc-rol:hover { border-color: var(--gp-primary); background: var(--gp-primary-soft); }
+    .vc-rol > i { font-size: 1.5rem; color: var(--gp-primary); }
+    .vc-rol span { display: flex; flex-direction: column; }
+    .vc-rol b { font-weight: 900; }
+    .vc-rol small { color: var(--gp-muted); font-weight: 600; }
+</style>
+
+@code {
+    private AvisosPagina avisos = default!;
+    List<Kiosco>? lista;
+    Kiosco? editando;
+    bool esNuevo, guardando, estadoActivo = true;
+    string? adminUser, adminPass;
+    bool verPass;
+    Kiosco? verComo;   // negocio elegido para "Ver como"
+
+    // ---- planes (SQL 20) ----
+    List<Plan> planes = new();
+    string errorPlanes = "";
+    Kiosco? funcionesDe;                 // negocio al que se le cambian plan / funciones
+    string planElegido = "";
+    HashSet<string> marcadas = new();    // funciones efectivas que van a quedar
+    List<Plan>? planesEdit;              // copia de los planes mientras se editan
+    bool guardandoPlan;
+    string filtro = "", filtroEstado = "todos", error = "";
+
+    bool EsSuperAdmin => string.Equals(State.UsuarioRol, "superadmin", StringComparison.OrdinalIgnoreCase);
+
+    static int? DiasParaVencer(Kiosco k) =>
+        k.FechaVencimientoAbono.HasValue ? (k.FechaVencimientoAbono.Value.Date - DateTime.Today).Days : null;
+
+    // "vencido", "porvencer" o "" (al día / sin fecha)
+    static string Situacion(Kiosco k)
+    {
+        var dias = DiasParaVencer(k);
+        if (dias == null) return "";
+        if (dias < 0) return "vencido";
+        if (dias <= (k.DiasAnticipacionAviso ?? 5)) return "porvencer";
+        return "";
+    }
+
+    IEnumerable<Kiosco> Filtrados => lista!.Where(k =>
+        (string.IsNullOrWhiteSpace(filtro)
+            || (k.NombreKiosco ?? "").Contains(filtro, StringComparison.OrdinalIgnoreCase)
+            || (k.CuitDni ?? "").Contains(filtro)
+            || (k.CodigoVinculacion ?? "").Contains(filtro, StringComparison.OrdinalIgnoreCase))
+        && (filtroEstado switch
+        {
+            "activos" => k.Estado != false,
+            "inactivos" => k.Estado == false,
+            "porvencer" => Situacion(k) == "porvencer",
+            "vencidos" => Situacion(k) == "vencido",
+            _ => true
+        }));
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (State.KioscoId == 0 && string.IsNullOrEmpty(State.UsuarioRol)) { Nav.NavigateTo("/login"); return; }
+        if (!EsSuperAdmin) return;
+        await Cargar();
+    }
+
+    async Task Cargar()
+    {
+        try { lista = await Config.GetKioscos(); error = ""; }
+        catch (Exception ex) { error = ConfiguracionService.MensajeError(ex); }
+        await CargarPlanes();
+    }
+
+    async Task CargarPlanes()
+    {
+        try
+        {
+            var res = await Db.From<Plan>().Get();
+            planes = (res.Models ?? new()).OrderBy(p => p.Orden).ThenBy(p => p.Nombre).ToList();
+            errorPlanes = "";
+        }
+        catch
+        {
+            planes = new();
+            errorPlanes = "Para manejar planes (Básico, Medio, Avanzado) hay que correr el script 20.planes_funciones.sql en Supabase.";
+        }
+    }
+
+    string NombrePlan(string? codigo) => planes.FirstOrDefault(p => p.Codigo == codigo)?.Nombre ?? (codigo ?? "—");
+    HashSet<string> FuncionesDelPlan(string? codigo) => new(planes.FirstOrDefault(p => p.Codigo == codigo)?.Funciones ?? new());
+    int CantNegocios(string codigo) => lista?.Count(k => k.PlanCodigo == codigo) ?? 0;
+
+    // ---------- plan y funciones de un negocio ----------
+    void AbrirFunciones(Kiosco k)
+    {
+        funcionesDe = k;
+        planElegido = k.PlanCodigo ?? planes.First().Codigo;
+        marcadas = FuncionesPlan.Calcular(FuncionesDelPlan(planElegido), k.FuncionesExtra, k.FuncionesQuitadas);
+    }
+
+    void AlternarFuncion(string clave)
+    {
+        if (!marcadas.Remove(clave)) marcadas.Add(clave);
+    }
+
+    /// <summary>Al cambiar de plan se conservan las excepciones que ya tenía (extra / quitadas).</summary>
+    void CambiarPlanElegido(string codigo)
+    {
+        if (codigo == planElegido) return;
+        var anterior = FuncionesDelPlan(planElegido);
+        var extra = marcadas.Except(anterior).ToList();
+        var quitadas = anterior.Except(marcadas).ToList();
+        planElegido = codigo;
+        marcadas = FuncionesPlan.Calcular(FuncionesDelPlan(codigo), extra, quitadas);
+    }
+
+    async Task GuardarFunciones()
+    {
+        var k = funcionesDe;
+        if (k == null) return;
+        var delPlan = FuncionesDelPlan(planElegido);
+        var extra = marcadas.Except(delPlan).OrderBy(x => x).ToList();
+        var quitadas = delPlan.Except(marcadas).OrderBy(x => x).ToList();
+
+        guardandoPlan = true;
+        try
+        {
+            long id = k.Id;
+            await Db.From<Kiosco>()
+                .Where(x => x.Id == id)
+                .Set(x => x.PlanCodigo!, planElegido)
+                .Set(x => x.FuncionesExtra!, extra)
+                .Set(x => x.FuncionesQuitadas!, quitadas)
+                .Update();
+            k.PlanCodigo = planElegido; k.FuncionesExtra = extra; k.FuncionesQuitadas = quitadas;
+            funcionesDe = null;
+            _ = avisos.GuardadoAsync($"{k.NombreKiosco}: plan {NombrePlan(planElegido)} guardado. Se aplica la próxima vez que entren.");
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo guardar", ConfiguracionService.MensajeError(ex), "peligro"); }
+        finally { guardandoPlan = false; }
+    }
+
+    // ---------- editar los planes ----------
+    void AbrirPlanes() =>
+        planesEdit = planes.Select(p => new Plan { Codigo = p.Codigo, Nombre = p.Nombre, Orden = p.Orden, Precio = p.Precio, Funciones = p.Funciones.ToList() }).ToList();
+
+    void AlternarEnPlan(Plan p, string clave)
+    {
+        if (!p.Funciones.Remove(clave)) p.Funciones.Add(clave);
+    }
+
+    async Task GuardarPlanes()
+    {
+        if (planesEdit == null) return;
+        if (planesEdit.Any(p => string.IsNullOrWhiteSpace(p.Nombre))) { avisos.Toast("Cada plan necesita un nombre.", "peligro"); return; }
+        guardandoPlan = true;
+        try
+        {
+            foreach (var p in planesEdit)
+            {
+                p.Nombre = p.Nombre.Trim();
+                // en el orden de la lista de funciones (queda prolijo en la base)
+                p.Funciones = FuncionesPlan.Todas.Select(f => f.Clave).Where(p.Funciones.Contains).ToList();
+                await Db.From<Plan>().Update(p);
+            }
+            planesEdit = null;
+            await CargarPlanes();
+            _ = avisos.GuardadoAsync("Planes guardados. Los negocios los ven la próxima vez que entran.");
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudieron guardar los planes", ConfiguracionService.MensajeError(ex), "peligro"); }
+        finally { guardandoPlan = false; }
+    }
+
+    void Nuevo()
+    {
+        esNuevo = true; estadoActivo = true; adminUser = adminPass = null; verPass = false;
+        editando = new Kiosco
+        {
+            FechaVencimientoAbono = DateTime.Today.AddMonths(1),
+            DiasAnticipacionAviso = 5,
+            UsarRedondeo = false,      // el redondeo lo define cada negocio en Configuración → Redondeo
+            MultiploRedondeo = 10,
+            CodigoVinculacion = ConfiguracionService.GenerarCodigo(),
+            PlanCodigo = planes.Any() ? (planes.FirstOrDefault(p => p.Codigo == "basico") ?? planes.First()).Codigo : null
+        };
+    }
+
+    void Editar(Kiosco k)
+    {
+        esNuevo = false; estadoActivo = k.Estado != false;
+        editando = new Kiosco
+        {
+            Id = k.Id, NombreKiosco = k.NombreKiosco, CuitDni = k.CuitDni, FechaAlta = k.FechaAlta, Estado = k.Estado,
+            FechaVencimientoAbono = k.FechaVencimientoAbono, DiasAnticipacionAviso = k.DiasAnticipacionAviso,
+            NotasAdministrativas = k.NotasAdministrativas, CodigoVinculacion = k.CodigoVinculacion,
+            UsarRedondeo = k.UsarRedondeo, MultiploRedondeo = k.MultiploRedondeo,   // se conservan tal cual
+            PlanCodigo = k.PlanCodigo, FuncionesExtra = k.FuncionesExtra, FuncionesQuitadas = k.FuncionesQuitadas
+        };
+    }
+
+    async Task Guardar()
+    {
+        if (string.IsNullOrWhiteSpace(editando!.NombreKiosco)) { avisos.Toast("El nombre del negocio es obligatorio.", "peligro"); return; }
+        if (editando.FechaVencimientoAbono == null) { avisos.Toast("Completá la fecha de vencimiento del abono.", "peligro"); return; }
+        if (!string.IsNullOrWhiteSpace(adminUser) != !string.IsNullOrWhiteSpace(adminPass))
+        { avisos.Toast("Para crear el admin completá usuario y contraseña (o dejá ambos vacíos).", "peligro"); return; }
+
+        editando.NombreKiosco = editando.NombreKiosco.Trim().ToUpper();
+        editando.CodigoVinculacion = editando.CodigoVinculacion?.Trim().ToUpper();
+        editando.Estado = estadoActivo;
+
+        if (lista!.Any(x => x.Id != editando.Id && !string.IsNullOrEmpty(editando.CodigoVinculacion)
+                            && x.CodigoVinculacion == editando.CodigoVinculacion))
+        { avisos.Toast("Ese código de vinculación ya lo usa otro negocio.", "peligro"); return; }
+
+        guardando = true;
+        try
+        {
+            if (esNuevo)
+            {
+                if (!string.IsNullOrWhiteSpace(adminUser) && await Config.ExisteUsername(adminUser.Trim()))
+                { avisos.Toast("Ese nombre de usuario ya está en uso.", "peligro"); return; }
+
+                var nuevo = await Config.AltaNegocio(editando, adminUser, adminPass);
+                editando = null;
+                await Cargar();
+                await avisos.InformarAsync("Negocio creado",
+                    $"{nuevo.NombreKiosco} (ID {nuevo.Id})\nCódigo de vinculación: {nuevo.CodigoVinculacion}\n\nYa tiene sus datos base cargados.", "exito");
+            }
+            else
+            {
+                await Config.Guardar(editando, false);
+                editando = null;
+                _ = avisos.GuardadoAsync("Negocio actualizado");
+                await Cargar();
+            }
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo guardar", ConfiguracionService.MensajeError(ex), "peligro"); }
+        finally { guardando = false; }
+    }
+
+    /// <summary>Modo soporte: el superadmin pasa a ver el negocio con el rol elegido.</summary>
+    async Task EntrarComo(string rol)
+    {
+        var k = verComo;
+        if (k == null || !EsSuperAdmin) return;
+        verComo = null;
+        try { await Db.CambiarNegocioAsync(k.Id); }   // la base pasa a dejarle usar ese negocio
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo entrar a ese negocio", ex.Message, "peligro"); return; }
+        State.EntrarComo(k, rol);
+        // ve exactamente lo que trae el plan de ese negocio
+        State.FuncionesHabilitadas = await Db.CargarFuncionesAsync(k.Id);
+        await Db.CargarPermisosRolesAsync(k.Id);   // y lo que el dueño le dio a cada perfil
+        if (Roles.EsEncargado(rol) && !State.Tiene(FuncionesPlan.Encargado)) State.UsuarioRol = Roles.Vendedor;
+        State.NotifyStateChanged();
+        Nav.NavigateTo(RutasApp.Celular.Productos);
+    }
+
+    async Task Reparar(Kiosco k)
+    {
+        try
+        {
+            var n = await Config.AsegurarDatosBase(k.Id);
+            avisos.Toast(n == 0 ? $"{k.NombreKiosco}: ya tenía todos los datos base." : $"{k.NombreKiosco}: se crearon {n} registros base.", n == 0 ? "info" : "exito");
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudieron crear los datos base", ConfiguracionService.MensajeError(ex), "peligro"); }
+    }
+}

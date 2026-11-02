@@ -11,6 +11,11 @@
         {
             Nav.NavigateTo("/login");
         }
+        else
+        {
+            // ya logueado: el superadmin a Administrar negocios, el resto a Productos
+            Nav.NavigateTo(Roles.EsSuperAdmin(State.UsuarioRol) ? RutasApp.Celular.AdminNegocios : RutasApp.Celular.Productos);
+        }
     }
 }
 

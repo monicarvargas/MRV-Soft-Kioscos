@@ -1,536 +1,605 @@
-﻿@inject Supabase.Client SupaClient
+@inject Supabase.Client SupaClient
 @inject NavigationManager Nav
 @inject BlazorKioscoCompartido.Services.AppState State
 @inject PrecioService PrecioServ
 @using BlazorKioscoCompartido.Constants
 @using BlazorKioscoCompartido.Models
+@using BlazorKioscoCompartido.Components
 @using System.Globalization
 
-<div class="container-fluid px-3 py-2 bg-light min-vh-100 style-notebook mb-5">
+<PedidosEstilos />
+<ConfigEstilos />
+<ProductoEstilos />
+<AvisosPagina @ref="avisos" />
+<AltaRapida @ref="altaFamilia" OnCreado="FamiliaCreada" />
+<AltaRapida @ref="altaProveedor" OnCreado="ProveedorCreado" />
 
-    @* === ENCABEZADO CON TU ESTILO ORIGINAL === *@
-    <div class="d-flex justify-content-between align-items-center mb-2 bg-white p-2 rounded-3 shadow-sm border-start border-primary border-4">
-        <div class="d-flex align-items-center">
-            <div class="bg-primary text-white p-2 rounded-3 me-2 d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;">
-                <i class="bi bi-box-seam fs-4"></i>
-            </div>
-            <div>
-                <h4 class="mb-0 fw-bold text-dark-custom">Editar Producto</h4>
-                <span class="text-primary fw-bold text-uppercase x-small-text">Actualiza la información y los precios del producto.</span>
-            </div>
-        </div>
-        @* Este botón se oculta en celulares para no amontonar espacio *@
-        <button class="btn btn-sm btn-outline-secondary d-none d-md-flex align-items-center gap-1 rounded-3 fw-bold">
-            <i class="bi bi-question-circle"></i> Ayuda
-        </button>
-    </div>
+<div class="container-fluid px-3 py-2 min-vh-100 style-notebook gp-scope gp-page">
+    <EncabezadoPagina Titulo="Editar producto"
+                      Subtitulo="Actualizá los datos y los precios del artículo"
+                      IconoClass="bi-pencil-square"
+                      ColorBorde="primary"
+                      ColorIcono="primary"
+                      MostrarBotonAyuda="false"
+                      RutaVolver="/productos" />
 
-    @if (producto == null)
+    @if (cargando)
     {
-        <div class="text-center mt-5">
-            <div class="spinner-border text-primary" role="status"></div>
-            <p class="mt-2 text-dark-custom fw-bold">Cargando datos del artículo...</p>
+        <div class="pp-wrap">
+            <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>Cargando datos del artículo...</p></div>
+        </div>
+    }
+    else if (producto == null)
+    {
+        <div class="pp-wrap gp-card gp-card-pad">
+            <div class="gp-empty">
+                <span class="gp-bubble"><i class="bi bi-search"></i></span>
+                <strong>No se encontró el producto</strong>
+                <span>Puede que se haya borrado o que no haya conexión.</span>
+                <button type="button" class="gp-btn gp-btn-outline" style="margin-top:.8rem" @onclick="Volver"><i class="bi bi-arrow-left"></i> Volver a productos</button>
+            </div>
         </div>
     }
     else
     {
-        <div class="row g-2">
-            @* ======================================================= *@
-            @* BLOQUE 1: DATOS PRINCIPALES (Responsivo Celular/PC)    *@
-            @* ======================================================= *@
-            <div class="col-12">
-                <div class="card shadow-sm border-0 rounded-3">
-                    <div class="card-header bg-white py-2 border-bottom d-flex justify-content-between align-items-center">
-                        <span class="fw-bold titulo-seccion text-primary"><i class="bi bi-card-text me-2"></i>Datos Principales del Artículo</span>
-                        <span class="badge bg-dark text-white border p-2 font-monospace fs-6">
-                            <i class="bi bi-clock-history me-1"></i>Última modificación: @(producto.FechaActualizacion?.ToString("dd/MM/yyyy HH:mm") ?? "Sin registro")
+        <div class="pp-wrap pp-stack">
+
+            @* ================= DATOS DEL ARTÍCULO ================= *@
+            <section class="gp-card gp-card-pad">
+                <div class="gp-card-head" style="flex-wrap:wrap">
+                    <span class="gp-bubble"><i class="bi bi-box-seam-fill"></i></span>
+                    <div class="cf-head-text">
+                        <h2>Datos del artículo</h2>
+                        <p>Código, nombre, categoría y cómo se vende.</p>
+                    </div>
+                    <span class="gp-chip pp-head-chip"><i class="bi bi-clock-history"></i> Modificado: @(producto.FechaActualizacion?.ToString("dd/MM/yyyy HH:mm") ?? "sin registro")</span>
+                    <label class="gp-switch pp-activo @(producto.Activo ? "is-on" : "is-off")" title="Inactivo: no aparece para vender ni en los pedidos. Se guarda al tocar Guardar cambios.">
+                        <input type="checkbox" checked="@producto.Activo" @onchange="e => producto.Activo = (bool)e.Value!" />
+                        <span class="gp-switch-track"></span>
+                        <span class="gp-switch-text">@(producto.Activo ? "Activo" : "Inactivo")</span>
+                    </label>
+                </div>
+                @if (!producto.Activo)
+                {
+                    <div class="gp-banner is-danger" style="margin-bottom:.8rem"><i class="bi bi-eye-slash-fill"></i><p><b>Producto inactivo:</b> no aparece para vender. Tocá <b>Guardar cambios</b> para que quede así.</p></div>
+                }
+
+                <div class="cf-grid">
+                    <div>
+                        <label class="cf-lbl">Código de barras</label>
+                        <div class="pp-icon-input pp-codigo">
+                            <i class="bi bi-upc-scan"></i>
+                            <input type="text" class="gp-control" @bind="producto.CodigoBarras" />
+                        </div>
+                        @if (string.IsNullOrWhiteSpace(producto.CodigoBarras))
+                        {
+                            <button type="button" class="pp-crear-cod" disabled="@creandoCodigo" @onclick="CrearCodigoPropio"
+                                    title="Para productos sueltos que no traen código (gomitas, fiambre...). Se guarda al tocar Guardar cambios.">
+                                <i class="bi bi-magic"></i> @(creandoCodigo ? "Creando..." : "No tiene: crear un código")
+                            </button>
+                        }
+                        else if (CodigoBarras.Armar(producto.CodigoBarras) != null)
+                        {
+                            <button type="button" class="pp-crear-cod" @onclick="ImprimirEtiqueta" title="Abre Códigos de barras con este producto listo para imprimir">
+                                <i class="bi bi-printer"></i> Imprimir etiqueta con este código
+                            </button>
+                        }
+                    </div>
+                    <div class="cf-col-2 pp-nombre">
+                        <label class="cf-lbl">Descripción / nombre *</label>
+                        <input type="text" class="gp-control" @bind="producto.Nombre" />
+                    </div>
+
+                    <div>
+                        <label class="cf-lbl">Familia / categoría</label>
+                        <div class="sf-fila">
+                            <select class="gp-control" @bind="producto.FamiliaId" @bind:after="CambioFamilia">
+                                <option value="0">-- Elegí --</option>
+                                @foreach (var fam in familias)
+                                {
+                                    <option value="@fam.Id">@fam.Nombre</option>
+                                }
+                            </select>
+                            <button type="button" class="gp-btn gp-btn-soft gp-btn-icon" title="Nueva familia" @onclick="() => altaFamilia.Abrir(AltaRapida.Tipo.Familia)"><i class="bi bi-plus-lg"></i></button>
+                        </div>
+                    </div>
+                    <SelectorSubfamilia FamiliaId="producto.FamiliaId" FamiliaNombre="@(familias.FirstOrDefault(f => f.Id == producto.FamiliaId)?.Nombre)" @bind-Value="producto.SubfamiliaId" @bind-Value:after="CambioGrupo" />
+                    <div>
+                        <label class="cf-lbl">Proveedor principal</label>
+                        <div class="sf-fila">
+                            <select class="gp-control" @bind="producto.ProveedorId">
+                                <option value="0">-- Elegí --</option>
+                                @foreach (var prov in proveedores)
+                                {
+                                    <option value="@prov.Id">@prov.Nombre</option>
+                                }
+                            </select>
+                            <button type="button" class="gp-btn gp-btn-soft gp-btn-icon" title="Nuevo proveedor" @onclick="() => altaProveedor.Abrir(AltaRapida.Tipo.Proveedor)"><i class="bi bi-plus-lg"></i></button>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="cf-lbl">Marca</label>
+                        <input type="text" class="gp-control" placeholder="Ej: La Virginia" @bind="producto.Marca" />
+                    </div>
+
+                    <div class="cf-col-full">
+                        <label class="cf-lbl">Se vende por</label>
+                        <div class="gp-seg pp-units" role="group" aria-label="Unidad de medida">
+                            @foreach (var unidad in Unidades.ParaElegir(State.UnidadesNegocio, producto.UnidadMedida))
+                            {
+                                <button type="button" class="@(EsUnidad(unidad) ? "is-active" : "")" @onclick="() => CambiarUnidad(unidad)">
+                                    <i class="bi @IconoUnidad(unidad)"></i> @TextoUnidad(unidad)
+                                </button>
+                            }
+                        </div>
+                        @if (producto.IsMedidaKilos())
+                        {
+                            <div class="gp-hint" style="margin-top:.55rem"><i class="bi bi-info-circle-fill"></i> El costo y los precios de venta van <b>por kilo</b>. Al vender se pesa en gramos.</div>
+                        }
+                        else if (producto.IsMedidaGramos())
+                        {
+                            <div class="gp-hint" style="margin-top:.55rem"><i class="bi bi-info-circle-fill"></i> El costo se carga por kilo y el precio de venta se muestra cada 100 g.</div>
+                        }
+                    </div>
+                </div>
+            </section>
+
+            @* ================= PRECIOS ================= *@
+            <section class="gp-card gp-card-pad">
+                <div class="gp-card-head">
+                    <span class="gp-bubble"><i class="bi bi-currency-dollar"></i></span>
+                    <div class="cf-head-text">
+                        <h2>Precios</h2>
+                        <p>Cambiá el costo o la utilidad y el precio de venta se calcula solo (o al revés).</p>
+                    </div>
+                </div>
+                <PreciosProducto @ref="preciosRef" Producto="producto" NombreLista2="@nombreLista2" OnCambio="StateHasChanged" UtilidadSugerida="UtilidadDelGrupo" GrupoSugerido="@NombreGrupo" />
+
+                @* Por mayor: ahora está dentro de PreciosProducto (se ve si la lista está tildada en Configuración) *@
+            </section>
+
+            @* ================= PRECIOS POR CANTIDAD (packs) ================= *@
+            <PreciosPorCantidad @ref="preciosCantRef" Producto="producto" />
+
+            @* ================= STOCK ================= *@
+            <section class="gp-card gp-card-pad">
+                <div class="gp-card-head">
+                    <span class="gp-bubble"><i class="bi bi-boxes"></i></span>
+                    <div class="cf-head-text">
+                        <h2>Stock</h2>
+                        <p>Cuánto tenés y cuándo avisarte que se está terminando @producto.ObtenerTituloModoPesoVenta().</p>
+                    </div>
+                </div>
+                <div class="pp-stock">
+                    <label class="pp-tile is-main">
+                        <span class="pp-tile-label"><i class="bi bi-box-fill"></i> Stock actual @if (hayBultos && !producto.EsVentaPorPeso()) { <span class="pp-xunidad">x unidad</span> }</span>
+                        <span class="sa-fila">
+                            <input type="number" inputmode="numeric" class="pp-big" onfocus="this.select()" @bind="producto.StockActual" @bind:event="oninput" />
+                            @if ((producto.StockActual ?? 0) > 0)
+                            {
+                                <button type="button" class="sa-mas" title="Sumar al stock (llegó mercadería)" @onclick="AbrirSumarStock" @onclick:preventDefault="true">
+                                    <i class="bi bi-plus-lg"></i>
+                                </button>
+                            }
                         </span>
-                    </div>
-                    <div class="card-body p-3">
-                        <div class="row g-2 mb-2">
-                            <div class="col-12 col-md-4">
-                                <label class="form-label x-small-text fw-bold text-dark-custom mb-1"><i class="bi bi-barcode me-1 text-primary"></i>Código (Cód. Barra)</label>
-                                <div class="input-group border rounded-3 overflow-hidden border-secondary">
-                                    <span class="input-group-text bg-light border-0 text-dark-custom fw-bold"><i class="bi bi-upc"></i></span>
-                                    <input type="text" class="form-control border-0 fw-bold text-dark-custom fs-6" @bind="producto.CodigoBarras" />
-                                </div>
-                            </div>
-                            <div class="col-12 col-md-8">
-                                <label class="form-label x-small-text fw-bold text-dark-custom mb-1"><i class="bi bi-blockquote-left me-1 text-primary"></i>Descripción / Nombre</label>
-                                <div class="input-group border rounded-3 overflow-hidden border-secondary">
-                                    <span class="input-group-text bg-light border-0 text-dark-custom fw-bold"><i class="bi bi-tag"></i></span>
-                                    <input type="text" class="form-control border-0 fw-bold text-dark-custom fs-6" @bind="producto.Nombre" />
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="row g-2">
-                            <div class="col-12 col-md-4">
-                                <label class="form-label x-small-text fw-bold text-dark-custom mb-1"><i class="bi bi-folder2 me-1 text-primary"></i>Familia / Categoría</label>
-                                <div class="input-group border rounded-3 overflow-hidden border-secondary">
-                                    <span class="input-group-text bg-light border-0 text-dark-custom fw-bold"><i class="bi bi-bookmark"></i></span>
-                                    <select class="form-select border-0 text-dark-custom fw-bold fs-6" @bind="producto.FamiliaId">
-                                        <option value="0">-- Seleccione Familia --</option>
-                                        @foreach (var fam in familias)
-                                        {
-                                            <option value="@fam.Id">@fam.Nombre</option>
-                                        }
-                                    </select>
-                                </div>
-                            </div>
-                            <div class="col-12 col-md-4">
-                                <label class="form-label x-small-text fw-bold text-dark-custom mb-1"><i class="bi bi-truck me-1 text-primary"></i>Proveedor</label>
-                                <div class="input-group border rounded-3 overflow-hidden border-secondary">
-                                    <span class="input-group-text bg-light border-0 text-dark-custom fw-bold"><i class="bi bi-person-badge"></i></span>
-                                    <select class="form-select border-0 text-dark-custom fw-bold fs-6" @bind="producto.ProveedorId">
-                                        <option value="0">-- Seleccione Proveedor --</option>
-                                        @foreach (var prov in proveedores)
-                                        {
-                                            <option value="@prov.Id">@prov.Nombre</option>
-                                        }
-                                    </select>
-                                </div>
-                            </div>
-                            <div class="col-12 col-md-4">
-                                <label class="form-label x-small-text fw-bold text-dark-custom mb-1"><i class="bi bi-award me-1 text-primary"></i>Marca</label>
-                                <div class="input-group border rounded-3 overflow-hidden border-secondary">
-                                    <span class="input-group-text bg-light border-0 text-dark-custom fw-bold"><i class="bi bi-registered"></i></span>
-                                    <input type="text" class="form-control border-0 text-dark-custom fw-bold fs-6" placeholder="Ej: La Virginia" @bind="producto.Marca" />
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                        @if (producto.IsMedidaGramos()) { <span class="pp-kg">≈ @KgAprox(producto.StockActual)</span> }
+                        <span class="pp-help">@(hayBultos && !producto.EsVentaPorPeso() ? "Unidades sueltas que tenés ahora (no bultos)" : "La cantidad que tenés ahora")</span>
+                    </label>
+                    <label class="pp-tile">
+                        <span class="pp-tile-label"><i class="bi bi-graph-down-arrow"></i> Mínimo @if (hayBultos && !producto.EsVentaPorPeso()) { <span class="pp-xunidad">x unidad</span> }</span>
+                        <input type="number" inputmode="numeric" class="pp-big" onfocus="this.select()" @bind="producto.StockMinimo" @bind:event="oninput" />
+                        @if (producto.IsMedidaGramos()) { <span class="pp-kg">≈ @KgAprox(producto.StockMinimo)</span> }
+                        <span class="pp-help">Avisar si baja de esto</span>
+                    </label>
+                    <label class="pp-tile">
+                        <span class="pp-tile-label"><i class="bi bi-bullseye"></i> Ideal @if (hayBultos && !producto.EsVentaPorPeso()) { <span class="pp-xunidad">x unidad</span> }</span>
+                        <input type="number" inputmode="numeric" class="pp-big" onfocus="this.select()" @bind="producto.StockIdeal" @bind:event="oninput" />
+                        @if (producto.IsMedidaGramos()) { <span class="pp-kg">≈ @KgAprox(producto.StockIdeal)</span> }
+                        <span class="pp-help">Si hay más de esta cantidad no pedir</span>
+                    </label>
                 </div>
-            </div>
+            </section>
 
-            @* ======================================================= *@
-            @* BLOQUE 2: PRECIO COSTO, UTILIDAD Y VENTA (Tus Tarjetas Lindas) *@
-            @* ======================================================= *@
-            <div class="col-12">
-                <div class="card shadow-sm border-0 rounded-3 card-rentabilidad">
-                    <div class="card-body p-3">
-                        <div class="row g-2 align-items-center">
-                            <div class="col-6 col-md-4">
-                                <div class="p-2 border rounded-3 bg-white border-primary-custom shadow-sm">
-                                    <label class="form-label text-primary fw-bold mb-1 d-block fs-6 shadow-text">
-                                        <i class="bi bi-currency-dollar"></i> Precio Costo ($)
-                                    </label>
-                                    <input type="text" class="form-control form-control-lg border-0 fw-black p-0 text-dark-custom fs-3"
-                                           value="@((producto.PrecioCosto ?? 0).ToString("#,##0.00", argCulture))"
-                                           @onchange="CalcularPrecioVentaCosto" />
-                                </div>
-                            </div>
+            @* ================= PROVEEDORES ================= *@
+            <GestionProveedoresProducto @ref="gestionProvRef" ProductoId="@producto.Id" KioscoId="@State.KioscoId" UnidadesBultoProducto="@producto.BultoUnidades" OnBultosCambio="b => hayBultos = b" />
 
-                            <div class="col-6 col-md-3">
-                                <div class="p-2 border rounded-3 bg-white border-dark shadow-sm">
-                                    <label class="form-label text-dark-custom fw-bold mb-1 fs-6"><i class="bi bi-graph-up-arrow text-primary"></i> Utilidad %</label>
-                                    <div class="input-group border-0">
-                                        <input type="number" class="form-control border-0 fw-black p-0 text-dark-custom fs-3" @bind="producto.UtilidadPV" @oninput="CalcularPrecioVentaMargen" />
-                                        <span class="bg-white border-0 text-dark-custom fw-black ps-1 fs-3">%</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="col-12 col-md-5 mt-2 mt-md-0">
-                                <div class="p-2 border rounded-3 card-final-price shadow text-end pe-4">
-                                    <label class="form-label fw-black text-success text-uppercase mb-1 d-block fs-5"><i class="bi bi-cash-stack"></i> Precio Venta FINAL ($)</label>
-                                    <div class="d-flex align-items-center justify-content-end">
-                                        <span class="fs-2 fw-black text-success me-2">$</span>
-                                        <input type="text" class="form-control form-control-lg border-0 fw-black text-success text-end bg-transparent p-0 fs-2" style="width: 80%;"
-                                               value="@((producto.PrecioVenta ?? 0).ToString("#,##0.00", argCulture))"
-                                               @onchange="@(e => CalcularMargenDesdeVenta(e, "Principal"))" />
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            @* ======================================================= *@
-            @* BOTÓN INTERMEDIO MÓVIL (Toggle Avanzado para Teléfonos)   *@
-            @* ======================================================= *@
-            <div class="col-12 d-md-none text-center my-1">
-                <button type="button" class="btn btn-sm btn-outline-secondary w-100 rounded-3 py-2 fw-bold bg-white shadow-sm"
-                        @onclick="() => mostrarAvanzadoMobile = !mostrarAvanzadoMobile">
-                    <i class="bi @(mostrarAvanzadoMobile ? "bi-chevron-up" : "bi-sliders") me-1"></i>
-                    @(mostrarAvanzadoMobile ? "Ocultar Datos Avanzados e Inventario" : "Ver Listas de Precios y Control de Stock")
+            @* ================= BOTONERA ================= *@
+            <div class="pp-actions">
+                <span class="pp-actions-info"><i class="bi bi-info-circle"></i> Los cambios se guardan al tocar “Guardar cambios”.</span>
+                <button type="button" class="gp-btn gp-btn-soft" title="Crear otro producto igual (otro aroma, color, sabor...) con otro código" @onclick="DuplicarComoVariante"><i class="bi bi-copy"></i> Duplicar como variante</button>
+                <button type="button" class="gp-btn gp-btn-outline" @onclick="Volver"><i class="bi bi-x-lg"></i> Cancelar</button>
+                <button type="button" class="gp-btn gp-btn-ok" disabled="@guardando" @onclick="GuardarCambios">
+                    @if (guardando)
+                    {
+                        <span class="gp-spinner" style="width:1.1rem;height:1.1rem;border-width:2px"></span> <span>Guardando...</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-check-circle-fill"></i> <span>Guardar cambios</span>
+                    }
                 </button>
             </div>
-
-            @* ======================================================= *@
-            @* SECCIÓN AVANZADA (Listas de precio + Inventario agrupados) *@
-            @* ======================================================= *@
-            <div class="col-12 @(mostrarAvanzadoMobile ? "d-block" : "d-none") d-md-block">
-                <div class="row g-2">
-
-                    @* === BLOQUE 3: PRECIOS Y UTILIDADES DE LISTAS ALTERNATIVAS === *@
-                    <div class="col-12">
-                        <div class="card shadow-sm border-0 rounded-3">
-                            <div class="card-header bg-white py-2 border-bottom">
-                                <span class="fw-bold titulo-seccion text-info-custom"><i class="bi bi-tags text-info-custom me-2"></i>Listas Adicionales</span>
-                            </div>
-                            <div class="card-body p-3 bg-light-custom">
-
-                                @if (nombreLista2 != "")
-                                { 
-                                    <div class="row g-2 mb-3">
-                                        <div class="col-6 col-md-3">
-                                            <label class="form-label x-small-text fw-bold text-dark-custom mb-1">Utilidad @nombreLista2 %</label>
-                                            <div class="input-group border rounded-3 overflow-hidden bg-white border-secondary">
-                                                <input type="number" class="form-control border-0 fw-bold text-dark-custom fs-6" @bind="producto.UtilidadLista2" @oninput="CalcularPrecioVentaMargenLista2" />
-                                                <span class="input-group-text bg-white border-0 text-dark-custom fw-bold">%</span>
-                                            </div>
-                                        </div>
-                                        <div class="col-6 col-md-3 pe-2">
-                                            <label class="form-label x-small-text fw-bold text-dark-custom mb-1">@nombreLista2</label>
-                                            <div class="input-group border rounded-3 overflow-hidden bg-white border-dark">
-                                                <span class="input-group-text bg-light border-0 text-dark-custom fw-bold">$</span>
-                                                <input type="text" class="form-control border-0 fw-black text-dark-custom fs-6"
-                                                       value="@((producto.PrecioLista2 ?? 0).ToString("#,##0.00", argCulture))"
-                                                       @onchange="@(e => CalcularMargenDesdeVenta(e, "Lista2"))" />
-                                            </div>
-                                        </div>
-                                   
-                                    </div>
-                                }
-                                <div class="row g-2 pt-1">
-                                    <div class="col-6 col-md-4">
-                                        <label class="form-label x-small-text fw-bold text-dark-custom mb-1">Utilidad Por Mayor %</label>
-                                        <div class="input-group border rounded-3 overflow-hidden bg-white border-secondary">
-                                            <input type="number" class="form-control border-0 fw-bold text-dark-custom fs-6" @bind="producto.UtilidadVentaxMayor" @oninput="CalcularPrecioVentaMargenXMayor" />
-                                            <span class="input-group-text bg-white border-0 text-dark-custom fw-bold">%</span>
-                                        </div>
-                                    </div>
-                                    <div class="col-6 col-md-4">
-                                        <label class="form-label x-small-text fw-bold text-dark-custom mb-1">Precio x Mayor</label>
-                                        <div class="input-group border rounded-3 overflow-hidden bg-white border-dark">
-                                            <span class="input-group-text bg-light border-0 text-dark-custom fw-bold">$</span>
-                                            <input type="text" class="form-control border-0 fw-black text-dark-custom fs-6"
-                                                   value="@((producto.PrecioVentaxMayor ?? 0).ToString("#,##0.00", argCulture))"
-                                                   @onchange="@(e => CalcularMargenDesdeVenta(e, "XMayor"))" />
-                                        </div>
-                                    </div>
-                                    <div class="col-12 col-md-4">
-                                        <label class="form-label x-small-text fw-bold text-dark-custom mb-1">Cant x Mayor</label>
-                                        <div class="input-group border rounded-3 overflow-hidden bg-white border-secondary">
-                                            <span class="input-group-text bg-light border-0 text-dark-custom fw-bold"><i class="bi bi-boxes"></i></span>
-                                            <input type="number" class="form-control border-0 fw-bold text-dark-custom fs-6" @bind="producto.CantxMayor" />
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    @* === BLOQUE 4: STOCK E INVENTARIO === *@
-                    <div class="col-12">
-                        <div class="card shadow-sm border-0 rounded-3">
-                            <div class="card-header bg-white py-2 border-bottom">
-                                <span class="fw-bold titulo-seccion text-success"><i class="bi bi-boxes me-2"></i>Stock e Inventario</span>
-                            </div>
-                            <div class="card-body p-3">
-                                <div class="row g-2 align-items-center">
-                                    <div class="col-6 col-md-3">
-                                        @* <label class="form-label x-small-text fw-bold text-dark-custom mb-1">Stock Actual</label> *@
-                                        <label class="form-label x-small-text fw-bold text-dark-custom mb-0">Stock Actual</label>
-                                        <div class="form-text text-muted mb-1" style="font-size: 0.75rem;">
-                                            <i>(Indicar la cantidad existente)</i>
-                                        </div>
-                                        <div class="input-group border rounded-3 overflow-hidden bg-white border-primary border-2 shadow-sm">
-                                            <span class="input-group-text bg-light border-0 text-primary fw-bold"><i class="bi bi-box"></i></span>
-                                            <input type="number" class="form-control border-0 fw-black text-primary fs-5" @bind="producto.StockActual" />
-                                        </div>
-                                    </div>
-                                    <div class="col-6 col-md-3">
-                                        @* <label class="form-label x-small-text fw-bold text-dark-custom mb-1">Stock Mínimo(Avisar si hay menos de)</label> *@
-                                        <label class="form-label x-small-text fw-bold text-dark-custom mb-0">Stock Mínimo</label>
-                                        <div class="form-text text-muted mb-1" style="font-size: 0.75rem;">
-                                            <i>(Avisar si el stock es menor a esta cantidad)</i>
-                                        </div>
-                                        <div class="input-group border rounded-3 overflow-hidden bg-white border-secondary">
-                                            <span class="input-group-text bg-light border-0 text-dark-custom"><i class="bi bi-graph-down"></i></span>
-                                            <input type="number" class="form-control border-0 text-dark-custom fw-bold fs-6" @bind="producto.StockMinimo" />
-                                        </div>
-                                    </div>
-                                    <div class="col-6 col-md-3 mt-2 mt-md-0">
-                                        @* <label class="form-label x-small-text fw-bold text-dark-custom mb-1">Stock Ideal</label> *@
-                                        <label class="form-label x-small-text fw-bold text-dark-custom mb-0">Stock Ideal</label>
-                                        <div class="form-text text-muted mb-1" style="font-size: 0.75rem;">
-                                            <i>(No avisar si el stock supera esta cantidad)</i>
-                                        </div>
-                                        <div class="input-group border rounded-3 overflow-hidden bg-white border-secondary">
-                                            <span class="input-group-text bg-light border-0 text-dark-custom"><i class="bi bi-bullseye"></i></span>
-                                            <input type="number" class="form-control border-0 text-dark-custom fw-bold fs-6" @bind="producto.StockIdeal" />
-                                        </div>
-                                    </div>
-                                    <div class="col-6 col-md-3 mt-2 mt-md-0">
-                                        <label class="form-label x-small-text fw-bold text-dark-custom mb-1">Unidad Medida</label>
-                                        <div class="input-group border rounded-3 overflow-hidden bg-white border-secondary">
-                                            <span class="input-group-text bg-light border-0 text-dark-custom"><i class="bi bi-rulers"></i></span>
-                                            <select class="form-select border-0 text-dark-custom fw-bold fs-6" @bind="producto.UnidadMedida">
-                                                <option value="">-- Seleccione unidad --</option>
-                                                @foreach (var unidad in Unidades.Lista)
-                                                {
-                                                    <option value="@unidad">@unidad</option>
-                                                }
-                                            </select>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="form-check mt-3 ps-4">
-                                    <input class="form-check-input border-dark fs-5" type="checkbox" id="checkVentaPeso" @bind="producto.VentaxPeso">
-                                    <label class="form-check-label text-dark-custom fw-black fs-6 ms-1" for="checkVentaPeso">
-                                        <i class="bi bi-balance-scale text-primary me-1"></i> Venta por Peso / Fraccionado
-                                    </label>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                </div>
-            </div>
         </div>
-
-        @* === BOTONERA FIJA ORIGINAL (Z-INDEX ADAPTADO) === *@
-        @* <div class="bg-white border-top rounded-0 p-2 d-flex justify-content-end gap-2 fixed-bottom shadow-lg" style="z-index: 1030;">
-            <button class="btn btn-secondary btn-sm px-3 py-1" @onclick="Volver">
-                <i class="bi bi-x-circle me-1"></i> Cancelar
-            </button>
-            <button class="btn btn-sm btn-success px-5 py-2 rounded-3 fw-black shadow-sm fs-6" style="background-color: #00875a; border: none;" @onclick="GuardarCambios">
-                <i class="bi bi-check-circle me-1"></i> GUARDAR CAMBIOS
-            </button>
-        </div> *@
-        @* === BOTONERA DE ACCIÓN ADAPTADA PARA CELULAR Y PC (Sin fixed-bottom) === *@
-        <div class="bg-white border-top rounded-3 p-3 d-flex justify-content-end gap-2 mt-3 shadow-sm">
-            <button type="button" class="btn btn-secondary px-4 py-2 rounded-3 fw-bold" @onclick="Volver">
-                <i class="bi bi-x-circle me-1"></i> Cancelar
-            </button>
-            <button type="button" class="btn btn-success px-5 py-2 rounded-3 fw-black shadow-sm fs-6"
-                    style="background-color: #00875a; border: none;"
-                    @onclick="GuardarCambios">
-                <i class="bi bi-check-circle me-1"></i> GUARDAR CAMBIOS
-            </button>
-        </div>
-
     }
 </div>
 
+@* ================= SUMAR AL STOCK (ventana) ================= *@
+@if (sumarAbierto)
+{
+    <div class="sa-fondo" @onclick="() => sumarAbierto = false">
+        <div class="sa-modal" @onclick:stopPropagation="true">
+            <div class="sa-cab">
+                <span class="sa-ico"><i class="bi bi-box-arrow-in-down"></i></span>
+                <div>
+                    <h3>Sumar al stock</h3>
+                    <p>@producto.Nombre</p>
+                </div>
+            </div>
+
+            <label class="sa-lbl">@(PesoEnKilos ? "¿Cuántos kilos llegaron?" : "¿Cuántas unidades llegaron?")</label>
+            <div class="sa-input">
+                <input @ref="saInput" type="number" inputmode="decimal" min="0" step="@(PesoEnKilos ? "0.001" : "1")"
+                       placeholder="@(PesoEnKilos ? "Ej: 2,5" : "Ej: 24")" @bind="sumarCantidad" @bind:event="oninput"
+                       @onkeydown="TeclaSumar" />
+                <span>@(PesoEnKilos ? "kg" : "unid.")</span>
+            </div>
+
+            <div class="sa-cuenta">
+                <div><small>Tenés</small><b>@TextoCant(producto.StockActual ?? 0)</b></div>
+                <i class="bi bi-plus-circle-fill"></i>
+                <div><small>Llegó</small><b>@TextoCant(SumarEnStock)</b></div>
+                <i class="bi bi-arrow-right-circle-fill"></i>
+                <div class="is-total"><small>Queda</small><b>@TextoCant((producto.StockActual ?? 0) + SumarEnStock)</b></div>
+            </div>
+
+            <div class="sa-botones">
+                <button type="button" class="sa-btn is-no" @onclick="() => sumarAbierto = false">Cancelar</button>
+                <button type="button" class="sa-btn is-ok" disabled="@(SumarEnStock <= 0)" @onclick="ConfirmarSumar"><i class="bi bi-check-lg"></i> Sumar</button>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
-    .style-notebook {
-        font-size: 0.95rem;
-        color: #111111;
-    }
+    .sa-fila { display: flex; align-items: center; gap: .4rem; }
+    .sa-fila .pp-big { flex: 1 1 auto; min-width: 0; }
+    .sa-mas { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 2.2rem; height: 2.2rem; border: 0; border-radius: 50%;
+              background: #16a34a; color: #fff; font-size: 1.1rem; cursor: pointer; box-shadow: 0 2px 6px rgba(22,163,74,.35); }
+    .sa-mas:hover { background: #15803d; }
+    .sa-fondo { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 1rem; background: rgba(15,23,42,.55); }
+    .sa-modal { width: 100%; max-width: 26rem; padding: 1.2rem; border-radius: 18px; background: #fff; border-top: 6px solid #16a34a; box-shadow: 0 20px 50px rgba(0,0,0,.3); font-family: inherit; }
+    .sa-cab { display: flex; gap: .75rem; align-items: center; margin-bottom: 1rem; }
+    .sa-cab h3 { margin: 0; font-size: 1.15rem; font-weight: 900; color: #14532d; }
+    .sa-cab p { margin: 0; font-size: .85rem; font-weight: 700; color: #64748b; }
+    .sa-ico { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 2.6rem; height: 2.6rem; border-radius: 14px; background: #dcfce7; color: #16a34a; font-size: 1.3rem; }
+    .sa-lbl { display: block; margin-bottom: .35rem; font-size: .8rem; font-weight: 800; color: #334155; }
+    .sa-input { display: flex; align-items: center; border: 2px solid #86efac; border-radius: 12px; background: #f0fdf4; overflow: hidden; }
+    .sa-input:focus-within { border-color: #16a34a; box-shadow: 0 0 0 3px #dcfce7; }
+    .sa-input input { flex: 1 1 auto; min-width: 0; padding: .6rem .8rem; border: 0; background: transparent; font-size: 1.5rem; font-weight: 900; color: #0f172a; outline: none; }
+    .sa-input span { padding: 0 .8rem; font-weight: 800; color: #16a34a; }
+    .sa-cuenta { display: flex; align-items: center; justify-content: space-between; gap: .4rem; margin-top: 1rem; padding: .6rem .7rem; border-radius: 12px; background: #f8fafc; }
+    .sa-cuenta div { display: flex; flex-direction: column; align-items: center; }
+    .sa-cuenta small { font-size: .68rem; font-weight: 800; color: #64748b; text-transform: uppercase; }
+    .sa-cuenta b { font-size: 1rem; font-weight: 900; color: #0f172a; }
+    .sa-cuenta i { color: #94a3b8; }
+    .sa-cuenta .is-total b { color: #16a34a; font-size: 1.2rem; }
+    .sa-botones { display: flex; justify-content: flex-end; gap: .5rem; margin-top: 1.1rem; }
+    .sa-btn { display: inline-flex; align-items: center; gap: .35rem; padding: .6rem 1.1rem; border-radius: 12px; border: 0; font-weight: 800; font-size: .95rem; cursor: pointer; }
+    .sa-btn.is-no { background: #f1f5f9; color: #334155; }
+    .sa-btn.is-ok { background: #16a34a; color: #fff; }
+    .sa-btn.is-ok:disabled { opacity: .45; cursor: not-allowed; }
+</style>
 
-    .x-small-text {
-        font-size: 0.82rem;
-    }
-
-    .fw-black {
-        font-weight: 850;
-    }
-
-    .text-dark-custom {
-        color: #111111 !important;
-    }
-
-    .text-info-custom {
-        color: #007acc !important;
-    }
-
-    .bg-light-custom {
-        background-color: #fcfcfc !important;
-    }
-
-    .titulo-seccion {
-        font-size: 0.98rem;
-        font-weight: 750;
-    }
-
-    .border-primary-custom {
-        border-color: #0d6efd !important;
-        border-width: 2px !important;
-    }
-
-    .card-rentabilidad {
-        background-color: #f4f6f9;
-        border: 1px solid #ced4da;
-    }
-
-    .card-final-price {
-        background-color: #e8f5e9;
-        border: 2px solid #2e7d32 !important;
-    }
-
-    .style-notebook input:focus, .style-notebook select:focus {
-        border-color: #000000 !important;
-        box-shadow: 0 0 0 0.2rem rgba(0,0,0,0.1) !important;
-        outline: none;
-    }
-
-    input[type=number]::-webkit-inner-spin-button,
-    input[type=number]::-webkit-outer-spin-button {
-        -webkit-appearance: none;
-        margin: 0;
-    }
-
-    .style-notebook {
-        font-size: 0.95rem;
-        color: #111111;
-        padding-bottom: 30px; /* Le da un respiro al final en pantallas móviles */
-    }
+<style>
+    .pp-activo { padding: .25rem .7rem .25rem .35rem; border-radius: 999px; font-weight: 800; }
+    .pp-activo.is-on { background: #e3f6ea; }
+    .pp-activo.is-on .gp-switch-text { color: #137a3a; }
+    .pp-activo.is-off { background: #fde8e8; }
+    .pp-activo.is-off .gp-switch-text { color: #b42318; }
 </style>
 
 @code {
+    // ---------- Sumar al stock (sin hacer la cuenta a mano) ----------
+    private bool sumarAbierto;
+    private decimal? sumarCantidad;
+    private ElementReference saInput;
+
+    /// <summary>Por peso el stock se guarda en gramos: la cantidad se escribe en kilos (ej: 2,5).</summary>
+    private bool PesoEnKilos => producto.IsMedidaGramos();
+    private int SumarEnStock => (sumarCantidad ?? 0) <= 0 ? 0
+        : (int)Math.Round(PesoEnKilos ? sumarCantidad!.Value * 1000m : sumarCantidad!.Value);
+    private string TextoCant(int v) => PesoEnKilos ? KgAprox(v) : v.ToString("N0", argCulture);
+
+    private async Task AbrirSumarStock()
+    {
+        sumarCantidad = null;
+        sumarAbierto = true;
+        StateHasChanged();
+        await Task.Delay(50);
+        try { await saInput.FocusAsync(); } catch { }
+    }
+
+    private void ConfirmarSumar()
+    {
+        if (SumarEnStock <= 0) return;
+        int llego = SumarEnStock;
+        producto.StockActual = (producto.StockActual ?? 0) + llego;
+        sumarAbierto = false;
+        avisos.Toast($"Se sumó {TextoCant(llego)}. Queda {TextoCant(producto.StockActual ?? 0)}. Tocá Guardar para que quede.", "exito", 4000);
+    }
+
+    private void TeclaSumar(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") ConfirmarSumar();
+        else if (e.Key == "Escape") sumarAbierto = false;
+    }
+
     [Parameter] public long Id { get; set; }
 
+    private AvisosPagina avisos = default!;
     private Producto? producto;
-    private bool mostrarAvanzadoMobile = false;
+    private bool cargando = true, guardando;
 
     private List<Familia> familias = new();
     private List<Proveedor> proveedores = new();
+
+    // ---------- Alta rápida (familia / proveedor sin ir a Configuración) ----------
+    private AltaRapida altaFamilia = default!;
+    private AltaRapida altaProveedor = default!;
+
+    private void FamiliaCreada((long Id, string Nombre) f)
+    {
+        if (!familias.Any(x => x.Id == f.Id))
+        {
+            familias.Add(new Familia { Id = f.Id, KioscoId = State.KioscoId, Nombre = f.Nombre });
+            familias = familias.OrderBy(x => x.Nombre).ToList();
+        }
+        producto.FamiliaId = f.Id;
+        producto.SubfamiliaId = null;
+        avisos.Toast($"Familia {f.Nombre} lista", "exito", 1800);
+    }
+
+    // ---------- utilidad de la familia / subfamilia (Configuración → Familias, script 37) ----------
+    private PreciosProducto? preciosRef;
+    private List<Subfamilia> subfamiliasUtil = new();
+    private decimal? utilAutomatica;   // la que se puso sola al elegir el grupo (si no se tocó, sigue al grupo)
+
+    private decimal UtilidadDelGrupo => Subfamilia.Para(familias, subfamiliasUtil, producto?.FamiliaId, producto?.SubfamiliaId);
+
+    private string NombreGrupo
+    {
+        get
+        {
+            var s = subfamiliasUtil.FirstOrDefault(x => x.Id == producto?.SubfamiliaId);
+            if (s?.Utilidad != null) return s.Nombre;
+            var f = familias.FirstOrDefault(x => x.Id == producto?.FamiliaId);
+            return f?.Utilidad != null ? f.Nombre : "La general";
+        }
+    }
+
+    private async Task CargarSubfamiliasUtil()
+    {
+        try { long k = State.KioscoId; subfamiliasUtil = (await SupaClient.From<Subfamilia>().Where(s => s.KioscoId == k).Get()).Models ?? new(); }
+        catch { subfamiliasUtil = new(); }
+    }
+
+    private async Task CambioFamilia()
+    {
+        if (producto != null) producto.SubfamiliaId = null;
+        await CambioGrupo();
+    }
+
+    /// <summary>Editar: no se cambia sola; si el grupo tiene otra utilidad se ofrece en el recuadro de precios.</summary>
+    private async Task CambioGrupo()
+    {
+        if (producto?.SubfamiliaId is long sid && !subfamiliasUtil.Any(s => s.Id == sid)) await CargarSubfamiliasUtil();
+    }
+
+
+    private void ProveedorCreado((long Id, string Nombre) p)
+    {
+        if (!proveedores.Any(x => x.Id == p.Id))
+        {
+            proveedores.Add(new Proveedor { Id = p.Id, KioscoId = State.KioscoId, Nombre = p.Nombre });
+            proveedores = proveedores.OrderBy(x => x.Nombre).ToList();
+        }
+        producto.ProveedorId = p.Id;
+        avisos.Toast($"Proveedor {p.Nombre} listo", "exito", 1800);
+    }
+    // referencia al componente hijo para guardar relaciones
+    private GestionProveedoresProducto? gestionProvRef;
+    private PreciosPorCantidad? preciosCantRef;
+
     private CultureInfo argCulture = CultureInfo.GetCultureInfo("es-AR");
-    private List<ListaPrecio> listasPrecios = new();
-    private string nombreLista2="";
+    private string nombreLista2 = "";
 
     protected override async Task OnInitializedAsync()
     {
-        try 
+        await PrecioServ.AsegurarReglasAsync(State.KioscoId);   // recargos de la Lista 2 del negocio
+        try
         {
             var response = await SupaClient.From<Producto>().Where(p => p.Id == Id).Get();
             producto = response.Models.FirstOrDefault();
-
             if (producto != null)
             {
+                subfamiliaOriginal = producto.SubfamiliaId;
                 var responseFam = await SupaClient.From<Familia>().Where(f => f.KioscoId == State.KioscoId).Get();
                 familias = responseFam.Models.OrderBy(f => f.Nombre).ToList();
 
                 var responseProv = await SupaClient.From<Proveedor>().Where(p => p.KioscoId == State.KioscoId).Get();
-                proveedores = responseProv.Models.OrderBy(p => p.Nombre).ToList();
+                // sin los dados de baja (salvo el que ya tiene este producto, para no perderlo al guardar)
+                proveedores = responseProv.Models.Where(p => p.EstaActivo() || p.Id == producto.ProveedorId).OrderBy(p => p.Nombre).ToList();
 
-                await CargarListasPrecios();
                 nombreLista2 = await PrecioServ.ObtenerNombreColumnaAsync(State.KioscoId, "precio_lista2");
+                await CargarSubfamiliasUtil();
+
+                // 1. Validar Unidad de Medida si es null o vacía
+                if (string.IsNullOrWhiteSpace(producto.UnidadMedida))
+                {
+                    producto.UnidadMedida = "UNIDAD";
+                }
+
+                // 2. Validar Familia / Categoría si es null
+                if (!producto.FamiliaId.HasValue || producto.FamiliaId == 0)
+                {
+                    var familiaDefault = familias.FirstOrDefault(f =>
+                        f.Nombre != null &&
+                        (f.Nombre.Equals("PRODUCTO", StringComparison.OrdinalIgnoreCase) ||
+                         f.Nombre.Equals("PRODUCTOS", StringComparison.OrdinalIgnoreCase) ||
+                         f.Nombre.Equals("ARTICULOS", StringComparison.OrdinalIgnoreCase) ||
+                         f.Nombre.Equals("ARTÍCULOS", StringComparison.OrdinalIgnoreCase)));
+
+                    if (familiaDefault != null)
+                    {
+                        producto.FamiliaId = familiaDefault.Id;
+                    }
+                }
             }
         }
-        catch (Exception ex) { }
-    }
-    private async Task CargarListasPrecios()
-    {
-        // Consulta a Supabase filtrando por id_kiosco y opcionalmente mostrar_en_buscador
-        var res = await SupaClient.From<ListaPrecio>()
-            .Where(x => x.KioscoId == State.KioscoId)
-            .Get();
-
-        listasPrecios = res.Models.ToList();
-    }
-    private void CalcularPrecioVentaCosto(ChangeEventArgs e)
-    {
-        if (producto == null) return;
-        if (decimal.TryParse(e.Value?.ToString(), NumberStyles.Currency, argCulture, out decimal costo))
+        catch
         {
-            producto.PrecioCosto = costo;
-            RecalcularTodasLasListas();
+            producto = null;
+        }
+        finally
+        {
+            cargando = false;
         }
     }
 
-    private void CalcularPrecioVentaMargen(ChangeEventArgs e)
+    // ---------- Unidad de medida ----------
+    private bool EsUnidad(string u) => string.Equals(producto?.UnidadMedida, u, StringComparison.OrdinalIgnoreCase);
+
+    private void CambiarUnidad(string unidad)
     {
-        if (producto == null || !decimal.TryParse(e.Value?.ToString(), out decimal margen)) return;
-        producto.UtilidadPV = margen;
-        producto.PrecioVenta = CalcularPrecioPorUtilidad(producto.PrecioCosto, producto.UtilidadPV);
+        if (producto == null) return;
+        producto.UnidadMedida = unidad;
+        // Automatiza la propiedad VentaxPeso según la unidad elegida
+        producto.VentaxPeso = producto.IsMedidaGramos() || producto.IsMedidaKilos();
     }
 
-    private void CalcularPrecioVentaMargenLista2(ChangeEventArgs e)
-    {
-        if (producto == null || !decimal.TryParse(e.Value?.ToString(), out decimal margen)) return;
-        producto.UtilidadLista2 = margen;
-        producto.PrecioLista2 = CalcularPrecioPorUtilidad(producto.PrecioCosto, producto.UtilidadLista2);
-    }
+    private static string TextoUnidad(string u) => Unidades.Nombre(u);
+    private static string IconoUnidad(string u) => Unidades.Icono(u);
 
-    private void CalcularPrecioVentaMargenLista3(ChangeEventArgs e)
-    {
-        if (producto == null || !decimal.TryParse(e.Value?.ToString(), out decimal margen)) return;
-        producto.UtilidadLista3 = margen;
-        producto.PrecioLista3 = CalcularPrecioPorUtilidad(producto.PrecioCosto, producto.UtilidadLista3);
-    }
-
+    // ---------- Precio por mayor ----------
     private void CalcularPrecioVentaMargenXMayor(ChangeEventArgs e)
     {
-        if (producto == null || !decimal.TryParse(e.Value?.ToString(), out decimal margen)) return;
+        if (producto == null || !decimal.TryParse(e.Value?.ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out decimal margen)) return;
         producto.UtilidadVentaxMayor = margen;
-        producto.PrecioVentaxMayor = CalcularPrecioPorUtilidad(producto.PrecioCosto, producto.UtilidadVentaxMayor);
+        producto.PrecioVentaxMayor = producto.CalcularPrecioPorUtilidad(producto.PrecioCosto, producto.UtilidadVentaxMayor, State);
     }
 
-    private void RecalcularTodasLasListas()
-    {
-        if (producto == null) return;
-        producto.PrecioVenta = CalcularPrecioPorUtilidad(producto.PrecioCosto, producto.UtilidadPV);
-        producto.PrecioLista2 = CalcularPrecioPorUtilidad(producto.PrecioCosto, producto.UtilidadLista2);
-        producto.PrecioLista3 = CalcularPrecioPorUtilidad(producto.PrecioCosto, producto.UtilidadLista3);
-        producto.PrecioVentaxMayor = CalcularPrecioPorUtilidad(producto.PrecioCosto, producto.UtilidadVentaxMayor);
-    }
+    private long? subfamiliaOriginal;
 
-    private decimal? CalcularPrecioPorUtilidad(decimal? precioCosto, decimal? utilidadLista)
+    // ---------- Código de barras ----------
+    private bool creandoCodigo;
+    private async Task CrearCodigoPropio()
     {
-        if (precioCosto == null || utilidadLista == null) return null;
-        decimal costo = precioCosto.Value;
-        decimal margen = utilidadLista.Value;
-        decimal precioSugerido = costo + (costo * (margen / 100));
-
-        if (State.UsarRedondeo)
+        creandoCodigo = true;
+        try
         {
-            return Math.Ceiling(precioSugerido / State.MultiploRedondeo) * State.MultiploRedondeo;
+            producto.CodigoBarras = await CodigoBarras.CrearCodigoPropioAsync(SupaClient, State.KioscoId);
+            avisos.Toast("Código creado. Tocá \"Guardar cambios\" para que quede guardado.", "exito", 4000);
         }
-        return Math.Round(precioSugerido, 2);
+        catch (Exception ex) { avisos.Toast("No se pudo crear el código: " + ex.Message, "peligro"); }
+        finally { creandoCodigo = false; }
     }
 
-    private void CalcularMargenDesdeVenta(ChangeEventArgs e, string tipoLista)
+    private async Task ImprimirEtiqueta()
     {
-        if (producto == null) return;
-        if (!decimal.TryParse(e.Value?.ToString(), NumberStyles.Currency, argCulture, out decimal venta)) return;
-
-        if (producto.PrecioCosto == null || producto.PrecioCosto == 0)
-        {
-            AsignarUtilidadYPrecio(tipoLista, venta, 0);
-            return;
-        }
-
-        decimal costo = producto.PrecioCosto.Value;
-        decimal margenCalculado = ((venta - costo) / costo) * 100;
-        AsignarUtilidadYPrecio(tipoLista, venta, Math.Round(margenCalculado, 2));
+        if (!await avisos.ConfirmarAsync("¿Ir a imprimir la etiqueta?", "Si cambiaste algo y no lo guardaste, se pierde. Guardá primero si hace falta.", "Ir a imprimir", "aviso", "Quedarme")) return;
+        BlazorKioscoCompartido.Components.EtiquetasCodigos.Precargar(producto);
+        Nav.NavigateTo("/carteles?tab=codigos");
     }
 
-    private void AsignarUtilidadYPrecio(string tipoLista, decimal venta, decimal margen)
-    {
-        switch (tipoLista)
-        {
-            case "Principal":
-                producto.PrecioVenta = venta;
-                producto.UtilidadPV = margen;
-                break;
-            case "Lista2":
-                producto.PrecioLista2 = venta;
-                producto.UtilidadLista2 = margen;
-                break;
-            case "Lista3":
-                producto.PrecioLista3 = venta;
-                producto.UtilidadLista3 = margen;
-                break;
-            case "XMayor":
-                producto.PrecioVentaxMayor = venta;
-                producto.UtilidadVentaxMayor = margen;
-                break;
-        }
-    }
-
+    // ---------- Guardar ----------
     private async Task GuardarCambios()
     {
         if (producto == null) return;
-        producto.FechaActualizacion = DateTime.UtcNow;
-        await SupaClient.From<Producto>().Where(p => p.Id == producto.Id).Update(producto);
-        Volver();
+        if (string.IsNullOrWhiteSpace(producto.Nombre)) { avisos.Toast("Falta la descripción del producto.", "peligro"); return; }
+
+        CompletarFamiliaYProveedor();
+        guardando = true;
+        try
+        {
+            // Asegurar que antes de guardar, los precios en kilos contengan los valores redondeados de 100g
+            if (producto.PrecioCada100g())
+            {
+                bool igual = PrecioService.EsMismoPrecioDiaNoche(producto);   // mismo precio de día y de noche
+                if (producto.UtilidadPV.HasValue && producto.UtilidadPV > 0)
+                {
+                    producto.PrecioVenta = producto.CalcularPrecioPorUtilidad(producto.PrecioCosto, producto.UtilidadPV, State);
+                }
+                PrecioService.ProcesarLista2Automatico(producto, State.KioscoId, State, igual);
+            }
+
+            producto.FechaActualizacion = DateTime.UtcNow;
+
+            await SupaClient.From<Producto>().Where(p => p.Id == producto.Id).Update(producto);
+
+            // se le sacó la subfamilia: el guardado normal no manda los vacíos, se borra aparte
+            if (subfamiliaOriginal != null && producto.SubfamiliaId == null)
+            {
+                long idProd = producto.Id;
+                await SupaClient.From<Producto>().Where(p => p.Id == idProd).Set(p => p.SubfamiliaId!, (object?)null).Update();
+            }
+            subfamiliaOriginal = producto.SubfamiliaId;
+
+            // Guardar relaciones proveedores creadas/seleccionadas en el componente hijo
+            if (gestionProvRef != null)
+            {
+                await gestionProvRef.GuardarCambiosProveedoresAsync(producto.Id);
+            }
+
+            // precios por cantidad (si falla, el producto ya quedó guardado)
+            if (preciosCantRef != null)
+            {
+                try { await preciosCantRef.GuardarAsync(producto.Id); }
+                catch (Exception exPc) { await avisos.InformarAsync("No se guardaron los precios por cantidad", exPc.Message, "aviso"); }
+            }
+
+            guardando = false;
+            await avisos.GuardadoAsync(producto.Nombre, milisegundos: 1400);   // se ve que se guardó y vuelve a la lista
+            Volver();
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudieron guardar los cambios", ex.Message, "peligro");
+        }
+        finally { guardando = false; }
+    }
+
+    // Stock en gramos: equivalente aproximado en kilos para que se entienda mejor (ej: 1250 → "1,25 kg")
+    private string KgAprox(int? gramos) => ((gramos ?? 0) / 1000m).ToString("#,##0.###", argCulture) + " kg";
+
+    // algún proveedor lo vende por bulto: el stock se aclara "x unidad" para no confundir
+    private bool hayBultos;
+
+    /// <summary>
+    /// Si quedó sin familia o sin proveedor ("-- Elegí --"), se ponen los de siempre: ARTICULOS y PROVEEDOR.
+    /// Así no falla al guardar (la base no acepta familia 0).
+    /// </summary>
+    private void CompletarFamiliaYProveedor()
+    {
+        if ((producto.FamiliaId ?? 0) <= 0)
+        {
+            var fam = familias.FirstOrDefault(f => f.Nombre != null &&
+                (new[] { "ARTICULOS", "ARTÍCULOS", "ARTICULO", "ARTÍCULO" }).Contains(f.Nombre.Trim().ToUpperInvariant()));
+            producto.FamiliaId = fam?.Id;          // si no existe, queda sin familia (no 0)
+            producto.SubfamiliaId = null;
+        }
+        if ((producto.ProveedorId ?? 0) <= 0)
+        {
+            var prov = proveedores.FirstOrDefault(p => string.Equals(p.Nombre?.Trim(), ConfiguracionService.ProveedorDefault, StringComparison.OrdinalIgnoreCase));
+            producto.ProveedorId = prov?.Id;       // si no existe, queda sin proveedor (no 0)
+        }
     }
 
     private void Volver() => Nav.NavigateTo("/productos");
+
+    /// <summary>Abre "Nuevo producto" con todo copiado de este (precios, familia, proveedores, bultos).</summary>
+    private void DuplicarComoVariante()
+    {
+        var rutaNuevo = Nav.Uri.Contains("-desktop", StringComparison.OrdinalIgnoreCase) ? "/producto/nuevo-desktop" : "/producto/nuevo";
+        Nav.NavigateTo($"{rutaNuevo}?copiarDe={Id}");
+    }
 }

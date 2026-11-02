@@ -1,0 +1,264 @@
+﻿@using BlazorKioscoCompartido.Models.DTO
+@inject Supabase.Client SupaClient
+@inject NavigationManager Nav
+
+<AvisosPagina @ref="avisos" />
+
+<section class="gp-card gp-card-pad">
+    <div class="gp-card-head">
+        <span class="gp-bubble"><i class="bi bi-people-fill"></i></span>
+        <div class="cf-head-text">
+            <h2>Clientes y empleados</h2>
+            <p>A quién le podés fiar. Los deshabilitados no aparecen para vender ni cobrar.</p>
+        </div>
+    </div>
+
+    <div class="gp-toolbar cf-tools">
+        <div class="gp-search">
+            <i class="bi bi-search"></i>
+            <input type="text" class="gp-control" placeholder="Buscar por nombre o teléfono..." @bind="filtro" @bind:event="oninput" />
+            @if (!string.IsNullOrEmpty(filtro))
+            {
+                <button type="button" class="gp-search-clear" title="Borrar búsqueda" @onclick='() => filtro = ""'><i class="bi bi-x-lg"></i></button>
+            }
+        </div>
+        <div class="gp-seg" role="group">
+            <button type="button" class="@(ver == "todos" ? "is-active" : "")" @onclick='() => ver = "todos"'>Todos</button>
+            <button type="button" class="@(ver == "empleados" ? "is-active" : "")" @onclick='() => ver = "empleados"'>Empleados</button>
+            <button type="button" class="@(ver == "deben" ? "is-active" : "")" @onclick='() => ver = "deben"'>Con deuda</button>
+            <button type="button" class="@(ver == "off" ? "is-active" : "")" @onclick='() => ver = "off"'>Deshabilitados</button>
+        </div>
+        <button type="button" class="gp-btn gp-btn-primary cf-head-btn" @onclick="Nuevo"><i class="bi bi-plus-lg"></i> Nuevo</button>
+    </div>
+
+    @if (editando != null)
+    {
+        <div class="cf-modal-fondo" @onclick="CerrarForm">
+            <div class="cf-form cf-modal cf-m-cli @(esNuevo ? "" : "is-editing")" @onclick:stopPropagation="true" role="dialog" aria-modal="true">
+                <div class="cf-form-title">
+                    <i class="bi @(esNuevo ? "bi-person-plus-fill" : "bi-pencil-fill")"></i>
+                    @(esNuevo ? "Nuevo cliente / empleado" : $"Editando: {editando.Nombre}")
+                <button type="button" class="cf-modal-x" title="Cerrar" @onclick="CerrarForm"><i class="bi bi-x-lg"></i></button>
+                </div>
+                <div class="cf-grid">
+                    <div class="cf-col-2">
+                        <label class="cf-lbl">Nombre *</label>
+                        <input class="gp-control cf-control" placeholder="Ej: JUAN PÉREZ" @bind="editando.Nombre" />
+                    </div>
+                    <div class="cf-col-2">
+                        <label class="cf-lbl">Teléfono</label>
+                        <input class="gp-control" type="tel" inputmode="tel" placeholder="Ej: 11 2345-6789" @bind="editando.Telefono" />
+                    </div>
+                    <div class="cf-col-full">
+                        <label class="cf-lbl">Nota</label>
+                        <input class="gp-control" placeholder="Ej: turno noche, cobra los viernes..." @bind="editando.Nota" />
+                    </div>
+                    <div class="cf-col-full cf-switches">
+                        <label class="gp-switch">
+                            <input type="checkbox" checked="@(editando.EsEmpleado == true)" @onchange="e => editando.EsEmpleado = (bool)e.Value!" />
+                            <span class="gp-switch-track"></span>
+                            <span class="gp-switch-text">Es empleado del negocio</span>
+                        </label>
+                        <label class="gp-switch">
+                            <input type="checkbox" @bind="editando.Habilitado" />
+                            <span class="gp-switch-track"></span>
+                            <span class="gp-switch-text">@(editando.Habilitado ? "Habilitado: se le puede fiar" : "Deshabilitado")</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="cf-form-actions">
+                    <button type="button" class="gp-btn gp-btn-outline" @onclick="() => editando = null">Cancelar</button>
+                    <button type="button" class="gp-btn gp-btn-ok" disabled="@guardando" @onclick="Guardar">
+                        <i class="bi bi-check-lg"></i> @(guardando ? "Guardando..." : "Guardar")
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(error))
+    {
+        <div class="gp-banner is-danger"><i class="bi bi-exclamation-octagon-fill"></i><p>@error</p></div>
+    }
+
+    @if (lista == null)
+    {
+        <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>Cargando clientes...</p></div>
+    }
+    else
+    {
+        <div class="gp-table-wrap gp-stack-wrap">
+            <table class="gp-table gp-stack">
+                <thead>
+                    <tr><th>Nombre</th><th>Teléfono</th><th class="t-right">Debe</th><th class="t-center">Acciones</th></tr>
+                </thead>
+                <tbody>
+                    @if (!Filtrados.Any())
+                    {
+                        <tr class="gp-empty-row">
+                            <td colspan="4">
+                                <div class="gp-empty">
+                                    <span class="gp-bubble"><i class="bi bi-people"></i></span>
+                                    <strong>No hay nadie para mostrar</strong>
+                                    <span>@(lista.Any() ? "Probá con otra búsqueda o filtro." : "Agregá el primero con “Nuevo”.")</span>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                    @foreach (var p in Filtrados)
+                    {
+                        var debe = Deuda(p.Id);
+                        <tr class="@(editando?.Id == p.Id && !esNuevo ? "is-selected" : "") @(p.Habilitado ? "" : "cl-off")">
+                            <td class="gp-td-main" data-label="Nombre">
+                                <span class="gp-product">@p.Nombre</span>
+                                @if (p.EsEmpleado == true) { <span class="cf-tag">empleado</span> }
+                                @if (!p.Habilitado) { <span class="cf-tag cf-pill-off">deshabilitado</span> }
+                                @if (!string.IsNullOrWhiteSpace(p.Nota)) { <div class="gp-sub">@p.Nota</div> }
+                            </td>
+                            <td data-label="Teléfono">@(string.IsNullOrWhiteSpace(p.Telefono) ? "—" : p.Telefono)</td>
+                            <td class="t-right gp-num" data-label="Debe">
+                                @if (debe > 0)
+                                {
+                                    <b style="color:var(--gp-danger)">$ @debe.ToString("N2")</b>
+                                }
+                                else
+                                {
+                                    <span class="gp-muted">—</span>
+                                }
+                            </td>
+                            <td class="t-center gp-td-actions" data-label="">
+                                <div class="gp-cell-actions">
+                                    @if (debe > 0)
+                                    {
+                                        <button type="button" class="gp-btn gp-btn-ok-soft gp-btn-sm" title="Cobrar la deuda" @onclick='() => Nav.NavigateTo($"/cobrar-deuda/{p.Id}")'><i class="bi bi-cash-coin"></i> Cobrar</button>
+                                    }
+                                    <button type="button" class="gp-btn gp-btn-soft gp-btn-sm gp-btn-icon" title="Editar" @onclick="() => Editar(p)"><i class="bi bi-pencil-fill"></i></button>
+                                    <button type="button" class="gp-btn gp-btn-danger-soft gp-btn-sm gp-btn-icon" title="Eliminar" @onclick="() => Eliminar(p)"><i class="bi bi-trash3-fill"></i></button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <div class="gp-hint" style="margin-top:.7rem"><i class="bi bi-info-circle-fill" style="color:var(--gp-primary)"></i> "Debe" es al precio de cuando lo sacó, menos lo que ya entregó.</div>
+    }
+</section>
+
+<style>
+    .cl-off .gp-product { color: #9aa3bd; }
+</style>
+
+@code {
+    void CerrarForm() => editando = null;
+    [Parameter] public long KioscoId { get; set; }
+
+    private AvisosPagina avisos = default!;
+    List<Persona>? lista;
+    Dictionary<long, decimal> deudas = new();
+    Persona? editando;
+    bool esNuevo, guardando;
+    string filtro = "", error = "", ver = "todos";
+
+    IEnumerable<Persona> Filtrados => lista!
+        .Where(p => string.IsNullOrWhiteSpace(filtro)
+                    || (p.Nombre ?? "").Contains(filtro, StringComparison.OrdinalIgnoreCase)
+                    || (p.Telefono ?? "").Contains(filtro, StringComparison.OrdinalIgnoreCase))
+        .Where(p => ver switch
+        {
+            "empleados" => p.EsEmpleado == true && p.Habilitado,
+            "deben" => Deuda(p.Id) > 0,
+            "off" => !p.Habilitado,
+            _ => p.Habilitado
+        });
+
+    decimal Deuda(long personaId) => deudas.TryGetValue(personaId, out var d) ? d : 0;
+
+    protected override async Task OnParametersSetAsync() => await Cargar();
+
+    async Task Cargar()
+    {
+        try
+        {
+            lista = await Config.GetPersonas(KioscoId);
+            error = "";
+        }
+        catch (Exception ex) { error = ConfiguracionService.MensajeError(ex); return; }
+
+        try
+        {
+            long k = KioscoId;
+            var res = await SupaClient.From<DeudorDto>().Where(x => x.KioscoId == k).Get();
+            deudas = (res.Models ?? new())
+                .GroupBy(d => d.PersonaId)
+                .ToDictionary(g => g.Key, g => g.Sum(d => Math.Max(0, d.DeudaPrecioHistorico - Math.Abs(d.TotalPagoEntregado))));
+        }
+        catch { deudas = new(); }   // si falla la vista, el ABM igual funciona
+    }
+
+    void Nuevo() { esNuevo = true; editando = new Persona { KioscoId = KioscoId, Habilitado = true, EsEmpleado = false }; }
+
+    void Editar(Persona p)
+    {
+        esNuevo = false;
+        editando = new Persona
+        {
+            Id = p.Id, KioscoId = p.KioscoId, Nombre = p.Nombre, Habilitado = p.Habilitado,
+            Telefono = p.Telefono, EsEmpleado = p.EsEmpleado ?? false, Nota = p.Nota
+        };
+    }
+
+    async Task Guardar()
+    {
+        if (string.IsNullOrWhiteSpace(editando!.Nombre)) { avisos.Toast("El nombre es obligatorio.", "peligro"); return; }
+        editando.Nombre = editando.Nombre.Trim().ToUpper();
+        editando.Telefono = string.IsNullOrWhiteSpace(editando.Telefono) ? null : editando.Telefono.Trim();
+        editando.Nota = string.IsNullOrWhiteSpace(editando.Nota) ? null : editando.Nota.Trim();
+        if (lista!.Any(x => x.Id != editando.Id && string.Equals(x.Nombre, editando.Nombre, StringComparison.OrdinalIgnoreCase)))
+        { avisos.Toast("Ya hay alguien con ese nombre.", "peligro"); return; }
+
+        guardando = true;
+        try
+        {
+            await Config.Guardar(editando, esNuevo);
+            _ = avisos.GuardadoAsync(esNuevo ? "Agregado" : "Guardado");
+            editando = null;
+            await Cargar();
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo guardar", ConfiguracionService.MensajeError(ex), "peligro"); }
+        finally { guardando = false; }
+    }
+
+    async Task Eliminar(Persona p)
+    {
+        try
+        {
+            if (await Config.PersonaTieneMovimientos(p.Id))
+            {
+                if (!p.Habilitado)
+                {
+                    await avisos.InformarAsync("No se puede eliminar", $"{p.Nombre} tiene ventas o fiados registrados, por eso queda deshabilitado (así no se pierde el historial).", "aviso");
+                    return;
+                }
+                if (Deuda(p.Id) > 0)
+                {
+                    await avisos.InformarAsync("Todavía debe plata", $"{p.Nombre} debe $ {Deuda(p.Id):N2}. Cobrale antes de deshabilitarlo.", "aviso");
+                    return;
+                }
+                if (!await avisos.ConfirmarAsync($"{p.Nombre} tiene movimientos", "No se puede borrar porque tiene ventas o pagos registrados. ¿Lo deshabilito para que no aparezca más?", "Deshabilitar", "aviso")) return;
+
+                p.Habilitado = false;
+                await Config.Guardar(p, false);
+                avisos.Toast("Deshabilitado", "exito");
+                await Cargar();
+                return;
+            }
+
+            if (!await avisos.ConfirmarAsync($"¿Eliminar a {p.Nombre}?", "No tiene movimientos, se borra del todo.", "Eliminar")) return;
+            await Config.Eliminar(p);
+            avisos.Toast("Eliminado", "exito");
+            await Cargar();
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo eliminar", ConfiguracionService.MensajeError(ex), "peligro"); }
+    }
+}

@@ -1,0 +1,474 @@
+﻿@using BlazorKioscoCompartido.Components
+@using BlazorKioscoCompartido.Models
+@using BlazorKioscoCompartido.Services
+@using System.Globalization
+@inject PrecioService PrecioServ
+@inject Supabase.Client SupaClient
+@inject AppState State
+
+<AvisosPagina @ref="avisos" />
+
+<div class="gp-scope">
+
+    <!-- ELEGIR LA COMPRA A PROCESAR -->
+    <section class="gp-card gp-card-pad mb-3">
+        <div class="gp-card-head" style="margin-bottom:.9rem">
+            <span class="gp-bubble"><i class="bi bi-cart-check"></i></span>
+            <h2>Compras pendientes</h2>
+        </div>
+
+        @if (cargandoListas)
+        {
+            <div class="gp-banner is-neutral" style="margin:0"><span class="gp-spinner"></span><p>Cargando listas pendientes...</p></div>
+        }
+        else if (!comprasPendientes.Any())
+        {
+            <div class="gp-empty">
+                <span class="gp-bubble"><i class="bi bi-check2-all"></i></span>
+                <strong>No hay compras para procesar</strong>
+                <span>Cuando cierres una lista en la calculadora, aparece acá para actualizar stock y precios.</span>
+            </div>
+        }
+        else
+        {
+            <div class="cm-compras">
+                @foreach (var c in comprasPendientes)
+                {
+                    <button type="button" class="cm-compra @(compraSeleccionada?.Id == c.Id ? "is-active" : "")" @onclick="() => CargarDetallesCompra(c.Id)">
+                        <span><i class="bi bi-calendar3"></i> @c.Fecha.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</span>
+                        <b>$@c.TotalCompra.ToString("N2", cultura)</b>
+                    </button>
+                }
+            </div>
+        }
+    </section>
+
+    @if (compraSeleccionada != null)
+    {
+        <section class="gp-card gp-card-pad">
+            <div class="gp-toolbar">
+                <div class="gp-card-head" style="margin:0">
+                    <span class="gp-bubble gp-bubble-sm"><i class="bi bi-list-check"></i></span>
+                    <h2 style="font-size:1.1rem">Revisá antes de impactar</h2>
+                </div>
+                <div class="gp-summary">
+                    <button type="button" class="gp-btn gp-btn-danger-soft gp-btn-sm" @onclick="EliminarCompraAsync"><i class="bi bi-trash"></i> Eliminar lista</button>
+                </div>
+            </div>
+
+            <div class="gp-banner">
+                <i class="bi bi-info-circle-fill"></i>
+                <p>Se suma la cantidad al stock de todos los productos. Los que tengan el tilde <b>Act. precio</b> también actualizan costo y precios de venta. En rojo ves los valores anteriores.</p>
+            </div>
+
+            <div class="gp-table-wrap gp-stack-wrap">
+                <table class="gp-table gp-stack">
+                    <thead>
+                        <tr>
+                            <th class="t-center">Act. precio</th>
+                            <th>Producto / Código</th>
+                            <th class="t-center">Cant.</th>
+                            <th class="t-center">Costo ($)</th>
+                            <th class="t-center">Util. %</th>
+                            <th class="t-center">Precio venta ($)</th>
+                            @if (!string.IsNullOrEmpty(nombreLista2))
+                            {
+                                <th class="t-center">Util. L2 %</th>
+                                <th class="t-center">@nombreLista2 ($)</th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (!itemsProcesar.Any())
+                        {
+                            <tr class="gp-empty-row">
+                                <td colspan="@(!string.IsNullOrEmpty(nombreLista2) ? 8 : 6)">
+                                    <div class="gp-empty">
+                                        <span class="gp-bubble"><i class="bi bi-box-seam"></i></span>
+                                        <strong>Sin productos</strong>
+                                        <span>No hay detalles en esta compra.</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var item in itemsProcesar)
+                            {
+                                <tr class="@(item.ActualizarPrecio ? "" : "is-off")">
+                                    <td class="t-center gp-td-check" data-label="Act. precio">
+                                        <input type="checkbox" class="gp-check" @bind="item.ActualizarPrecio" title="Tildado: actualiza también costo y precios (además del stock)" />
+                                    </td>
+
+                                    <td class="gp-td-main" data-label="Producto">
+                                        <div class="gp-product">@item.Detalle.NombreProducto</div>
+                                        <div class="gp-sub">Cód. @(string.IsNullOrEmpty(item.Detalle.CodigoBarras) ? "S/D" : item.Detalle.CodigoBarras)
+                                            @if (item.ProductoLocal == null)
+                                            {
+                                                <span class="cm-tag">Nuevo (solo stock)</span>
+                                            }
+                                        </div>
+                                    </td>
+
+                                    <td class="t-center" data-label="Cantidad">
+                                        <div class="cm-cell">
+                                            <input type="number" class="cm-input" style="width:5.2rem" @bind="item.Cantidad" @bind:event="oninput" step="any" />
+                                            @if (item.ProductoLocal != null)
+                                            {
+                                                <span class="gp-muted" style="font-size:.72rem">Stock: @(item.StockAntes) → @(item.StockAntes + item.Cantidad)</span>
+                                            }
+                                        </div>
+                                    </td>
+
+                                    <td class="t-center" data-label="Costo ($)">
+                                        <div class="cm-cell">
+                                            <span class="cm-ant">Ant: $@item.CostoAnterior.ToString("N2", cultura)</span>
+                                            <input type="number" class="cm-input cost" @bind="item.CostoMayorista" @bind:after="() => RecalcularPreciosItem(item)" step="any" />
+                                        </div>
+                                    </td>
+
+                                    <td class="t-center" data-label="Util. %">
+                                        <div class="cm-cell">
+                                            <span class="cm-ant">Ant: @item.UtilidadAnterior.ToString("N0")%</span>
+                                            <input type="number" class="cm-input" @bind="item.UtilidadPV" @bind:after="() => RecalcularPreciosItem(item)" disabled="@(!item.ActualizarPrecio)" />
+                                        </div>
+                                    </td>
+
+                                    <td class="t-center" data-label="Precio venta ($)">
+                                        <div class="cm-cell">
+                                            <span class="cm-ant">Ant: $@item.PrecioVentaAnterior.ToString("N2", cultura)</span>
+                                            <input type="number" class="cm-input sale" @bind="item.PrecioVentaNuevo" @bind:event="oninput"
+                                                   @onchange="() => OnPrecioVentaNuevoChanged(item)" step="any" disabled="@(!item.ActualizarPrecio)" />
+                                        </div>
+                                    </td>
+
+                                    @if (!string.IsNullOrEmpty(nombreLista2))
+                                    {
+                                        <td class="t-center" data-label="Util. L2 %">
+                                            <div class="cm-cell">
+                                                <span class="cm-ant">Ant: @item.UtilidadL2Anterior.ToString("N0")%</span>
+                                                <input type="number" class="cm-input" @bind="item.UtilidadLista2" disabled="@(!item.ActualizarPrecio)" />
+                                            </div>
+                                        </td>
+                                        <td class="t-center" data-label="@nombreLista2">
+                                            <div class="cm-cell">
+                                                <span class="cm-ant">Ant: $@item.PrecioL2Anterior.ToString("N2", cultura)</span>
+                                                <input type="number" class="cm-input sale" @bind="item.PrecioLista2Nuevo" disabled="@(!item.ActualizarPrecio)" />
+                                            </div>
+                                        </td>
+                                    }
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="cm-actionbar">
+                <div class="meta">
+                    <div>Ítems a procesar: <b>@itemsProcesar.Count</b> · con precio: <b>@itemsProcesar.Count(i => i.ActualizarPrecio && i.ProductoLocal != null)</b></div>
+                    <div>Total lista mayorista: <b style="color:var(--gp-ok)">$@compraSeleccionada.TotalCompra.ToString("N2", cultura)</b></div>
+                </div>
+                <button type="button" class="gp-btn gp-btn-ok" style="height:3rem" @onclick="ConfirmarProcesamientoAsync" disabled="@(guardando || !itemsProcesar.Any())">
+                    @if (guardando)
+                    {
+                        <span class="gp-spinner" style="width:1rem;height:1rem;border-width:2px;border-color:rgba(255,255,255,.4);border-top-color:#fff"></span> <span>Procesando...</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-check-circle-fill"></i> <span>Confirmar e impactar en stock / precios</span>
+                    }
+                </button>
+            </div>
+        </section>
+    }
+</div>
+
+@code {
+    /// <summary>Compra que se abre ya seleccionada (cuando se viene de cerrar la lista en la calculadora).</summary>
+    [Parameter] public long? CompraIdInicial { get; set; }
+    /// <summary>Se procesó o eliminó una compra: la página principal refresca su contador.</summary>
+    [Parameter] public EventCallback OnProcesada { get; set; }
+
+    private AvisosPagina avisos = default!;
+    private List<CompraMayorista> comprasPendientes = new();
+    private CompraMayorista? compraSeleccionada;
+    private List<ItemProcesarMayoristaModel> itemsProcesar = new();
+
+    private bool cargandoListas = true;
+    private bool guardando = false;
+    private readonly CultureInfo cultura = CultureInfo.GetCultureInfo("es-AR");
+    private string nombreLista2 = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            nombreLista2 = await PrecioServ.ObtenerNombreColumnaAsync(State.KioscoId, "precio_lista2");
+        }
+        catch { nombreLista2 = ""; }
+
+        await CargarComprasPendientesAsync();
+
+        if (CompraIdInicial.HasValue && comprasPendientes.Any(c => c.Id == CompraIdInicial.Value))
+            await CargarDetallesCompra(CompraIdInicial.Value);
+    }
+
+    private async Task CargarComprasPendientesAsync()
+    {
+        try
+        {
+            cargandoListas = true;
+            var res = await SupaClient.From<CompraMayorista>()
+                .Where(c => c.KioscoId == State.KioscoId && c.Procesado == false)
+                .Order("fecha", Supabase.Postgrest.Constants.Ordering.Descending)
+                .Get();
+
+            comprasPendientes = res.Models ?? new List<CompraMayorista>();
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudieron obtener las listas pendientes", ex.Message, "peligro");
+        }
+        finally
+        {
+            cargandoListas = false;
+        }
+    }
+
+    private async Task CargarDetallesCompra(long compraId)
+    {
+        itemsProcesar = new();
+        if (compraId == 0)
+        {
+            compraSeleccionada = null;
+            return;
+        }
+
+        compraSeleccionada = comprasPendientes.FirstOrDefault(c => c.Id == compraId);
+
+        try
+        {
+            // 1. Detalles de la compra
+            var resDetalles = await SupaClient.From<CompraMayoristaDetalle>()
+                .Where(d => d.CompraId == compraId)
+                .Get();
+
+            var detalles = resDetalles.Models ?? new List<CompraMayoristaDetalle>();
+
+            // 2. Productos de la base local por ID
+            var productosIds = detalles
+                .Select(d => d.ProductoId)
+                .Where(id => id > 0)
+                .Distinct()
+                .ToList();
+
+            List<Producto> productosLocales = new();
+            if (productosIds.Any())
+            {
+                var resProds = await SupaClient.From<Producto>()
+                    .Where(p => p.KioscoId == State.KioscoId)
+                    .Filter(p => p.Id, Supabase.Postgrest.Constants.Operator.In, productosIds)
+                    .Get();
+
+                productosLocales = resProds.Models ?? new List<Producto>();
+            }
+
+            // 3. Modelo de vista (se guardan los valores anteriores ANTES de recalcular)
+            var nuevos = new List<ItemProcesarMayoristaModel>();
+            foreach (var d in detalles)
+            {
+                var prod = productosLocales.FirstOrDefault(p => p.Id == d.ProductoId);
+
+                var item = new ItemProcesarMayoristaModel
+                {
+                    Detalle = d,
+                    ProductoLocal = prod,
+                    Cantidad = d.Cantidad,
+                    CostoMayorista = d.PrecioCosto,
+                    UtilidadPV = prod?.UtilidadPV ?? 40m,
+                    UtilidadLista2 = prod?.UtilidadLista2 ?? 0m,
+                    ActualizarPrecio = true,
+
+                    StockAntes = prod?.StockActual ?? 0,
+                    CostoAnterior = prod?.PrecioCosto ?? 0m,
+                    UtilidadAnterior = prod?.UtilidadPV ?? 0m,
+                    PrecioVentaAnterior = prod?.PrecioVenta ?? 0m,
+                    UtilidadL2Anterior = prod?.UtilidadLista2 ?? 0m,
+                    PrecioL2Anterior = prod?.PrecioLista2 ?? 0m
+                };
+
+                RecalcularPreciosItem(item);
+                nuevos.Add(item);
+            }
+            itemsProcesar = nuevos;
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudieron cargar los productos de la compra", ex.Message, "peligro");
+        }
+    }
+
+    private void RecalcularPreciosItem(ItemProcesarMayoristaModel item)
+    {
+        if (item.ProductoLocal != null)
+        {
+            item.ProductoLocal.PrecioCosto = item.CostoMayorista;
+            item.ProductoLocal.UtilidadPV = item.UtilidadPV;
+
+            item.PrecioVentaNuevo = item.ProductoLocal.CalcularPrecioPorUtilidad(item.CostoMayorista, item.UtilidadPV, State) ?? 0m;
+            item.ProductoLocal.PrecioVenta = item.PrecioVentaNuevo;
+
+            PrecioService.ProcesarLista2Automatico(item.ProductoLocal, State.KioscoId, State);
+
+            item.UtilidadLista2 = item.ProductoLocal.UtilidadLista2 ?? 0m;
+            item.PrecioLista2Nuevo = item.ProductoLocal.PrecioLista2 ?? 0m;
+        }
+        else
+        {
+            // Cálculo básico si el producto no existe localmente
+            item.PrecioVentaNuevo = item.CostoMayorista * (1 + (item.UtilidadPV / 100m));
+        }
+    }
+
+    private void OnPrecioVentaNuevoChanged(ItemProcesarMayoristaModel item)
+    {
+        if (item.ProductoLocal != null)
+        {
+            item.ProductoLocal.PrecioVenta = item.PrecioVentaNuevo;
+
+            // Si se cambia el precio a mano, se deduce la utilidad
+            if (item.CostoMayorista > 0)
+            {
+                decimal utilidadCalculada = ((item.PrecioVentaNuevo - item.CostoMayorista) / item.CostoMayorista) * 100m;
+                item.UtilidadPV = Math.Round(utilidadCalculada, 2);
+                item.ProductoLocal.UtilidadPV = item.UtilidadPV;
+            }
+
+            PrecioService.ProcesarLista2Automatico(item.ProductoLocal, State.KioscoId, State);
+
+            item.UtilidadLista2 = item.ProductoLocal.UtilidadLista2 ?? 0m;
+            item.PrecioLista2Nuevo = item.ProductoLocal.PrecioLista2 ?? 0m;
+        }
+    }
+
+    private async Task ConfirmarProcesamientoAsync()
+    {
+        if (compraSeleccionada == null || !itemsProcesar.Any()) return;
+
+        int conPrecio = itemsProcesar.Count(i => i.ActualizarPrecio && i.ProductoLocal != null);
+        var mensaje = $"Se suma stock a {itemsProcesar.Count(i => i.ProductoLocal != null)} productos y se actualizan costo y precios en {conPrecio}. " +
+                      "La lista pasa a procesada y no se puede deshacer.";
+        if (!await avisos.ConfirmarAsync("¿Impactar la compra?", mensaje, "Confirmar", "exito")) return;
+
+        guardando = true;
+
+        try
+        {
+            foreach (var item in itemsProcesar)
+            {
+                if (item.ProductoLocal != null)
+                {
+                    // 1. Suma la cantidad (puede haberse corregido en la grilla)
+                    item.ProductoLocal.StockActual = item.StockAntes + item.Cantidad;
+
+                    if (item.ActualizarPrecio)
+                    {
+                        item.ProductoLocal.PrecioCosto = item.CostoMayorista;
+                        item.ProductoLocal.UtilidadPV = item.UtilidadPV;
+                        item.ProductoLocal.PrecioVenta = item.PrecioVentaNuevo;
+                        item.ProductoLocal.UtilidadLista2 = item.UtilidadLista2;
+                        item.ProductoLocal.PrecioLista2 = item.PrecioLista2Nuevo;
+                    }
+                    else
+                    {
+                        // Sin tilde: solo stock. Se devuelven los valores originales (el recálculo los había pisado en memoria)
+                        item.ProductoLocal.PrecioCosto = item.CostoAnterior;
+                        item.ProductoLocal.UtilidadPV = item.UtilidadAnterior;
+                        item.ProductoLocal.PrecioVenta = item.PrecioVentaAnterior;
+                        item.ProductoLocal.UtilidadLista2 = item.UtilidadL2Anterior;
+                        item.ProductoLocal.PrecioLista2 = item.PrecioL2Anterior;
+                    }
+
+                    await SupaClient.From<Producto>().Update(item.ProductoLocal);
+                }
+
+                // 2. Cantidad y subtotal definitivos en el detalle de la compra
+                item.Detalle.Cantidad = item.Cantidad;
+                item.Detalle.PrecioCosto = item.CostoMayorista;
+                item.Detalle.Subtotal = item.Cantidad * item.CostoMayorista;
+                item.Detalle.Procesado = true;
+
+                await SupaClient.From<CompraMayoristaDetalle>().Update(item.Detalle);
+            }
+
+            // 3. Marcar la compra como procesada
+            await SupaClient.From<CompraMayorista>()
+                .Where(c => c.Id == compraSeleccionada.Id)
+                .Set(c => c.Procesado, true)
+                .Update();
+
+            // 4. Limpieza y refresco
+            int cantidadProcesados = itemsProcesar.Count;
+            itemsProcesar = new();
+            compraSeleccionada = null;
+            await CargarComprasPendientesAsync();
+            await OnProcesada.InvokeAsync();
+            avisos.Toast($"Compra procesada: {cantidadProcesados} productos actualizados", "exito", 4000);
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudo procesar la compra", ex.Message, "peligro");
+        }
+        finally
+        {
+            guardando = false;
+        }
+    }
+
+    private async Task EliminarCompraAsync()
+    {
+        if (compraSeleccionada == null) return;
+
+        if (!await avisos.ConfirmarAsync("¿Eliminar la lista?",
+                $"Se elimina la compra del {compraSeleccionada.Fecha.ToLocalTime():dd/MM/yyyy HH:mm} con todos sus productos. No se puede deshacer.", "Eliminar")) return;
+
+        try
+        {
+            var id = compraSeleccionada.Id;
+            await SupaClient.From<CompraMayoristaDetalle>().Where(d => d.CompraId == id).Delete();
+            await SupaClient.From<CompraMayorista>().Where(c => c.Id == id).Delete();
+
+            itemsProcesar = new();
+            compraSeleccionada = null;
+            await CargarComprasPendientesAsync();
+            await OnProcesada.InvokeAsync();
+            avisos.Toast("Lista eliminada", "exito");
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudo eliminar la lista", ex.Message, "peligro");
+        }
+    }
+
+    public class ItemProcesarMayoristaModel
+    {
+        public CompraMayoristaDetalle Detalle { get; set; } = new();
+        public Producto? ProductoLocal { get; set; }
+        public int Cantidad { get; set; }
+        public decimal CostoMayorista { get; set; }
+        public bool ActualizarPrecio { get; set; } = true;
+        public decimal UtilidadPV { get; set; }
+        public decimal PrecioVentaNuevo { get; set; }
+        public decimal UtilidadLista2 { get; set; }
+        public decimal PrecioLista2Nuevo { get; set; }
+
+        // Valores que tenía el producto antes de la compra (para mostrar "Ant:" y para no pisarlos si no se tilda)
+        public int StockAntes { get; set; }
+        public decimal CostoAnterior { get; set; }
+        public decimal UtilidadAnterior { get; set; }
+        public decimal PrecioVentaAnterior { get; set; }
+        public decimal UtilidadL2Anterior { get; set; }
+        public decimal PrecioL2Anterior { get; set; }
+    }
+}

@@ -1,0 +1,256 @@
+﻿@using Microsoft.AspNetCore.Components.Routing
+@implements IDisposable
+@inject AppState State
+@inject NavigationManager Nav
+@inject AsistenciaService Asistencia
+@inject Supabase.Client Db
+@inject IJSRuntime JS
+
+@* Menú del sistema: el MISMO para el celular (panel lateral "Más") y para el escritorio (barra izquierda).
+   Cada app le pasa sus rutas (RutasApp.Celular / RutasApp.Escritorio). *@
+<nav class="mp-menu @(Oscuro ? "mp-oscuro" : "mp-claro")">
+    @if (MostrarUsuario)
+    {
+        <div class="mp-usuario">
+            <span class="mp-avatar">@Inicial</span>
+            <div class="mp-usuario-txt">
+                <b>@(State.UsuarioNombre ?? "Usuario")</b>
+                <small>@(State.NombreNegocio ?? "") · @RolTexto</small>
+            </div>
+        </div>
+    }
+
+    @if (SinInternet)
+    {
+        <div class="mp-titulo"><i class="bi bi-wifi-off"></i> Sin internet: solo vender</div>
+    }
+
+    @foreach (var grupo in Grupos)
+    {
+        var items = grupo.Items.Where(i => i.Visible && State.Tiene(i.Funcion)).ToList();
+        if (!items.Any()) continue;
+
+        if (!string.IsNullOrEmpty(grupo.Titulo))
+        {
+            <div class="mp-titulo">@grupo.Titulo</div>
+        }
+        foreach (var it in items)
+        {
+            <NavLink class="mp-link" href="@it.Ruta.TrimStart('/')" Match="@(it.Exacto ? NavLinkMatch.All : NavLinkMatch.Prefix)" @onclick="Navegado">
+                <i class="bi @it.Icono"></i>
+                <span>@it.Texto</span>
+                @if (ConAtajos && it.Atajo != null) { <kbd class="mp-atajo">@it.Atajo</kbd> }
+            </NavLink>
+        }
+    }
+
+    <div class="mp-sep"></div>
+    <button type="button" class="mp-link mp-salir" @onclick="CambiarUsuario">
+        <i class="bi bi-person-key-fill"></i>
+        <span>Cambiar usuario</span>
+    </button>
+    @if (OnCerrarSistema.HasDelegate)
+    {
+        <button type="button" class="mp-link mp-salir" @onclick="CerrarSistema">
+            <i class="bi bi-power"></i>
+            <span>Cerrar el sistema</span>
+        </button>
+    }
+</nav>
+
+<style>
+    .mp-menu { display: flex; flex-direction: column; gap: .1rem; padding: .5rem .6rem 1.5rem; font-family: inherit; }
+    .mp-usuario { display: flex; align-items: center; gap: .65rem; padding: .6rem .5rem .9rem; }
+    .mp-avatar { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 2.4rem; height: 2.4rem; border-radius: 50%; background: var(--tema-principal, #0d6efd); color: #fff; font-weight: 900; }
+    .mp-usuario-txt { min-width: 0; display: flex; flex-direction: column; }
+    .mp-usuario-txt b { font-weight: 800; font-size: .95rem; }
+    .mp-usuario-txt small { font-size: .74rem; opacity: .7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .mp-titulo { margin: .8rem .6rem .25rem; font-size: .68rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; opacity: .6; }
+    .mp-link { display: flex; align-items: center; gap: .75rem; width: 100%; min-height: 2.75rem; padding: .45rem .7rem; border: 0; border-radius: 12px; background: transparent; font: inherit; font-size: .93rem; font-weight: 600; text-align: left; text-decoration: none !important; cursor: pointer; transition: background-color .15s, color .15s; }
+    .mp-link i { flex: none; width: 1.3rem; font-size: 1.15rem; text-align: center; }
+    .mp-sep { height: 1px; margin: .7rem .4rem; }
+    .mp-atajo { margin-left: auto; padding: .05rem .4rem; border-radius: 6px; font-family: inherit; font-size: .7rem; font-weight: 800; line-height: 1.4; box-shadow: none; }
+    .mp-claro .mp-atajo { background: #eef0f5; color: #667291; }
+    .mp-oscuro .mp-atajo { background: rgba(255,255,255,.18); color: #fff; }
+
+    /* claro: panel blanco del celular */
+    .mp-claro .mp-usuario { border-bottom: 1px solid #eef0f5; margin-bottom: .2rem; }
+    .mp-claro .mp-usuario-txt b { color: #1b2540; }
+    .mp-claro .mp-titulo { color: #667291; }
+    .mp-claro .mp-link { color: #1b2540; }
+    .mp-claro .mp-link i { color: #8a93ad; }
+    .mp-claro .mp-link:hover { background: #f3f5fa; }
+    .mp-claro .mp-link.active { background: var(--tema-suave, #e7f0ff); color: var(--tema-oscuro, #0a58ca); font-weight: 800; }
+    .mp-claro .mp-link.active i { color: var(--tema-principal, #0d6efd); }
+    .mp-claro .mp-sep { background: #eef0f5; }
+    .mp-claro .mp-salir, .mp-claro .mp-salir i { color: #cf2f4b; }
+
+    /* oscuro: barra lateral de color del escritorio */
+    .mp-oscuro { color: #fff; }
+    .mp-oscuro .mp-avatar { background: rgba(255,255,255,.22); }
+    .mp-oscuro .mp-usuario { border-bottom: 1px solid rgba(255,255,255,.18); margin-bottom: .2rem; }
+    .mp-oscuro .mp-link { color: rgba(255,255,255,.88); }
+    .mp-oscuro .mp-link:hover { background: rgba(255,255,255,.12); color: #fff; }
+    .mp-oscuro .mp-link.active { background: rgba(255,255,255,.24); color: #fff; font-weight: 800; }
+    .mp-oscuro .mp-sep { background: rgba(255,255,255,.18); }
+    .mp-oscuro .mp-salir { color: #ffd5dc; }
+</style>
+
+@code {
+    /// <summary>Rutas de la app que lo usa (RutasApp.Celular o RutasApp.Escritorio).</summary>
+    [Parameter] public RutasApp Rutas { get; set; } = RutasApp.Celular;
+    /// <summary>true = letras blancas (barra de color del escritorio).</summary>
+    [Parameter] public bool Oscuro { get; set; }
+    [Parameter] public bool MostrarUsuario { get; set; } = true;
+    /// <summary>En el celular cierra el panel después de tocar una opción.</summary>
+    [Parameter] public EventCallback OnNavegar { get; set; }
+    /// <summary>El escritorio no recarga la página al salir; el celular sí (limpia todo).</summary>
+    [Parameter] public bool RecargarAlSalir { get; set; }
+    /// <summary>Solo el escritorio: teclas F2, F3... para ir a cada parte (y se muestran al lado de cada opción).</summary>
+    [Parameter] public bool ConAtajos { get; set; }
+
+    private DotNetObjectReference<MenuPrincipal>? refAtajos;
+    private IJSObjectReference? moduloAtajos;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || !ConAtajos) return;
+        try
+        {
+            refAtajos = DotNetObjectReference.Create(this);
+            moduloAtajos = await JS.InvokeAsync<IJSObjectReference>("import", "./_content/BlazorKioscoCompartido/js/atajos.js?v=1");
+            await moduloAtajos.InvokeVoidAsync("registrar", refAtajos);
+        }
+        catch { /* sin atajos: el menú anda igual */ }
+    }
+
+    /// <summary>Se apretó una tecla de atajo (F2, F3...): va a esa opción si el usuario la puede usar.</summary>
+    [JSInvokable]
+    public Task Atajo(string tecla) => InvokeAsync(async () =>
+    {
+        if (State.KioscoId == 0) return;
+        var it = Grupos.SelectMany(g => g.Items).FirstOrDefault(i => i.Atajo == tecla && i.Visible && State.Tiene(i.Funcion));
+        if (it == null) return;
+        await Navegado();
+        Nav.NavigateTo(it.Ruta);
+    });
+
+    /// <summary>Solo el escritorio: botón "Cerrar el sistema" (la X de la ventana está bloqueada mientras hay alguien adentro).</summary>
+    [Parameter] public EventCallback OnCerrarSistema { get; set; }
+
+    private async Task CerrarSistema()
+    {
+        await Navegado();
+        await OnCerrarSistema.InvokeAsync();
+    }
+
+    private bool EsSuperAdmin => Roles.EsSuperAdmin(State.UsuarioRol);
+    // lo que puede cada perfil (el dueño lo cambia en Configuración → Ayuda y plan → Perfiles)
+    private bool P(string permiso) => Roles.Puede(State.UsuarioRol, permiso);
+    private string Inicial => string.IsNullOrWhiteSpace(State.UsuarioNombre) ? "?" : State.UsuarioNombre!.Trim()[..1].ToUpper();
+    private string RolTexto => Roles.Legible(State.UsuarioRol);
+
+    /// <param name="Funcion">Función del plan que necesita (FuncionesPlan); null = siempre.</param>
+    private sealed record Item(string Texto, string Icono, string Ruta, bool Visible, bool Exacto = false, string? Funcion = null, string? Atajo = null);
+    private sealed record Grupo(string Titulo, List<Item> Items);
+
+    /// <summary>ETAPA 7 (escritorio): sin internet (o si entró sin internet) solo se puede vender.</summary>
+    private static bool SinInternet => BlazorKioscoCompartido.Services.SinInternet.VentaSinInternet.Actual?.ModoLimitado == true;
+
+    // El superadmin (no estando en "Ver como") solo ve Administración: Configuración y Administrar negocios
+    private List<Grupo> Grupos => SinInternet
+        ? new() { new("", new() { new("Vender", "bi-cart-fill", Rutas.Vender, true, Atajo: "F2") }) }
+        : EsSuperAdmin
+            ? GruposTodos.Where(g => g.Titulo == "Administración").ToList()
+            : GruposTodos;
+
+    private List<Grupo> GruposTodos => new()
+    {
+        new("", new()
+        {
+            new("Vender", "bi-cart-fill", Rutas.Vender, true, Atajo: "F2"),
+            new("Productos", "bi-tag-fill", Rutas.Productos, true, Exacto: true, Atajo: "F3"),
+            new("Nuevo producto", "bi-plus-square-fill", Rutas.NuevoProducto, true, Atajo: "F6"),
+            new("Carteles y códigos de barras", "bi-tags-fill", Rutas.Carteles, true, Funcion: FuncionesPlan.Carteles, Atajo: "F7"),
+            new("Tareas del día", "bi-list-check", Rutas.Tareas, true, Funcion: FuncionesPlan.Tareas),
+        }),
+        new("Mercadería", new()
+        {
+            new("Compras al mayorista", "bi-basket2-fill", Rutas.ComprasMayorista, P(Roles.PMercaderia), Funcion: FuncionesPlan.ComprasMayorista),
+            new("Pedidos a proveedores", "bi-truck", Rutas.PedidosProveedor, P(Roles.PMercaderia), Funcion: FuncionesPlan.PedidosProveedores),
+            new("Cuentas con proveedores", "bi-journal-text", Rutas.CuentasProveedores, P(Roles.PMercaderia), Funcion: FuncionesPlan.DeudasProveedores),
+            new("Cambiar precios en grupo", "bi-collection-fill", Rutas.PreciosEnGrupo, P(Roles.PPrecios), Funcion: FuncionesPlan.PreciosGrupo),
+            new("Importar desde Excel", "bi-file-earmark-excel-fill", Rutas.ImportarExcel, P(Roles.PPrecios), Funcion: FuncionesPlan.ImportarExcel),
+            new("Reportes de productos", "bi-clipboard-data-fill", Rutas.ReportesProductos, P(Roles.PReportes), Funcion: FuncionesPlan.ReportesProductos),
+        }),
+        new("Ventas", new()
+        {
+            new("Venta rápida y combos", "bi-lightning-charge-fill", Rutas.VentaRapida, P(Roles.PVentaRapida), Funcion: FuncionesPlan.VentaRapida),
+            new("Recaudación del día", "bi-calendar-check-fill", Rutas.ReporteDiario, P(Roles.PRecaudacion), Funcion: FuncionesPlan.ReporteDia, Atajo: "F8"),
+        }),
+        new("Clientes", new()
+        {
+            new("Deudas (fiado)", "bi-journal-bookmark-fill", Rutas.Deudas, P(Roles.PFiado), Funcion: FuncionesPlan.Fiado, Atajo: "F9"),
+            new("Clientes y empleados", "bi-people-fill", Rutas.Clientes, P(Roles.PConfiguracion) && (State.Tiene(FuncionesPlan.Fiado) || State.Tiene(FuncionesPlan.Asistencia))),
+            new("Asistencia del personal", "bi-person-check-fill", Rutas.Asistencia, P(Roles.PPersonal), Funcion: FuncionesPlan.Asistencia),
+            new("Reporte de tareas", "bi-table", Rutas.ReporteTareas, P(Roles.PPersonal), Funcion: FuncionesPlan.Tareas),
+        }),
+        new("Administración", new()
+        {
+            new("Configuración", "bi-gear-fill", Rutas.Configuracion, P(Roles.PConfiguracion), Exacto: true),
+            new("Administrar negocios", "bi-buildings-fill", Rutas.AdminNegocios, EsSuperAdmin),
+        }),
+    };
+
+    protected override void OnInitialized()
+    {
+        State.OnChange += Refrescar;
+        var off = BlazorKioscoCompartido.Services.SinInternet.VentaSinInternet.Actual;
+        if (off != null) off.OnCambio += Refrescar;
+    }
+    private void Refrescar() => InvokeAsync(StateHasChanged);
+    public void Dispose()
+    {
+        if (moduloAtajos != null) { try { _ = moduloAtajos.InvokeVoidAsync("quitar"); } catch { } }
+        refAtajos?.Dispose();
+        State.OnChange -= Refrescar;
+        var off = BlazorKioscoCompartido.Services.SinInternet.VentaSinInternet.Actual;
+        if (off != null) off.OnCambio -= Refrescar;
+    }
+
+    private async Task Navegado()
+    {
+        if (OnNavegar.HasDelegate) await OnNavegar.InvokeAsync();
+    }
+
+    private async Task CambiarUsuario()
+    {
+        await Navegado();
+
+        // salida del empleado (presentismo)
+        if (State.AsistenciaId is long idAsistencia)
+        {
+            try { await Asistencia.FicharSalidaAsync(idAsistencia); } catch { }
+            State.AsistenciaId = null;
+        }
+
+        // la credencial del equipo deja de estar atada al negocio (la base ya no deja ver sus datos)
+        var off = BlazorKioscoCompartido.Services.SinInternet.VentaSinInternet.Actual;
+        if (off?.SinConexion != true) await Db.CerrarSesionAsync();   // sin internet no hay a quién avisarle
+        off?.AlSalir();
+
+        // limpiamos la sesión (el color del negocio queda guardado en el equipo para el login)
+        State.KioscoId = 0;
+        State.UsuarioId = null;
+        State.UsuarioNombre = null;
+        State.UsuarioRol = null;
+        State.SesionSuperAdmin = null;   // si estaba en modo soporte, se termina
+        State.NombreNegocio = null;
+        State.CarritoActual = new();
+        State.TotalVentaActual = 0;
+        State.NotifyStateChanged();
+
+        Nav.NavigateTo(Rutas.Login, forceLoad: RecargarAlSalir);
+    }
+}

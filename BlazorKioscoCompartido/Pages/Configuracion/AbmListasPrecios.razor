@@ -1,0 +1,762 @@
+﻿@inject Supabase.Client Db
+
+<AvisosPagina @ref="avisos" />
+
+<section class="gp-card gp-card-pad">
+    <div class="gp-card-head">
+        <span class="gp-bubble"><i class="bi bi-currency-dollar"></i></span>
+        <div class="cf-head-text">
+            <h2>Listas de precios</h2>
+            <p>Tildá los precios que usa tu negocio. Con el lápiz cambiás el nombre que se ve en las pantallas y en los carteles.</p>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(error))
+    {
+        <div class="gp-banner is-danger"><i class="bi bi-exclamation-octagon-fill"></i><p>@error</p></div>
+    }
+
+    @if (lista == null)
+    {
+        <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>Cargando listas...</p></div>
+    }
+    else
+    {
+        <div class="lp-checks">
+            @foreach (var def in ListasFijas)
+            {
+                var actual = lista.FirstOrDefault(l => l.NombreColumnaProductos == def.Columna);
+                bool tildada = def.Obligatoria || actual != null;
+                <div class="lp-check @(tildada ? "is-on" : "")">
+                    <label class="lp-check-box" title="@(def.Obligatoria ? "Siempre está (no se puede sacar)" : (tildada ? "Sacar esta lista" : "Usar esta lista"))">
+                        <input type="checkbox" checked="@tildada" disabled="@(def.Obligatoria || ocupado)" @onchange="e => TildarLista(def, (bool)e.Value!)" />
+                        <span class="lp-tilde"><i class="bi bi-check-lg"></i></span>
+                    </label>
+
+                    @if (editandoColumna == def.Columna)
+                    {
+                        <input class="gp-control lp-nombre-input" maxlength="30" @bind="nombreEditando" @onkeydown="e => TeclaNombre(e, def)" />
+                        <button type="button" class="gp-btn gp-btn-ok gp-btn-sm gp-btn-icon" title="Guardar nombre" disabled="@ocupado" @onclick="() => GuardarNombre(def)"><i class="bi bi-check-lg"></i></button>
+                        <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm gp-btn-icon" title="Cancelar" @onclick="() => editandoColumna = null"><i class="bi bi-x-lg"></i></button>
+                    }
+                    else
+                    {
+                        <div class="lp-nombre">
+                            <b>@(actual?.NombreLista ?? def.NombrePorDefecto)</b>
+                            <small>@def.Ayuda</small>
+                        </div>
+                        @if (tildada)
+                        {
+                            <button type="button" class="lp-lapiz" title="Cambiar el nombre" @onclick="() => EditarNombre(def, actual)"><i class="bi bi-pencil-fill"></i></button>
+                        }
+                    }
+                </div>
+            }
+        </div>
+        <div class="gp-hint" style="margin-top:.8rem">
+            <i class="bi bi-info-circle-fill" style="color:var(--gp-primary)"></i>
+            El <b>Precio Venta</b> está siempre. El <b>Precio Noche</b> se cobra en el horario que pongas abajo; el <b>Precio x Mayor</b>, cuando se lleva la cantidad por mayor del producto.
+        </div>
+    }
+</section>
+
+<style>
+    .lp-checks { display: flex; flex-direction: column; gap: .55rem; }
+    .lp-check { display: flex; align-items: center; gap: .8rem; padding: .6rem .8rem; border: 2px solid var(--gp-line); border-radius: 14px; background: #fff; }
+    .lp-check.is-on { border-color: var(--gp-primary-line); background: var(--gp-primary-soft); }
+    .lp-check-box { position: relative; flex: none; margin: 0; cursor: pointer; }
+    .lp-check-box input { position: absolute; opacity: 0; width: 0; height: 0; }
+    .lp-tilde { display: inline-flex; align-items: center; justify-content: center; width: 2.1rem; height: 2.1rem; border: 3px solid #1f2937; border-radius: 8px; background: #fff; color: transparent; font-size: 1.5rem; }
+    .lp-check-box input:checked + .lp-tilde { color: #1f2937; }
+    .lp-check-box input:disabled + .lp-tilde { cursor: not-allowed; opacity: .75; }
+    .lp-check-box input:focus-visible + .lp-tilde { box-shadow: 0 0 0 3px var(--gp-primary-soft); }
+    .lp-nombre { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+    .lp-nombre b { font-weight: 900; font-size: 1.02rem; }
+    .lp-nombre small { color: var(--gp-muted); font-weight: 600; font-size: .78rem; }
+    .lp-nombre-input { flex: 1 1 auto; min-width: 0; max-width: 18rem; }
+    .lp-lapiz { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 2.1rem; height: 2.1rem; border: 1px solid var(--gp-line); border-radius: 8px; background: #fff; color: #b7791f; cursor: pointer; }
+    .lp-lapiz:hover { background: #fff8e1; }
+</style>
+
+@* ================= HORARIO Y RECARGO DE CADA LISTA ================= *@
+@if (lista != null && ListasConRegla.Any())
+{
+    <section class="gp-card gp-card-pad" style="margin-top:1rem">
+        <div class="gp-card-head">
+            <span class="gp-bubble"><i class="bi bi-moon-stars-fill"></i></span>
+            <div class="cf-head-text">
+                <h2>Horario y recargo</h2>
+                <p>En qué horario se cobra con cada lista y, para la Lista 2, cuánto se le suma al precio de venta.</p>
+            </div>
+        </div>
+
+        <div class="lr-elegir">
+            <label class="cf-lbl" style="margin:0">Lista</label>
+            <select class="gp-control" value="@(regLista?.Id.ToString() ?? "")" @onchange="ElegirListaRegla">
+                @foreach (var l in ListasConRegla)
+                {
+                    <option value="@l.Id">@l.NombreLista</option>
+                }
+            </select>
+        </div>
+
+        @if (regLista != null)
+        {
+            @* ---------- días con este precio (Lista 3: domingos y feriados) ---------- *@
+            @if (regLista.NombreColumnaProductos == "precio_lista3")
+            {
+                <div class="lr-bloque">
+                    <div class="lr-rec-head">
+                        <span class="gp-switch-text" style="font-weight:800">Días en que se cobra @regLista.NombreLista (todo el día)</span>
+                        <h3><i class="bi bi-calendar-heart-fill"></i> Domingos y feriados</h3>
+                    </div>
+
+                    <div class="lr-semana">
+                        <span class="cf-lbl" style="margin:0">Todas las semanas:</span>
+                        @for (int d = 0; d < 7; d++)
+                        {
+                            var dd = d;
+                            <button type="button" class="lr-dsem @(diasSemana.Contains(dd) ? "is-on" : "")" @onclick="() => AlternarDiaSemana(dd)">@NombresDias[dd]</button>
+                        }
+                    </div>
+
+                    <div class="lr-cal">
+                        <div class="lr-cal-head">
+                            <button type="button" class="lr-cal-nav" title="Mes anterior" @onclick="() => mesCal = mesCal.AddMonths(-1)"><i class="bi bi-chevron-left"></i></button>
+                            <b>@mesCal.ToString("MMMM yyyy", Ar).ToUpper()</b>
+                            <button type="button" class="lr-cal-nav" title="Mes siguiente" @onclick="() => mesCal = mesCal.AddMonths(1)"><i class="bi bi-chevron-right"></i></button>
+                        </div>
+                        <div class="lr-cal-grid">
+                            @foreach (var n in NombresDias) { <span class="lr-cal-dn">@n</span> }
+                            @for (int b = 0; b < (int)mesCal.DayOfWeek; b++) { <span></span> }
+                            @for (int dia = 1; dia <= DateTime.DaysInMonth(mesCal.Year, mesCal.Month); dia++)
+                            {
+                                var f = new DateTime(mesCal.Year, mesCal.Month, dia);
+                                bool marcado = fechasEspeciales.Contains(f);
+                                bool semanal = diasSemana.Contains((int)f.DayOfWeek);
+                                <button type="button" class="lr-cal-d @(marcado ? "is-on" : semanal ? "is-sem" : "") @(f == DateTime.Today ? "is-hoy" : "")"
+                                        title="@(semanal && !marcado ? "Ya entra por todas las semanas" : "Tocá para marcar / desmarcar")" @onclick="() => AlternarFecha(f)">@dia</button>
+                            }
+                        </div>
+                        <div class="lr-cal-ref">
+                            <span><i class="lr-ref is-on"></i> Feriado / día marcado</span>
+                            <span><i class="lr-ref is-sem"></i> Todas las semanas</span>
+                        </div>
+                    </div>
+
+                    @if (fechasEspeciales.Any())
+                    {
+                        <div class="lr-fechas">
+                            @foreach (var f in fechasEspeciales.OrderBy(x => x))
+                            {
+                                var ff = f;
+                                <span class="lr-fecha @(ff < DateTime.Today ? "is-pasada" : "")">@ff.ToString("ddd dd/MM/yyyy", Ar)
+                                    <button type="button" title="Quitar" @onclick="() => fechasEspeciales.Remove(ff)"><i class="bi bi-x"></i></button></span>
+                            }
+                        </div>
+                    }
+                    <div class="gp-hint"><i class="bi bi-info-circle-fill" style="color:var(--gp-primary)"></i> Esos días se cobra con @regLista.NombreLista <b>todo el día</b> (manda sobre el precio noche). Abajo elegís cuánto se le suma al precio de venta.</div>
+                </div>
+            }
+
+            @* ---------- horario (Lista 2) ---------- *@
+            @if (regLista.NombreColumnaProductos != "precio_lista3")
+            {
+            <div class="lr-bloque">
+                <label class="gp-switch">
+                    <input type="checkbox" checked="@regPorHorario" @onchange="e => regPorHorario = (bool)e.Value!" />
+                    <span class="gp-switch-track"></span>
+                    <span class="gp-switch-text">Se cobra con esta lista en un horario</span>
+                </label>
+                @if (regPorHorario)
+                {
+                    <div class="lr-horas">
+                        <div>
+                            <label class="cf-lbl">Desde</label>
+                            <input type="time" class="gp-control" @bind="regDesde" />
+                        </div>
+                        <div>
+                            <label class="cf-lbl">Hasta</label>
+                            <input type="time" class="gp-control" @bind="regHasta" />
+                        </div>
+                    </div>
+                    <div class="gp-hint">
+                        <i class="bi bi-info-circle-fill" style="color:var(--gp-primary)"></i>
+                        De @regDesde.ToString("HH:mm") a @regHasta.ToString("HH:mm")@(regHasta <= regDesde ? " del día siguiente" : ""): a las @regHasta.ToString("HH:mm") en punto ya vuelve el precio de venta.
+                        La lista se fija al <b>empezar cada venta</b>: si empezó antes del cambio de horario, toda esa venta sigue con la misma lista.
+                    </div>
+                }
+            </div>
+            }
+
+            @* ---------- recargo por tramos (Lista 2 y Lista 3) ---------- *@
+            @if (EsListaConRecargo)
+            {
+                <div class="lr-bloque lr-recargo">
+                    <div class="lr-rec-head">
+                        <label class="gp-switch">
+                            <input type="checkbox" checked="@regAuto" @onchange="CambiarAuto" />
+                            <span class="gp-switch-track"></span>
+                            <span class="gp-switch-text">Se calcula sola: precio de venta + un recargo según el precio</span>
+                        </label>
+                        <h3><i class="bi bi-calculator-fill"></i> Recargo por tramos</h3>
+                    </div>
+                    @if (!regAuto)
+                    {
+                        <div class="gp-hint"><i class="bi bi-pencil-fill" style="color:var(--gp-primary)"></i> Sin recargo automático: el precio de @regLista.NombreLista se carga a mano en cada producto (o con su utilidad).</div>
+                    }
+                    else
+                    {
+                        <div class="lr-tabla">
+                            <div class="lr-fila lr-cab">
+                                <span>Si el precio es de más de</span><span>Hasta</span><span>Se le suma</span><span></span><span></span>
+                            </div>
+                            @if (!tramos.Any())
+                            {
+                                <div class="lr-vacio">Todavía no hay tramos. Agregá el primero.</div>
+                            }
+                            @foreach (var t in tramos.OrderBy(x => x.Desde ?? 0))
+                            {
+                                var esPrueba = TramoDe(precioPrueba ?? 0) == t && (precioPrueba ?? 0) > 0;
+                                <div class="lr-fila @(esPrueba ? "is-prueba" : "")">
+                                    <div class="lr-addon"><span>$</span><InputMonto class="lr-input" @bind-Value="t.Desde" /></div>
+                                    <div class="lr-addon"><span>$</span><InputMonto class="lr-input" Placeholder="sin tope" @bind-Value="t.Hasta" /></div>
+                                    <div class="lr-addon">
+                                        <span>@(t.EsPorcentaje ? "%" : "$")</span>
+                                        <InputMonto class="lr-input" @bind-Value="t.Monto" />
+                                    </div>
+                                    <div class="lr-tipo" role="group" title="Se suma un monto fijo ($) o un porcentaje (%)">
+                                        <button type="button" class="@(t.EsPorcentaje ? "" : "is-active")" @onclick="() => t.EsPorcentaje = false">$</button>
+                                        <button type="button" class="@(t.EsPorcentaje ? "is-active" : "")" @onclick="() => t.EsPorcentaje = true">%</button>
+                                    </div>
+                                    <button type="button" class="lr-borrar" title="Quitar tramo" @onclick="() => tramos.Remove(t)"><i class="bi bi-trash3"></i></button>
+                                </div>
+                            }
+                            <div class="lr-ejemplo">
+                                <i class="bi bi-lightbulb-fill"></i>
+                                <span>Ejemplo: si un producto cuesta</span>
+                                <div class="lr-addon lr-addon-sm"><span>$</span><InputMonto class="lr-input" @bind-Value="precioPrueba" /></div>
+                                <span>@TextoEjemplo</span>
+                            </div>
+                            <button type="button" class="lr-agregar" @onclick="AbrirNuevoTramo"><i class="bi bi-plus-lg"></i> Agregar tramo</button>
+                        </div>
+                        <small class="gp-muted">El total es antes del redondeo. En los productos por gramos el recargo se calcula sobre los 100 g. Acordate de tocar <b>Guardar horario y recargo</b>.</small>
+                    }
+                </div>
+
+                @* ---------- ventana: nuevo tramo ---------- *@
+                @if (nuevoTramo != null)
+                {
+                    <div class="cf-modal-fondo" @onclick="() => nuevoTramo = null">
+                        <div class="cf-form cf-modal cf-m-pago" @onclick:stopPropagation="true" role="dialog" aria-modal="true">
+                            <div class="cf-form-title">
+                                <i class="bi bi-plus-circle-fill"></i> Nuevo tramo
+                                <button type="button" class="cf-modal-x" title="Cerrar" @onclick="() => nuevoTramo = null"><i class="bi bi-x-lg"></i></button>
+                            </div>
+                            <div class="cf-grid">
+                                <div>
+                                    <label class="cf-lbl">Si el precio es de más de</label>
+                                    <div class="lr-addon"><span>$</span><InputMonto class="lr-input" @bind-Value="nuevoTramo.Desde" /></div>
+                                </div>
+                                <div>
+                                    <label class="cf-lbl">Hasta <small style="text-transform:none;font-weight:600;color:var(--gp-muted)">(vacío = sin tope)</small></label>
+                                    <div class="lr-addon"><span>$</span><InputMonto class="lr-input" Placeholder="sin tope" @bind-Value="nuevoTramo.Hasta" /></div>
+                                </div>
+                                <div>
+                                    <label class="cf-lbl">Se le suma</label>
+                                    <div class="lr-suma">
+                                        <div class="lr-addon"><span>@(nuevoTramo.EsPorcentaje ? "%" : "$")</span><InputMonto class="lr-input" @bind-Value="nuevoTramo.Monto" /></div>
+                                        <div class="lr-tipo">
+                                            <button type="button" class="@(nuevoTramo.EsPorcentaje ? "" : "is-active")" @onclick="() => nuevoTramo.EsPorcentaje = false">$</button>
+                                            <button type="button" class="@(nuevoTramo.EsPorcentaje ? "is-active" : "")" @onclick="() => nuevoTramo.EsPorcentaje = true">%</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="cf-col-full gp-hint">
+                                    <i class="bi bi-info-circle-fill" style="color:var(--gp-primary)"></i>
+                                    @TextoTramo(nuevoTramo)
+                                </div>
+                            </div>
+                            <div class="cf-form-actions">
+                                <button type="button" class="gp-btn gp-btn-outline" @onclick="() => nuevoTramo = null">Cancelar</button>
+                                <button type="button" class="gp-btn gp-btn-ok" @onclick="ConfirmarNuevoTramo"><i class="bi bi-plus-lg"></i> Agregar</button>
+                            </div>
+                        </div>
+                    </div>
+                }
+            }
+
+            <div class="cf-form-actions" style="margin-top:1rem">
+                <button type="button" class="gp-btn gp-btn-ok" disabled="@guardandoReglas" @onclick="GuardarReglas">
+                    <i class="bi bi-check-lg"></i> @(guardandoReglas ? "Guardando..." : "Guardar horario y recargo")
+                </button>
+            </div>
+        }
+    </section>
+}
+
+<style>
+    .lr-elegir { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; }
+    .lr-elegir select { width: auto; min-width: 14rem; }
+    .lr-bloque { display: flex; flex-direction: column; gap: .7rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px dashed var(--gp-line); }
+    .lr-horas { display: flex; flex-wrap: wrap; gap: .8rem 1.2rem; }
+    .lr-horas .gp-control { width: 9rem; }
+    .lr-semana { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; }
+    .lr-dsem { min-width: 2.6rem; height: 2.2rem; border: 2px solid #d6dbe8; border-radius: 10px; background: #fff; color: #3b4664; font: inherit; font-weight: 900; font-size: .82rem; cursor: pointer; }
+    .lr-dsem.is-on { border-color: #e11d48; background: #e11d48; color: #fff; }
+    .lr-cal { max-width: 24rem; padding: .7rem; border: 1px solid var(--gp-line); border-radius: 16px; background: #fff; }
+    .lr-cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: .5rem; }
+    .lr-cal-head b { font-weight: 900; letter-spacing: .03em; }
+    .lr-cal-nav { width: 2rem; height: 2rem; border: 0; border-radius: 8px; background: #f1f3f9; cursor: pointer; }
+    .lr-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: .25rem; }
+    .lr-cal-dn { text-align: center; font-size: .7rem; font-weight: 900; color: var(--gp-muted); text-transform: uppercase; }
+    .lr-cal-d { height: 2.3rem; border: 1px solid #e3e7f0; border-radius: 9px; background: #fff; font: inherit; font-weight: 800; color: #1b2540; cursor: pointer; }
+    .lr-cal-d:hover { border-color: #e11d48; }
+    .lr-cal-d.is-sem { background: #ffe4ea; border-color: #fbb6c6; color: #be123c; }
+    .lr-cal-d.is-on { background: #e11d48; border-color: #e11d48; color: #fff; }
+    .lr-cal-d.is-hoy { box-shadow: inset 0 0 0 2px var(--gp-primary); }
+    .lr-cal-ref { display: flex; flex-wrap: wrap; gap: .3rem 1rem; margin-top: .5rem; font-size: .76rem; font-weight: 700; color: var(--gp-muted); }
+    .lr-ref { display: inline-block; width: .8rem; height: .8rem; border-radius: 3px; vertical-align: -1px; margin-right: .25rem; }
+    .lr-ref.is-on { background: #e11d48; }
+    .lr-ref.is-sem { background: #ffe4ea; border: 1px solid #fbb6c6; }
+    .lr-fechas { display: flex; flex-wrap: wrap; gap: .35rem; }
+    .lr-fecha { display: inline-flex; align-items: center; gap: .2rem; padding: .2rem .3rem .2rem .6rem; border-radius: 999px; background: #ffe4ea; color: #be123c; font-weight: 800; font-size: .8rem; text-transform: capitalize; }
+    .lr-fecha.is-pasada { background: #f1f3f9; color: var(--gp-muted); }
+    .lr-fecha button { border: 0; background: transparent; color: inherit; cursor: pointer; font-size: 1rem; line-height: 1; }
+    .lr-recargo { gap: .8rem; }
+    .lr-rec-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem 1rem; }
+    .lr-rec-head h3 { margin: 0; font-size: 1.1rem; font-weight: 900; color: var(--gp-text); display: inline-flex; align-items: center; gap: .45rem; }
+    .lr-rec-head h3 i { color: var(--gp-primary); }
+    .lr-tabla { display: flex; flex-direction: column; gap: .45rem; padding: .8rem; border: 1px solid var(--gp-line); border-radius: 16px; background: #f8f9fc; }
+    .lr-fila { display: grid; grid-template-columns: 1fr 1fr 1fr auto auto; gap: .5rem; align-items: center; padding: .3rem; border-radius: 12px; }
+    .lr-fila.is-prueba { background: var(--gp-primary-soft); box-shadow: inset 0 0 0 2px var(--gp-primary-line); }
+    .lr-cab { padding-bottom: 0; }
+    .lr-cab span { font-size: .72rem; font-weight: 900; letter-spacing: .03em; color: #3b4664; text-transform: uppercase; }
+    .lr-vacio { padding: .8rem; text-align: center; color: var(--gp-muted); font-weight: 600; }
+    .lr-addon { display: flex; align-items: stretch; min-width: 0; border: 2px solid #d6dbe8; border-radius: 10px; background: #fff; overflow: hidden; }
+    .lr-addon:focus-within { border-color: var(--gp-primary); box-shadow: 0 0 0 3px var(--gp-primary-soft); }
+    .lr-addon > span { flex: none; display: inline-flex; align-items: center; padding: 0 .65rem; background: #eef1f8; color: #3b4664; font-weight: 800; border-right: 1px solid #d6dbe8; }
+    .lr-addon .lr-input { flex: 1 1 auto; min-width: 0; width: 100%; height: 2.4rem; padding: 0 .6rem; border: 0; outline: 0; background: transparent; font: inherit; font-weight: 700; }
+    .lr-addon-sm { width: 8.5rem; }
+    .lr-tipo { display: inline-flex; padding: .15rem; border-radius: 10px; background: #e8ebf3; }
+    .lr-tipo button { min-width: 2.2rem; height: 2.1rem; border: 0; border-radius: 8px; background: transparent; color: var(--gp-muted); font-weight: 900; cursor: pointer; }
+    .lr-tipo button.is-active { background: #fff; color: var(--gp-text); box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+    .lr-borrar { width: 2.4rem; height: 2.4rem; border: 1px solid #d6dbe8; border-radius: 10px; background: #fff; color: #6b7280; cursor: pointer; }
+    .lr-borrar:hover { background: var(--gp-danger-soft); color: var(--gp-danger); border-color: var(--gp-danger-line); }
+    .lr-ejemplo { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem .6rem; margin-top: .2rem; padding: .6rem .8rem; border: 1px solid var(--gp-line); border-radius: 12px; background: #fff; font-size: .9rem; font-weight: 600; }
+    .lr-ejemplo > i { color: #e0a800; }
+    .lr-agregar { display: flex; align-items: center; justify-content: center; gap: .4rem; width: 100%; height: 2.8rem; border: 2px dashed #86d4a0; border-radius: 12px;
+                  background: #e7f7ec; color: #137a3a; font: inherit; font-weight: 900; text-transform: uppercase; letter-spacing: .03em; cursor: pointer; }
+    .lr-agregar:hover { background: #d6f2df; }
+    .lr-suma { display: flex; gap: .4rem; align-items: center; }
+    .lr-suma .lr-addon { flex: 1 1 auto; }
+    @@media (max-width: 640px) {
+        .lr-fila { grid-template-columns: 1fr 1fr; }
+        .lr-cab { display: none; }
+        .lr-rec-head h3 { order: -1; }
+    }
+</style>
+
+@code {
+    [Parameter] public long KioscoId { get; set; }
+
+    private AvisosPagina avisos = default!;
+    List<ListaPrecio>? lista;
+    ListaPrecio editando = new();
+    bool guardando;
+    string error = "";
+
+    protected override async Task OnParametersSetAsync() { Limpiar(); await Cargar(); }
+
+    async Task Cargar()
+    {
+        try
+        {
+            lista = await Config.GetListasPrecios(KioscoId); error = "";
+            await AsegurarListasBaseAsync();
+            // por defecto se muestra la Lista 2 (la del horario de noche)
+            if (regLista == null || !lista.Any(l => l.Id == regLista.Id))
+                await CargarReglasDe(ListasConRegla.FirstOrDefault(l => l.NombreColumnaProductos == "precio_lista2") ?? ListasConRegla.FirstOrDefault());
+        }
+        catch (Exception ex) { error = ConfiguracionService.MensajeError(ex); }
+    }
+
+    // ===================== LISTAS FIJAS (tildar / renombrar) =====================
+    /// <summary>Cada casilla está atada a una columna de productos: así nadie tiene que saber los nombres de las columnas.</summary>
+    private sealed record ListaFija(string Columna, string NombrePorDefecto, string Ayuda, bool Obligatoria, bool TildadaAlEmpezar);
+    private static readonly ListaFija[] ListasFijas =
+    {
+        new("precio_venta",           "Precio Venta",   "El precio de siempre",                 Obligatoria: true,  TildadaAlEmpezar: true),
+        new("precio_lista2",          "Precio Noche",   "Otro precio según el horario",         Obligatoria: false, TildadaAlEmpezar: false),
+        new("precio_lista3",          "Precio Feriado", "Domingos y feriados: otro precio todo el día", Obligatoria: false, TildadaAlEmpezar: false),
+        new("precio_venta_por_mayor", "Precio x Mayor", "Llevando la cantidad por mayor",       Obligatoria: false, TildadaAlEmpezar: true),
+    };
+
+    private string? editandoColumna;
+    private string nombreEditando = "";
+    private bool ocupado;
+
+    /// <summary>La primera vez (negocio sin listas) se crean las tildadas por defecto; Precio Venta siempre.</summary>
+    private async Task AsegurarListasBaseAsync()
+    {
+        if (lista == null) return;
+        bool sinNinguna = !lista.Any();
+        var crear = ListasFijas
+            .Where(d => (d.Obligatoria || (sinNinguna && d.TildadaAlEmpezar)) && !lista.Any(l => l.NombreColumnaProductos == d.Columna))
+            .ToList();
+        if (!crear.Any()) return;
+        try
+        {
+            foreach (var d in crear)
+                await Config.Guardar(new ListaPrecio { KioscoId = KioscoId, NombreColumnaProductos = d.Columna, NombreLista = d.NombrePorDefecto, MostrarEnBuscador = true }, true);
+            lista = await Config.GetListasPrecios(KioscoId);
+        }
+        catch { /* si no puede, se muestran igual */ }
+    }
+
+    private async Task TildarLista(ListaFija def, bool tildar)
+    {
+        if (def.Obligatoria || lista == null) return;
+        var actual = lista.FirstOrDefault(l => l.NombreColumnaProductos == def.Columna);
+        ocupado = true;
+        try
+        {
+            if (tildar && actual == null)
+            {
+                await Config.Guardar(new ListaPrecio { KioscoId = KioscoId, NombreColumnaProductos = def.Columna, NombreLista = def.NombrePorDefecto, MostrarEnBuscador = true }, true);
+                avisos.Toast($"{def.NombrePorDefecto}: activada", "exito", 2000);
+            }
+            else if (!tildar && actual != null)
+            {
+                var extra = def.Columna == "precio_lista2" ? " También se borran su horario y su recargo." : "";
+                if (!await avisos.ConfirmarAsync($"¿Dejar de usar {actual.NombreLista}?", "Los precios cargados en los productos no se borran." + extra, "Sacar"))
+                    return;
+                await Config.Eliminar(actual);
+                avisos.Toast($"{actual.NombreLista}: ya no se usa", "info", 2200);
+            }
+            PrecioService.OlvidarReglas(KioscoId);
+            regLista = null;
+            await Cargar();
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo cambiar", ConfiguracionService.MensajeError(ex), "peligro"); }
+        finally { ocupado = false; }
+    }
+
+    private void EditarNombre(ListaFija def, ListaPrecio? actual)
+    {
+        editandoColumna = def.Columna;
+        nombreEditando = actual?.NombreLista ?? def.NombrePorDefecto;
+    }
+
+    private async Task TeclaNombre(KeyboardEventArgs e, ListaFija def)
+    {
+        if (e.Key == "Enter") await GuardarNombre(def);
+        else if (e.Key == "Escape") editandoColumna = null;
+    }
+
+    private async Task GuardarNombre(ListaFija def)
+    {
+        var nombre = (nombreEditando ?? "").Trim();
+        if (nombre == "") { avisos.Toast("Poné un nombre.", "peligro"); return; }
+        var actual = lista?.FirstOrDefault(l => l.NombreColumnaProductos == def.Columna);
+        ocupado = true;
+        try
+        {
+            if (actual == null)
+                await Config.Guardar(new ListaPrecio { KioscoId = KioscoId, NombreColumnaProductos = def.Columna, NombreLista = nombre, MostrarEnBuscador = true }, true);
+            else
+            {
+                actual.NombreLista = nombre;
+                await Config.Guardar(actual, false);
+            }
+            editandoColumna = null;
+            PrecioService.OlvidarReglas(KioscoId);
+            avisos.Toast("Nombre guardado", "exito", 1800);
+            await Cargar();
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo guardar", ConfiguracionService.MensajeError(ex), "peligro"); }
+        finally { ocupado = false; }
+    }
+
+    // ===================== HORARIO Y RECARGO =====================
+    private static readonly System.Globalization.CultureInfo Ar = new("es-AR");
+    private ListaPrecio? regLista;
+    private bool regPorHorario;
+    private TimeOnly regDesde = new(0, 0), regHasta = new(8, 0);
+    private bool regAuto;
+    private List<Tramo> tramos = new();
+    private decimal? precioPrueba = 1000;
+    private bool guardandoReglas;
+
+    private sealed class Tramo
+    {
+        public decimal? Desde { get; set; }
+        public decimal? Hasta { get; set; }
+        public decimal? Monto { get; set; }
+        public bool EsPorcentaje { get; set; }
+    }
+
+    // los mismos tramos que usaba el negocio 1 (sirven de punto de partida)
+    private static List<Tramo> TramosDeEjemplo() => new()
+    {
+        new() { Desde = 0, Hasta = 500, Monto = 50 },       new() { Desde = 500, Hasta = 900, Monto = 100 },
+        new() { Desde = 900, Hasta = 1100, Monto = 200 },   new() { Desde = 1100, Hasta = 5000, Monto = 300 },
+        new() { Desde = 5000, Hasta = 7000, Monto = 400 },  new() { Desde = 7000, Hasta = 10000, Monto = 500 },
+        new() { Desde = 10000, Hasta = 14000, Monto = 600 }, new() { Desde = 14000, Hasta = null, Monto = 1000 },
+    };
+
+    private Tramo? TramoDe(decimal precio) =>
+        tramos.Where(t => t.Monto.HasValue).OrderBy(t => t.Desde ?? 0)
+              .FirstOrDefault(t => precio > (t.Desde ?? 0) && (t.Hasta == null || precio <= t.Hasta));
+    private decimal RecargoPrueba
+    {
+        get
+        {
+            decimal p = precioPrueba ?? 0;
+            var t = TramoDe(p);
+            if (t == null || p <= 0) return 0;
+            return t.EsPorcentaje ? Math.Round(p * (t.Monto ?? 0) / 100m, 2) : (t.Monto ?? 0);
+        }
+    }
+    private decimal PrecioPrueba => (precioPrueba ?? 0) + RecargoPrueba;
+
+    private async Task ElegirListaRegla(ChangeEventArgs e)
+    {
+        if (long.TryParse(e.Value?.ToString(), out var id)) await CargarReglasDe(lista?.FirstOrDefault(l => l.Id == id));
+    }
+
+    private async Task CargarReglasDe(ListaPrecio? l)
+    {
+        regLista = l;
+        regPorHorario = false; regDesde = new(0, 0); regHasta = new(8, 0);
+        regAuto = false; tramos = new();
+        diasSemana = new(); fechasEspeciales = new(); mesCal = new(DateTime.Today.Year, DateTime.Today.Month, 1);
+        if (l == null) return;
+        try
+        {
+            long k = KioscoId, idL = l.Id;
+            var hs = (await Db.From<HorarioVenta>().Where(h => h.KioscoId == k).Get()).Models ?? new();   // se filtra acá (lista_precio_id es int)
+            var h = hs.FirstOrDefault(x => x.ListaPrecioId == idL && x.TipoAjuste == "LISTA");
+            if (h != null) { regPorHorario = true; regDesde = TimeOnly.FromTimeSpan(h.HoraInicio); regHasta = TimeOnly.FromTimeSpan(h.HoraFin); }
+
+            if (l.NombreColumnaProductos == "precio_lista3")
+            {
+                try
+                {
+                    var ds = (await Db.From<ListaDia>().Where(d => d.ListaPrecioId == idL).Get()).Models ?? new();
+                    diasSemana = ds.Where(d => d.DiaSemana != null).Select(d => d.DiaSemana!.Value).ToHashSet();
+                    fechasEspeciales = ds.Where(d => d.Fecha != null).Select(d => d.Fecha!.Value.Date).ToHashSet();
+                }
+                catch { avisos.Toast("Falta correr el script 36 (domingos y feriados).", "aviso", 5000); }
+            }
+            if (l.NombreColumnaProductos is "precio_lista2" or "precio_lista3")
+            {
+                try
+                {
+                    var rs = (await Db.From<ListaRecargo>().Where(r => r.ListaPrecioId == idL).Get()).Models ?? new();
+                    tramos = rs.OrderBy(r => r.Desde).Select(r => new Tramo { Desde = r.Desde, Hasta = r.Hasta, Monto = r.Monto, EsPorcentaje = r.EsPorcentaje }).ToList();
+                    regAuto = tramos.Any();
+                }
+                catch { avisos.Toast("Falta correr el script 33 (recargos de las listas).", "aviso", 5000); }
+            }
+        }
+        catch (Exception ex) { avisos.Toast(ConfiguracionService.MensajeError(ex), "peligro"); }
+    }
+
+    private void CambiarAuto(ChangeEventArgs e)
+    {
+        regAuto = (bool)e.Value!;
+        if (regAuto && !tramos.Any())
+            tramos = regLista?.NombreColumnaProductos == "precio_lista3"
+                ? new() { new Tramo { Desde = 0, Hasta = null, Monto = 200 } }   // feriados: + $200 a todo (o cambiá a %)
+                : TramosDeEjemplo();
+    }
+
+    // ---------- Lista 3: domingos y feriados ----------
+    private static readonly string[] NombresDias = { "Do", "Lu", "Ma", "Mi", "Ju", "Vi", "Sá" };
+    private HashSet<int> diasSemana = new();
+    private HashSet<DateTime> fechasEspeciales = new();
+    private DateTime mesCal = new(DateTime.Today.Year, DateTime.Today.Month, 1);
+
+    /// <summary>Listas que tienen horario / días / recargo (Lista 2 noche y Lista 3 feriados).</summary>
+    private IEnumerable<ListaPrecio> ListasConRegla => (lista ?? new()).Where(l => l.NombreColumnaProductos is "precio_lista2" or "precio_lista3");
+    private bool EsListaConRecargo => regLista?.NombreColumnaProductos is "precio_lista2" or "precio_lista3";
+
+    private void AlternarDiaSemana(int d) { if (!diasSemana.Remove(d)) diasSemana.Add(d); }
+    private void AlternarFecha(DateTime f) { if (!fechasEspeciales.Remove(f.Date)) fechasEspeciales.Add(f.Date); }
+
+    // ---------- nuevo tramo (ventana) ----------
+    private Tramo? nuevoTramo;
+
+    private void AbrirNuevoTramo()
+    {
+        // arranca donde termina el último tramo
+        var ult = tramos.OrderBy(t => t.Desde ?? 0).LastOrDefault();
+        nuevoTramo = new Tramo { Desde = ult == null ? 0 : (ult.Hasta ?? ult.Desde ?? 0), Monto = null, EsPorcentaje = ult?.EsPorcentaje ?? false };
+    }
+
+    private void ConfirmarNuevoTramo()
+    {
+        var t = nuevoTramo;
+        if (t == null) return;
+        if (t.Monto == null || t.Monto < 0) { avisos.Toast("Escribí cuánto se le suma.", "peligro"); return; }
+        if (t.Hasta != null && t.Hasta <= (t.Desde ?? 0)) { avisos.Toast("El \"hasta\" tiene que ser mayor que el \"más de\".", "peligro"); return; }
+        decimal d = t.Desde ?? 0, h = t.Hasta ?? decimal.MaxValue;
+        var pisa = tramos.FirstOrDefault(x => d < (x.Hasta ?? decimal.MaxValue) && (x.Desde ?? 0) < h);
+        if (pisa != null)
+        { avisos.Toast($"Se pisa con el tramo de más de $ {(pisa.Desde ?? 0):N0}{(pisa.Hasta is decimal ph ? $" hasta $ {ph:N0}" : " (sin tope)")}.", "peligro", 5000); return; }
+        tramos.Add(t);
+        nuevoTramo = null;
+        avisos.Toast("Tramo agregado. Tocá Guardar para que quede.", "exito", 2500);
+    }
+
+    private static string TextoTramo(Tramo t)
+    {
+        var ar = System.Globalization.CultureInfo.GetCultureInfo("es-AR");
+        string suma = t.Monto is decimal m ? (t.EsPorcentaje ? $"el {m.ToString("0.##", ar)}%" : $"$ {m.ToString("N0", ar)}") : "…";
+        string hasta = t.Hasta is decimal h ? $"hasta $ {h.ToString("N0", ar)}" : "en adelante";
+        return $"Productos de más de $ {(t.Desde ?? 0).ToString("N0", ar)} {hasta}: se les suma {suma}.";
+    }
+
+    /// <summary>"Ejemplo: si un producto cuesta $1.000 → tramo de $900 a $1.100: se suma $200. Total $1.200."</summary>
+    private string TextoEjemplo
+    {
+        get
+        {
+            decimal p = precioPrueba ?? 0;
+            if (p <= 0) return "escribí un precio para ver cuánto queda.";
+            var t = TramoDe(p);
+            if (t == null) return "no entra en ningún tramo: no se le suma nada.";
+            string rango = t.Hasta is decimal h ? $"de $ {(t.Desde ?? 0).ToString("N0", Ar)} a $ {h.ToString("N0", Ar)}" : $"de más de $ {(t.Desde ?? 0).ToString("N0", Ar)}";
+            return $"está en el tramo {rango}: se le suma $ {RecargoPrueba.ToString("N2", Ar)}. Total en {regLista?.NombreLista}: $ {PrecioPrueba.ToString("N2", Ar)}.";
+        }
+    }
+
+    private string? ValidarTramos()
+    {
+        var ts = tramos.OrderBy(t => t.Desde ?? 0).ToList();
+        for (int i = 0; i < ts.Count; i++)
+        {
+            var t = ts[i];
+            if (t.Monto == null || t.Monto < 0) return "Falta lo que se suma en algún tramo.";
+            if (t.Hasta != null && t.Hasta <= (t.Desde ?? 0)) return $"En el tramo de más de $ {(t.Desde ?? 0):N0}, el \"hasta\" tiene que ser mayor.";
+            if (i > 0 && (ts[i - 1].Hasta == null || ts[i - 1].Hasta > (t.Desde ?? 0))) return "Hay tramos que se pisan: cada tramo tiene que empezar donde termina el anterior.";
+        }
+        return null;
+    }
+
+    private async Task GuardarReglas()
+    {
+        if (regLista == null) return;
+        if (regPorHorario && regDesde == regHasta) { avisos.Toast("El horario no puede empezar y terminar a la misma hora.", "peligro"); return; }
+        bool esL2 = regLista.NombreColumnaProductos == "precio_lista2";
+        bool esL3 = regLista.NombreColumnaProductos == "precio_lista3";
+        if ((esL2 || esL3) && regAuto)
+        {
+            if (!tramos.Any()) { avisos.Toast("Agregá al menos un tramo.", "peligro"); return; }
+            var err = ValidarTramos();
+            if (err != null) { avisos.Toast(err, "peligro", 5000); return; }
+        }
+
+        guardandoReglas = true;
+        try
+        {
+            long k = KioscoId, idL = regLista.Id;
+            int idLi = (int)idL;   // en horarios_ventas la columna es int
+
+            // horario: una sola regla por lista
+            await Db.From<HorarioVenta>().Where(h => h.KioscoId == k).Where(h => h.ListaPrecioId == idLi).Delete();
+            if (regPorHorario)
+                await Db.From<HorarioVenta>().Insert(new HorarioVenta
+                {
+                    KioscoId = k, ListaPrecioId = idLi, TipoAjuste = "LISTA",
+                    HoraInicio = regDesde.ToTimeSpan(), HoraFin = regHasta.ToTimeSpan()
+                });
+
+            // Lista 3: días (todas las semanas + fechas del almanaque)
+            if (esL3)
+            {
+                await Db.From<ListaDia>().Where(d => d.ListaPrecioId == idL).Delete();
+                var filasDias = diasSemana.Select(d => new ListaDia { KioscoId = k, ListaPrecioId = idL, DiaSemana = d, Fecha = null })
+                    .Concat(fechasEspeciales.Select(f => new ListaDia { KioscoId = k, ListaPrecioId = idL, Fecha = f, DiaSemana = null }))
+                    .ToList();
+                if (filasDias.Any()) await Db.From<ListaDia>().Insert(filasDias);
+            }
+
+            bool recalcular = false;
+            if (esL2 || esL3)
+            {
+                await Db.From<ListaRecargo>().Where(r => r.ListaPrecioId == idL).Delete();
+                if (regAuto)
+                {
+                    var filas = tramos.OrderBy(t => t.Desde ?? 0).Select(t => new ListaRecargo
+                    {
+                        KioscoId = k, ListaPrecioId = idL, Desde = t.Desde ?? 0, Hasta = t.Hasta,
+                        Monto = t.Monto ?? 0, EsPorcentaje = t.EsPorcentaje
+                    }).ToList();
+                    await Db.From<ListaRecargo>().Insert(filas);
+                    recalcular = esL2;   // la Lista 3 se calcula al vender (no se guarda en cada producto)
+                }
+            }
+
+            PrecioService.OlvidarReglas(k);
+            _ = avisos.GuardadoAsync("Horario y recargo guardados");
+
+            if (recalcular && await avisos.ConfirmarAsync($"¿Recalcular {regLista.NombreLista} en todos los productos?",
+                    "Se le suma a cada producto el recargo de su tramo (con el redondeo del negocio). Los que se cargaron a mano se pisan.", "Recalcular"))
+            {
+                var res = await Db.Rpc("recalcular_lista2", new Dictionary<string, object> { { "p_kiosco", k } });
+                int.TryParse((res.Content ?? "0").Trim(), out int n);
+                await avisos.InformarAsync("Listo", $"Se actualizó {regLista.NombreLista} en {n} producto(s).", "exito", "Aceptar");
+            }
+            await CargarReglasDe(regLista);
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo guardar", ConfiguracionService.MensajeError(ex), "peligro"); }
+        finally { guardandoReglas = false; }
+    }
+
+    void Limpiar() => editando = new ListaPrecio { KioscoId = KioscoId, MostrarEnBuscador = true };
+
+    void Editar(ListaPrecio l)
+    {
+        editando = new ListaPrecio
+        {
+            Id = l.Id, KioscoId = l.KioscoId, NombreLista = l.NombreLista,
+            NombreColumnaProductos = l.NombreColumnaProductos, MostrarEnBuscador = l.MostrarEnBuscador
+        };
+    }
+
+    async Task Guardar()
+    {
+        if (string.IsNullOrWhiteSpace(editando.NombreLista) || string.IsNullOrWhiteSpace(editando.NombreColumnaProductos))
+        { avisos.Toast("Completá el nombre y la columna.", "peligro"); return; }
+
+        editando.NombreLista = editando.NombreLista.Trim();
+        editando.NombreColumnaProductos = editando.NombreColumnaProductos.Trim().ToLower();
+
+        guardando = true;
+        try
+        {
+            await Config.Guardar(editando, editando.Id == 0);
+            _ = avisos.GuardadoAsync("Lista guardada");
+            Limpiar();
+            await Cargar();
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo guardar", ConfiguracionService.MensajeError(ex), "peligro"); }
+        finally { guardando = false; }
+    }
+
+    async Task CambiarBuscador(ListaPrecio l, bool valor)
+    {
+        l.MostrarEnBuscador = valor;
+        try { await Config.Guardar(l, false); avisos.Toast(valor ? $"{l.NombreLista}: se ve en el buscador" : $"{l.NombreLista}: oculta en el buscador", "info", 2200); }
+        catch (Exception ex) { avisos.Toast(ConfiguracionService.MensajeError(ex), "peligro"); await Cargar(); }
+    }
+
+    async Task Eliminar(ListaPrecio l)
+    {
+        if (!await avisos.ConfirmarAsync($"¿Eliminar la lista {l.NombreLista}?", "No se puede deshacer.", "Eliminar")) return;
+        try { await Config.Eliminar(l); avisos.Toast("Lista eliminada", "exito"); await Cargar(); }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo eliminar", ConfiguracionService.MensajeError(ex), "peligro"); }
+    }
+}

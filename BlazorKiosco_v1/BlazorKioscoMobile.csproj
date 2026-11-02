@@ -7,6 +7,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Content Remove="Pages\Configuracion_viejo_sacar.razor" />
+    <Content Remove="Pages\IngresoMercaderia_sacar.razor" />
+    <Content Remove="Pages\ListadoPedidoProveedor_sacar.razor" />
+    <Content Remove="Pages\MenuAdicional_sacar.razor" />
+    <Content Remove="Pages\Weather_sacar.razor" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Blazor.LocalStorage" Version="9.0.1" />
     <PackageReference Include="ExcelDataReader" Version="3.9.0" />
     <PackageReference Include="ExcelDataReader.DataSet" Version="3.9.0" />

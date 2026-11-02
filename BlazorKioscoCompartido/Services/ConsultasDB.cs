@@ -22,65 +22,20 @@ namespace BlazorKioscoCompartido.Services
         }
 
         /// <summary>
-        /// Busca una familia por su descripción y kiosco. Si no existe, la crea y devuelve su ID.
+        /// Calcula el precio de venta basado en el precio de costo, el precio de venta y la utilidad deseada.
         /// </summary>
-
-        public async Task<long> ObtenerOInsertarFamiliaIdAsync_ori(string descripcionFamilia, long kioscoId)
+        public async Task<decimal> CalcularPrecioVentaAsync(decimal precio_costo, decimal  precio_venta, decimal utilidadPV)
         {
-            if (string.IsNullOrWhiteSpace(descripcionFamilia))
+            if (precio_venta <= precio_costo)
             {
-                descripcionFamilia = "MERCADERIA1";
-            }
-
-            string nombreLimpio = descripcionFamilia.Trim();
-
-            try
-            {
-                // 1. BUSCAR SI YA EXISTE
-                // En Supabase filtramos usando .Where o usando las expresiones Postgrest de la librería
-                //var respuesta = await _supaClient
-                //    .From<Familia>()
-                //    .Filter(f => f.KioscoId, Supabase.Postgrest.Constants.Operator.Equals, kioscoId)
-                //    .Get();
-
-                var respuesta = await _supaClient.From<Familia>().Filter(f => f.KioscoId, Operator.Equals, (long)kioscoId).Get();
-
-                // Buscamos en memoria ignorando mayúsculas/minúsculas para estar seguros
-                var familiaExistente = respuesta.Models
-                    .FirstOrDefault(f => f.Nombre.Equals(nombreLimpio, StringComparison.OrdinalIgnoreCase));
-
-                if (familiaExistente != null)
-                {
-                    return (long)familiaExistente.Id; // Suponiendo que tu modelo Familia tiene la propiedad Id
+                if (utilidadPV > 0)
+                { 
+                    return precio_costo + (precio_costo * utilidadPV / 100);
                 }
-
-                // 2. SI NO EXISTE, LA INSERTAMOS
-                var nuevaFamilia = new Familia
-                {
-                    Nombre = nombreLimpio,
-                    KioscoId = kioscoId,
-
-                    // Agrega acá cualquier otro campo obligatorio de tu tabla de Supabase (ej: Estado = true)
-                };
-
-                // Insert devuelve el registro recién creado con su ID asignado por la base de datos
-                var respuestaInsert = await _supaClient.From<Familia>().Insert(nuevaFamilia);
-                var familiaCreada = respuestaInsert.Models.FirstOrDefault();
-
-                if (familiaCreada != null)
-                {
-                    return (long)familiaCreada.Id;
-                }
-
-                throw new Exception("No se pudo obtener el ID de la familia creada.");
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"Error en ConsultasDB al procesar la familia '{descripcionFamilia}': {ex.Message}");
-            }
+            } 
+            return precio_venta;
         }
-
-
+        
         /// <summary>
         /// Busca una familia por su nombre y kiosco en Supabase. Si no existe, la crea y devuelve su ID (long).
         /// </summary>
@@ -88,7 +43,7 @@ namespace BlazorKioscoCompartido.Services
         {
             if (string.IsNullOrWhiteSpace(nombreFamilia))
             {
-                nombreFamilia = "MERCADERIA";
+                nombreFamilia = "ARTICULOS";
             }
 
             string nombreLimpio = nombreFamilia.Trim();
@@ -97,17 +52,18 @@ namespace BlazorKioscoCompartido.Services
             {
                 // 1. BUSCAR SI YA EXISTE
                 // Usamos strings planos con el nombre de la columna para evitar errores de tipo de criterio
-                var respuesta = await _supaClient
-                    .From<Familia>()
-                    .Filter("kiosco_id", Supabase.Postgrest.Constants.Operator.Equals, kioscoId)
-                    .Get();
 
-                // Buscamos en memoria comparando contra la propiedad .Nombre (que mapea a la columna "nombre")
-                //var familiaExistente = respuesta.Models
-                //    .FirstOrDefault(f => f.Nombre != null && f.Nombre.Equals(nombreLimpio, StringComparison.OrdinalIgnoreCase));
 
-                var familiaExistente = respuesta.Models
-                   .FirstOrDefault(p => p.Nombre.Equals(nombreLimpio, StringComparison.OrdinalIgnoreCase));
+                Familia? familiaExistente = null;
+
+                if (!string.IsNullOrWhiteSpace(nombreFamilia))
+                {
+                    familiaExistente = await _supaClient
+                        .From<Familia>()
+                        .Where(p => p.KioscoId == kioscoId)
+                        .Filter("nombre", Supabase.Postgrest.Constants.Operator.ILike, $"%{nombreFamilia}%")
+                        .Single();
+                }
 
 
                 if (familiaExistente != null)
@@ -118,10 +74,10 @@ namespace BlazorKioscoCompartido.Services
                 // 2. SI NO EXISTE, LA INSERTAMOS
                 var nuevaFamilia = new Familia
                 {
-                    Nombre = nombreLimpio,         // Asignamos la propiedad obligatoria 'Nombre'
-                    Descripcion = nombreLimpio,    // Opcional: seteamos la descripción igual o dejala en null
+                    Nombre = nombreLimpio.ToUpper(),         // Asignamos la propiedad obligatoria 'Nombre'
+                    Descripcion = nombreLimpio.ToUpper(),    // Opcional: seteamos la descripción igual o dejala en null
                     KioscoId = kioscoId,           // Pasamos el long limpio
-                    fechaCreacion = DateTime.Now   // Inicializa la fecha localmente de forma explícita si hace falta
+                    FechaCreacion = DateTime.Now   // Inicializa la fecha localmente de forma explícita si hace falta
                 };
 
                 var respuestaInsert = await _supaClient.From<Familia>().Insert(nuevaFamilia);
@@ -141,56 +97,57 @@ namespace BlazorKioscoCompartido.Services
         }
         public async Task<long> ObtenerOInsertarProveedorIdAsync(string descripcionProveedor, long kioscoId)
         {
-            //if (string.IsNullOrWhiteSpace(descripcionProveedor))
-            //{
-            //    descripcionProveedor = "PROVEEDOR1";
-            //}
+            if (string.IsNullOrWhiteSpace(descripcionProveedor))
+            {
+                descripcionProveedor = "PROVEEDOR1";
+            }
 
-            //string nombreLimpio = descripcionProveedor.Trim();
+            string nombreLimpio = descripcionProveedor.Trim();
 
-            //try
-            //{
-            //    // 1. BUSCAR SI YA EXISTE
-            //    // En Supabase filtramos usando .Where o usando las expresiones Postgrest de la librería
-            //    var respuesta = await _supaClient
-            //        .From<Proveedor>()
-            //        .Filter(f => f.KioscoId, Supabase.Postgrest.Constants.Operator.Equals, kioscoId)
-            //        .Get();
+            try
+            {
+                // 1. BUSCAR SI YA EXISTE
+                // En Supabase filtramos usando .Where o usando las expresiones Postgrest de la librería
+                Proveedor? proveedorExistente = null;
 
-            //    // Buscamos en memoria ignorando mayúsculas/minúsculas para estar seguros
-            //    var proveedorExistente = respuesta.Models
-            //        .FirstOrDefault(p => p.Nombre.Equals(nombreLimpio, StringComparison.OrdinalIgnoreCase));
+                if (!string.IsNullOrWhiteSpace(descripcionProveedor))
+                {
+                    proveedorExistente = await _supaClient
+                        .From<Proveedor>()
+                        .Where(p => p.KioscoId == kioscoId)
+                        .Filter("nombre", Supabase.Postgrest.Constants.Operator.ILike, $"%{descripcionProveedor}%")
+                        .Single();
+                }
 
+                if (proveedorExistente != null)
+                {
+                    return (long)proveedorExistente.Id; // Suponiendo que tu modelo Familia tiene la propiedad Id
+                }
 
-            //    if (proveedorExistente != null)
-            //    {
-            //        return (long)proveedorExistente.Id; // Suponiendo que tu modelo Familia tiene la propiedad Id
-            //    }
+                // 2. SI NO EXISTE, LA INSERTAMOS
+                var nuevoProveedor = new Proveedor
+                {
+                    Nombre = nombreLimpio,
+                    KioscoId = kioscoId,
+                    // Agrega acá cualquier otro campo obligatorio de tu tabla de Supabase (ej: Estado = true)
+                };
 
-            //    // 2. SI NO EXISTE, LA INSERTAMOS
-            //    var nuevoProveedor = new Proveedor
-            //    {
-            //        Nombre = nombreLimpio,
-            //        KioscoId = kioscoId,
-            //        // Agrega acá cualquier otro campo obligatorio de tu tabla de Supabase (ej: Estado = true)
-            //    };
+                // Insert devuelve el registro recién creado con su ID asignado por la base de datos
+                var respuestaInsert = await _supaClient.From<Proveedor>().Insert(nuevoProveedor);
+                var proveedorCreado = respuestaInsert.Models.FirstOrDefault();
 
-            //    // Insert devuelve el registro recién creado con su ID asignado por la base de datos
-            //    var respuestaInsert = await _supaClient.From<Proveedor>().Insert(nuevoProveedor);
-            //    var proveedorCreado = respuestaInsert.Models.FirstOrDefault();
+                if (proveedorCreado != null)
+                {
+                    return (long)proveedorCreado.Id;
+                }
 
-            //    if (proveedorCreado != null)
-            //    {
-            //        return (long)proveedorCreado.Id;
-            //    }
-
-            //    throw new Exception("No se pudo obtener el ID del proveedor creado.");
-            //}
-            //catch (Exception ex)
-            //{
-            //    throw new Exception($"Error en ConsultasDB al procesar el proveedor '{descripcionProveedor}': {ex.Message}");
-            //}
-            return 1;
+                throw new Exception("No se pudo obtener el ID del proveedor creado.");
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Error en ConsultasDB al procesar el proveedor '{descripcionProveedor}': {ex.Message}");
+            }
+            //return 1;
         }
         /// <summary>
         /// Guarda un producto en Supabase. Si el código ya existe para ese kiosco, lo actualiza. Si no, lo crea.
@@ -199,16 +156,7 @@ namespace BlazorKioscoCompartido.Services
         {
             try
             {
-
                 // 1. BUSCAR SI EL PRODUCTO YA EXISTE POR CÓDIGO Y KIOSCO
-                //var respuesta = await _supaClient
-                //    .From<Producto>()
-                //    .Filter(p => p.KioscoId, Supabase.Postgrest.Constants.Operator.Equals, kioscoId)
-                //    .Filter(p => p.CodigoBarras, Supabase.Postgrest.Constants.Operator.Equals, item.Codigo)
-                //    .Get();
-
-                // 1. BUSCAR SI EL PRODUCTO YA EXISTE POR CÓDIGO Y KIOSCO
-                // Usamos strings directos con los nombres reales de las columnas en Supabase
                 var query = _supaClient.From<Producto>();
 
                 var res = await query.And(new List<Supabase.Postgrest.Interfaces.IPostgrestQueryFilter>
@@ -217,49 +165,57 @@ namespace BlazorKioscoCompartido.Services
                      new Supabase.Postgrest.QueryFilter("codigo_barras", Operator.Equals,item.Codigo)
                  }).Get();
 
-
-
                 // !!! FUNCIONALIDAD CLAVE !!!
                 // Si la base de datos no devolvió nada Y el usuario presionó Enter (o vino del escáner)
-
-
-
 
                 var productoExistente = res.Models.FirstOrDefault();
 
                 if (productoExistente == null)
                 {
+                    var precioVentaFinal = await CalcularPrecioVentaAsync(item.PrecioCosto, item.PrecioVenta, item.UtilidadPV);
+                    var precioLista2Final = precioVentaFinal + PrecioService.CalcularPrecioVentaConRecargo(precioVentaFinal, kioscoId);
                     // ESCENARIO A: EL PRODUCTO NO EXISTE -> SE INSERTA
                     var nuevoProd = new Producto
                     {
                         KioscoId = kioscoId,
                         CodigoBarras = item.Codigo,
                         Nombre = item.Descripcion,
-                        //FamiliaId = await ObtenerOInsertarFamiliaIdAsync(item.Familia, kioscoId),
+                        UtilidadPV=item.UtilidadPV,
+                        FamiliaId = await ObtenerOInsertarFamiliaIdAsync(item.Familia, kioscoId),
                         PrecioCosto = item.PrecioCosto,
-                        PrecioVenta = item.PrecioVenta,
-                        PrecioLista2 = item.PrecioLista2,
-                        PrecioLista3 = item.PrecioLista3,
+                        PrecioVenta = precioVentaFinal,
+                        UnidadMedida = "UNIDAD",
+                        PrecioLista2 = precioLista2Final,
+                        UtilidadLista2 = PrecioService.CalcularPrecioCostoDeLista2desdePrecioLista2(precioLista2Final, item.PrecioCosto),
+                        //PrecioLista3 = item.PrecioLista3,
                         StockActual = item.Stock,
-                        ProveedorId = await ObtenerOInsertarProveedorIdAsync(item.Proveedor, kioscoId)
-                        // Agregá acá más campos si tu modelo 'Producto' lo requiere (ej: Estado = true)
+                        ProveedorId = await ObtenerOInsertarProveedorIdAsync(item.Proveedor, kioscoId),
+                        Activo = true,
                     };
 
                     await _supaClient.From<Producto>().Insert(nuevoProd);
                 }
                 else
                 {
+                    var precioVentaActualizado = await CalcularPrecioVentaAsync(item.PrecioCosto, item.PrecioVenta, item.UtilidadPV);
+                    var precioLista2Final = precioVentaActualizado + PrecioService.CalcularPrecioVentaConRecargo(precioVentaActualizado, kioscoId);
                     // ESCENARIO B: EL PRODUCTO YA EXISTE -> SE ACTUALIZA
                     productoExistente.Nombre = item.Descripcion;
-                    //productoExistente.FamiliaId = await ObtenerOInsertarFamiliaIdAsync(item.Familia, kioscoId);
+                    productoExistente.FamiliaId = await ObtenerOInsertarFamiliaIdAsync(item.Familia, kioscoId);
                     productoExistente.PrecioCosto = item.PrecioCosto;
-                    productoExistente.PrecioVenta = item.PrecioVenta;
-                    productoExistente.PrecioLista2 = item.PrecioLista2;
-                    productoExistente.PrecioLista3 = item.PrecioLista3;
-                    productoExistente.StockActual = item.Stock; // O 'productoExistente.Stock += item.Stock' si querés sumar al stock actual
+                    productoExistente.PrecioVenta = precioVentaActualizado;
+                    productoExistente.UtilidadPV = item.UtilidadPV;
+                    productoExistente.PrecioLista2 = precioLista2Final;
+                    productoExistente.UtilidadLista2 = PrecioService.CalcularPrecioCostoDeLista2desdePrecioLista2(precioLista2Final, item.PrecioCosto);
+                    productoExistente.StockActual += item.Stock; 
                     productoExistente.ProveedorId = await ObtenerOInsertarProveedorIdAsync(item.Proveedor, kioscoId);
                     productoExistente.CodigoBarras = item.Codigo;
-
+                    // Asigna "UNIDAD" si UnidadMedida es null, está vacío o solo tiene espacios
+                    if (string.IsNullOrWhiteSpace(productoExistente.UnidadMedida))
+                    {
+                        productoExistente.UnidadMedida = "UNIDAD";
+                    }
+                    productoExistente.Activo = true;
                     await _supaClient.From<Producto>().Update(productoExistente);
                 }
             }

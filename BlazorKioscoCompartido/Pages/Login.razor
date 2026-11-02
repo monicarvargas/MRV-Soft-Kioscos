@@ -1,119 +1,292 @@
 ﻿@page "/login"
 @using BlazorKioscoCompartido.Models
 @using BlazorKioscoCompartido.Services
+@using BlazorKioscoCompartido.Services.SinInternet
 @inject Supabase.Client Supabase
 @inject NavigationManager Nav
 @inject AppState State
+@inject AsistenciaService Asistencia
+@inject Microsoft.JSInterop.IJSRuntime JS
 @using static Supabase.Postgrest.Constants
 
-<div class="login-container d-flex align-items-center justify-content-center min-vh-100 bg-light p-3">
-    <div class="card shadow-lg border-0 rounded-4 overflow-hidden style-card">
+<div class="lg-wrap">
+    <span class="lg-blob lg-blob-1"></span>
+    <span class="lg-blob lg-blob-2"></span>
 
-        @* Cabecera con degradado y logo/ícono *@
-        <div class="card-header bg-primary bg-gradient text-white text-center py-4 border-0">
-            <div class="mb-2">
-                <i class="bi bi-shop display-4"></i>
+    <div class="lg-card">
+        @* Panel de marca (a la izquierda en la PC, arriba en el celular) *@
+        <aside class="lg-brand">
+            <span class="lg-ring lg-ring-1"></span>
+            <span class="lg-ring lg-ring-2"></span>
+            <div class="lg-logo"><i class="bi bi-shop"></i></div>
+            <div class="lg-brand-txt">
+                <h1>MRV Soft</h1>
+                <p>Gestión simple para tu negocio</p>
             </div>
-            <h3 class="fw-bold m-0">Acceso al Sistema</h3>
-            <small class="text-white-50">Ingresá los datos de tu negocio</small>
-        </div>
+            <ul class="lg-feats">
+                <li><i class="bi bi-lightning-charge-fill"></i> Ventas y cobros rápidos</li>
+                <li><i class="bi bi-tags-fill"></i> Precios y stock al día</li>
+                <li><i class="bi bi-graph-up-arrow"></i> Lo que entró, por turno y por día</li>
+            </ul>
+        </aside>
 
-        <div class="card-body p-4 p-md-5">
-            <form @onsubmit="Validar" @onsubmit:preventDefault>
+        @* Formulario *@
+        <section class="lg-form">
+            <div class="lg-form-head">
+                <h2>¡Hola!</h2>
+                <p>Ingresá con los datos de tu negocio</p>
+            </div>
 
-                @* Campo: Negocio *@
-                <div class="mb-3">
-                    <label class="form-label fw-semibold text-secondary small">CÓDIGO DE NEGOCIO</label>
-                    <div class="input-group">
-                        <span class="input-group-text bg-light text-muted border-end-0">
-                            <i class="bi bi-building"></i>
-                        </span>
-                        <input type="text" class="form-control bg-light border-start-0 ps-0"
-                               placeholder="Ej: KIOSCO-01" @bind="codigoVinculacion" required />
-                    </div>
+            <form @onsubmit="Validar" @onsubmit:preventDefault autocomplete="on">
+                <label class="lg-lbl" for="lg-negocio">Código de negocio</label>
+                <div class="lg-field">
+                    <i class="bi bi-building"></i>
+                    <input id="lg-negocio" type="text" class="lg-input" placeholder="Ej: KIOSCO-01"
+                           autocomplete="organization" autocapitalize="characters" spellcheck="false"
+                           @bind="codigoVinculacion" required />
                 </div>
 
-                @* Campo: Usuario *@
-                <div class="mb-3">
-                    <label class="form-label fw-semibold text-secondary small">USUARIO</label>
-                    <div class="input-group">
-                        <span class="input-group-text bg-light text-muted border-end-0">
-                            <i class="bi bi-person-fill"></i>
-                        </span>
-                        <input type="text" class="form-control bg-light border-start-0 ps-0"
-                               placeholder="Nombre de usuario" @bind="user" required />
-                    </div>
+                <label class="lg-lbl" for="lg-usuario">Usuario</label>
+                <div class="lg-field">
+                    <i class="bi bi-person-fill"></i>
+                    <input id="lg-usuario" type="text" class="lg-input" placeholder="Tu nombre de usuario"
+                           autocomplete="username" autocapitalize="none" spellcheck="false"
+                           @bind="user" required />
                 </div>
 
-                @* Campo: Contraseña *@
-                <div class="mb-4">
-                    <label class="form-label fw-semibold text-secondary small">CONTRASEÑA</label>
-                    <div class="input-group">
-                        <span class="input-group-text bg-light text-muted border-end-0">
-                            <i class="bi bi-lock-fill"></i>
-                        </span>
-                        <input type="password" class="form-control bg-light border-start-0 ps-0"
-                               placeholder="••••••••" @bind="pass" required />
-                    </div>
+                <label class="lg-lbl" for="lg-pass">Contraseña</label>
+                <div class="lg-field">
+                    <i class="bi bi-lock-fill"></i>
+                    <input id="lg-pass" type="@(verPass ? "text" : "password")" class="lg-input" placeholder="••••••••"
+                           autocomplete="current-password" @bind="pass" required />
+                    <button type="button" class="lg-eye" tabindex="-1" title="@(verPass ? "Ocultar" : "Mostrar")" @onclick="() => verPass = !verPass">
+                        <i class="bi @(verPass ? "bi-eye-slash-fill" : "bi-eye-fill")"></i>
+                    </button>
                 </div>
 
-                @* Alerta de Error *@
+                <label class="lg-check">
+                    <input type="checkbox" @bind="recordar" />
+                    <span class="lg-check-box"><i class="bi bi-check-lg"></i></span>
+                    <span>Recordar negocio y usuario en este equipo</span>
+                </label>
+
                 @if (!string.IsNullOrEmpty(error))
                 {
-                    <div class="alert alert-danger d-flex align-items-center gap-2 rounded-3 py-2 px-3 mb-4" role="alert">
-                        <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
-                        <div class="small">@error</div>
+                    <div class="lg-error" role="alert">
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+                        <span>@error</span>
                     </div>
                 }
 
-                @* Botón con estado de Carga *@
-                <button type="submit" class="btn btn-primary btn-lg w-100 fw-bold rounded-3 shadow-sm py-2 d-flex align-items-center justify-content-center gap-2" disabled="@cargando">
+                <button type="submit" class="lg-btn" disabled="@cargando">
                     @if (cargando)
                     {
-                        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                        <span class="lg-spin" aria-hidden="true"></span>
                         <span>Ingresando...</span>
                     }
                     else
                     {
-                        <i class="bi bi-box-arrow-in-right"></i>
                         <span>Entrar</span>
+                        <i class="bi bi-arrow-right"></i>
                     }
                 </button>
             </form>
-        </div>
+
+            <p class="lg-foot"><i class="bi bi-shield-lock"></i> ¿No podés entrar? Pedile los datos al dueño del negocio.</p>
+        </section>
     </div>
 </div>
 
 <style>
-    .login-container {
-        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    .lg-wrap {
+        --lg-p: var(--tema-principal, #0d6efd);
+        --lg-d: var(--tema-oscuro, #0a58ca);
+        --lg-s: var(--tema-suave, #e7f0ff);
+        position: relative; overflow: hidden;
+        min-height: calc(100vh - 70px); width: 100%;
+        display: flex; align-items: center; justify-content: center;
+        padding: 1.5rem 1rem;
+        background:
+            radial-gradient(60rem 40rem at 110% -10%, var(--lg-s), transparent 60%),
+            radial-gradient(50rem 35rem at -10% 110%, var(--lg-s), transparent 60%),
+            #f4f6fb;
+        font-family: 'Segoe UI', system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
+    }
+    .content-login .lg-wrap { min-height: 100vh; }
+
+    .lg-blob { position: absolute; border-radius: 50%; filter: blur(60px); opacity: .35; pointer-events: none; }
+    .lg-blob-1 { width: 22rem; height: 22rem; background: var(--lg-p); top: -8rem; right: -6rem; }
+    .lg-blob-2 { width: 18rem; height: 18rem; background: var(--lg-d); bottom: -8rem; left: -6rem; opacity: .2; }
+
+    .lg-card {
+        position: relative; z-index: 1;
+        width: 100%; max-width: 900px;
+        display: grid; grid-template-columns: 1fr 1.1fr;
+        background: #fff; border-radius: 28px; overflow: hidden;
+        box-shadow: 0 30px 80px rgba(15, 23, 42, .18), 0 2px 6px rgba(15, 23, 42, .06);
+        animation: lg-in .35s ease-out;
     }
 
-    .style-card {
-        width: 100%;
-        max-width: 420px;
+    /* ----- Marca ----- */
+    .lg-brand {
+        position: relative; overflow: hidden;
+        display: flex; flex-direction: column; justify-content: center; gap: 1.4rem;
+        padding: 3rem 2.5rem;
+        color: #fff;
+        background: linear-gradient(150deg, var(--lg-d) 0%, var(--lg-p) 100%);
     }
-
-    .input-group-text {
-        border-color: #dee2e6;
+    .lg-ring { position: absolute; border-radius: 50%; border: 2px solid rgba(255,255,255,.14); pointer-events: none; }
+    .lg-ring-1 { width: 20rem; height: 20rem; right: -8rem; top: -8rem; }
+    .lg-ring-2 { width: 14rem; height: 14rem; left: -5rem; bottom: -6rem; border-width: 30px; border-color: rgba(255,255,255,.06); }
+    .lg-logo {
+        position: relative; display: inline-flex; align-items: center; justify-content: center;
+        width: 4.2rem; height: 4.2rem; border-radius: 20px;
+        background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.3);
+        font-size: 2rem; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
     }
+    .lg-brand-txt h1 { margin: 0; font-size: 2.1rem; font-weight: 900; letter-spacing: -.02em; }
+    .lg-brand-txt p { margin: .25rem 0 0; color: rgba(255,255,255,.8); font-weight: 600; }
+    .lg-feats { position: relative; list-style: none; margin: .5rem 0 0; padding: 0; display: flex; flex-direction: column; gap: .7rem; }
+    .lg-feats li { display: flex; align-items: center; gap: .7rem; font-weight: 600; font-size: .95rem; color: rgba(255,255,255,.92); }
+    .lg-feats i { display: inline-flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; border-radius: 10px; background: rgba(255,255,255,.16); font-size: 1rem; }
 
-    .form-control {
-        border-color: #dee2e6;
+    /* ----- Formulario ----- */
+    .lg-form { padding: 3rem 2.75rem 2.25rem; display: flex; flex-direction: column; justify-content: center; }
+    .lg-form-head { margin-bottom: 1.6rem; }
+    .lg-form-head h2 { margin: 0; color: #111827; font-size: 1.8rem; font-weight: 900; letter-spacing: -.02em; }
+    .lg-form-head p { margin: .3rem 0 0; color: #6b7280; font-weight: 600; }
+
+    .lg-lbl { display: block; margin: 0 0 .4rem; color: #6b7280; font-size: .74rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+    .lg-field { position: relative; margin-bottom: 1.05rem; }
+    .lg-field > i { position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: #9ca3af; font-size: 1.05rem; pointer-events: none; transition: color .15s; }
+    .lg-input {
+        width: 100%; height: 3.25rem; padding: 0 1rem 0 2.8rem;
+        border: 1.5px solid #e5e7eb; border-radius: 14px; background: #f9fafb;
+        color: #111827; font-size: 16px; font-weight: 600; outline: 0;
+        transition: border-color .15s, box-shadow .15s, background .15s;
     }
+    .lg-input::placeholder { color: #b0b7c3; font-weight: 500; }
+    .lg-input:hover { border-color: #d1d5db; }
+    .lg-input:focus { border-color: var(--lg-p); background: #fff; box-shadow: 0 0 0 4px var(--lg-s); }
+    .lg-field:focus-within > i { color: var(--lg-p); }
+    .lg-field .lg-input[type=password], .lg-field .lg-input#lg-pass { padding-right: 3rem; }
+    .lg-eye {
+        position: absolute; right: .45rem; top: 50%; transform: translateY(-50%);
+        width: 2.4rem; height: 2.4rem; border: 0; border-radius: 10px; background: transparent;
+        color: #9ca3af; font-size: 1.1rem; cursor: pointer;
+    }
+    .lg-eye:hover { color: var(--lg-p); background: var(--lg-s); }
 
-        .form-control:focus {
-            box-shadow: none;
-            border-color: #86b7fe;
-        }
+    .lg-check { display: flex; align-items: center; gap: .6rem; margin: .2rem 0 1.25rem; color: #4b5563; font-size: .9rem; font-weight: 600; cursor: pointer; user-select: none; }
+    .lg-check input { position: absolute; opacity: 0; pointer-events: none; }
+    .lg-check-box { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 1.35rem; height: 1.35rem; border: 1.5px solid #d1d5db; border-radius: 7px; background: #fff; color: transparent; font-size: .95rem; transition: all .15s; }
+    .lg-check input:checked + .lg-check-box { background: var(--lg-p); border-color: var(--lg-p); color: #fff; }
+    .lg-check input:focus-visible + .lg-check-box { box-shadow: 0 0 0 4px var(--lg-s); }
+
+    .lg-error { display: flex; align-items: center; gap: .6rem; margin: 0 0 1.1rem; padding: .75rem .9rem; border-radius: 12px; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; font-size: .9rem; font-weight: 700; animation: lg-shake .3s; }
+
+    .lg-btn {
+        width: 100%; height: 3.4rem;
+        display: flex; align-items: center; justify-content: center; gap: .6rem;
+        border: 0; border-radius: 14px; cursor: pointer;
+        color: #fff; font-size: 1.08rem; font-weight: 800;
+        background: linear-gradient(135deg, var(--lg-p) 0%, var(--lg-d) 100%);
+        box-shadow: 0 12px 24px -8px var(--lg-p);
+        transition: transform .12s, box-shadow .15s, filter .15s;
+    }
+    .lg-btn i { transition: transform .15s; }
+    .lg-btn:hover:not(:disabled) { filter: brightness(1.06); box-shadow: 0 16px 30px -8px var(--lg-p); }
+    .lg-btn:hover:not(:disabled) i { transform: translateX(4px); }
+    .lg-btn:active:not(:disabled) { transform: translateY(1px) scale(.99); filter: brightness(.95); }
+    .lg-btn:focus-visible { outline: 0; box-shadow: 0 0 0 4px var(--lg-s), 0 12px 24px -8px var(--lg-p); }
+    .lg-btn:disabled { opacity: .75; cursor: progress; }
+    .lg-spin { width: 1.1rem; height: 1.1rem; border: 2.5px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: lg-rot .7s linear infinite; }
+
+    .lg-foot { display: flex; align-items: center; justify-content: center; gap: .4rem; margin: 1.4rem 0 0; color: #9ca3af; font-size: .82rem; font-weight: 600; text-align: center; }
+
+    @@keyframes lg-in { from { opacity: 0; transform: translateY(12px) scale(.985); } to { opacity: 1; transform: none; } }
+    @@keyframes lg-rot { to { transform: rotate(360deg); } }
+    @@keyframes lg-shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+
+    /* ----- Celular / ventana chica ----- */
+    @@media (max-width: 767.98px) {
+        .lg-wrap { padding: .75rem .25rem 1.5rem; align-items: flex-start; }
+        .lg-card { grid-template-columns: 1fr; border-radius: 24px; }
+        .lg-brand { flex-direction: row; align-items: center; gap: 1rem; padding: 1.5rem 1.4rem; }
+        .lg-logo { width: 3.3rem; height: 3.3rem; border-radius: 16px; font-size: 1.6rem; flex: none; }
+        .lg-brand-txt h1 { font-size: 1.5rem; }
+        .lg-brand-txt p { font-size: .88rem; }
+        .lg-feats { display: none; }
+        .lg-form { padding: 1.6rem 1.3rem 1.4rem; }
+        .lg-form-head { margin-bottom: 1.2rem; }
+        .lg-form-head h2 { font-size: 1.5rem; }
+    }
+    @@media (prefers-reduced-motion: reduce) {
+        .lg-card, .lg-error { animation: none; }
+        .lg-btn, .lg-btn i { transition: none; }
+    }
 </style>
 
 @code {
-    private string user;
-    private string pass;
-    private string error;
-    private string codigoVinculacion;
+    private string? user;
+    private string? pass;
+    private string? error;
+    private string? codigoVinculacion;
     private bool cargando = false;
+    private bool verPass = false;
+    private bool recordar = true;
+
+    private const string ClaveNegocio = "mrv_login_negocio";
+    private const string ClaveUsuario = "mrv_login_usuario";
+
+    /// <summary>Completa negocio y usuario con lo último que se usó en este equipo.</summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            var neg = await JS.InvokeAsync<string?>("localStorage.getItem", ClaveNegocio);
+            var usu = await JS.InvokeAsync<string?>("localStorage.getItem", ClaveUsuario);
+            if (string.IsNullOrEmpty(codigoVinculacion) && !string.IsNullOrEmpty(neg)) codigoVinculacion = neg;
+            if (string.IsNullOrEmpty(user) && !string.IsNullOrEmpty(usu)) user = usu;
+            if (!string.IsNullOrEmpty(neg) || !string.IsNullOrEmpty(usu)) StateHasChanged();
+        }
+        catch { /* sin localStorage: no pasa nada */ }
+    }
+
+    private async Task RecordarDatosAsync()
+    {
+        try
+        {
+            if (recordar)
+            {
+                await JS.InvokeVoidAsync("localStorage.setItem", ClaveNegocio, codigoVinculacion?.Trim() ?? "");
+                await JS.InvokeVoidAsync("localStorage.setItem", ClaveUsuario, user?.Trim() ?? "");
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("localStorage.removeItem", ClaveNegocio);
+                await JS.InvokeVoidAsync("localStorage.removeItem", ClaveUsuario);
+            }
+        }
+        catch { }
+    }
+
+    /// <summary>Identificador de este celular / PC (se guarda en el equipo la primera vez).</summary>
+    private async Task<string> DispositivoAsync()
+    {
+        try
+        {
+            var id = await JS.InvokeAsync<string?>("localStorage.getItem", "mrv_dispositivo");
+            if (string.IsNullOrWhiteSpace(id))
+            {
+                id = Guid.NewGuid().ToString("N")[..12];
+                await JS.InvokeVoidAsync("localStorage.setItem", "mrv_dispositivo", id);
+            }
+            return id;
+        }
+        catch { return "sin-id"; }
+    }
 
     private async Task Validar()
     {
@@ -122,35 +295,17 @@
 
         try
         {
-            // 1. Buscamos el Kiosco
-            var codigoLimpio = codigoVinculacion?.Replace(" ", "");
-            var resk = await Supabase.From<Kiosco>()
-                .Or(new List<Supabase.Postgrest.Interfaces.IPostgrestQueryFilter>
-                {
-                    new Supabase.Postgrest.QueryFilter("codigo_vinculacion", Operator.ILike, $"{codigoLimpio}")
-                })
-                .Get();
+            var codigoLimpio = System.Text.RegularExpressions.Regex.Replace(codigoVinculacion ?? "", @"\s", "");
+            if (codigoLimpio == "") { error = "Escribí el código de negocio"; return; }
 
-            var kiosco = resk.Models.FirstOrDefault();
-
-            if (kiosco == null)
-            {
-                error = "Negocio no encontrado";
-                cargando = false;
-                return; // Cortamos el flujo si no existe el negocio
-            }
-
-            // 2. Buscamos el usuario asociado a ese id_kiosco
-            var res = await Supabase.From<Usuario>()
-                 .Where(x => x.Password == pass)
-                 .Where(x => x.IdKiosco == kiosco.Id)
-                 .Or(new List<Supabase.Postgrest.Interfaces.IPostgrestQueryFilter>
-                 {
-                    new Supabase.Postgrest.QueryFilter("username", Operator.ILike, $"{user}")
-                 })
-                 .Get();
-
-            var u = res.Models.FirstOrDefault();
+            // La BASE verifica negocio + usuario + contraseña (encriptada) y ata la credencial de este equipo
+            // a ese negocio: desde ahí la base solo deja ver los datos de este negocio.
+            var r = await Supabase.IniciarSesionAsync(codigoLimpio, (user ?? "").Trim(), pass ?? "");
+            if (r.Resultado == "negocio") { error = "Negocio no encontrado"; return; }
+            if (r.Resultado == "baja") { error = "El negocio está dado de baja. Comunicate con soporte."; return; }
+            if (r.Resultado != "ok" && r.Resultado != "clave") { error = "No se pudo conectar con el sistema. Probá de nuevo."; return; }
+            var u = r.Resultado == "ok" ? r : null;
+            var kiosco = r.Kiosco ?? new SesionSegura.KioscoLogin();
 
             if (u != null)
             {
@@ -159,20 +314,48 @@
                 State.UsuarioId = u.Id;
                 State.UsuarioNombre = u.Username;
                 State.UsuarioRol = u.Rol;
-                State.NombreNegocio = u.Kiosco?.NombreKiosco;
-                State.UsarRedondeo = u.Kiosco?.UsarRedondeo ?? false;
-                State.MultiploRedondeo = u.Kiosco?.MultiploRedondeo ?? 0;
+                State.NombreNegocio = kiosco.NombreNegocio;
+                State.UsarRedondeo = kiosco.UsarRedondeo??  true;
+                State.MultiploRedondeo = kiosco.MultiploRedondeo ?? 0;
+                State.ColorTema = TemasColor.Buscar(kiosco.ColorTema).Clave;   // color elegido por el dueño
+                State.UnidadesNegocio = kiosco.Unidades;                        // unidades en que vende (Configuración → Unidades)
+
+                // Funciones que trae el plan del negocio (el superadmin ve todo)
+                State.FuncionesHabilitadas = Roles.EsSuperAdmin(u.Rol) ? null : await Supabase.CargarFuncionesAsync(u.IdKiosco);
+                // qué puede hacer cada perfil en este negocio (lo que eligió el dueño)
+                await Supabase.CargarPermisosRolesAsync(u.IdKiosco);
+                // si el plan no incluye el rol encargado/a, ese usuario entra como vendedor/a
+                if (Roles.EsEncargado(u.Rol) && !State.Tiene(FuncionesPlan.Encargado)) State.UsuarioRol = Roles.Vendedor;
+
+                // Entrada del empleado (presentismo). Los administradores no fichan.
+                State.AsistenciaId = null;
+                State.SesionSuperAdmin = null;
+                if (AsistenciaService.DebeFichar(u.Rol) && State.Tiene(FuncionesPlan.Asistencia))
+                {
+                    try { State.AsistenciaId = await Asistencia.FicharEntradaAsync(u.IdKiosco, u.Id, await DispositivoAsync()); }
+                    catch { /* si falla (ej: falta el SQL), se puede trabajar igual */ }
+                }
+
+                await RecordarDatosAsync();
+
+                // ETAPA 7 (escritorio): recuerda este usuario en la PC y guarda la copia para vender sin internet
+                VentaSinInternet.Actual?.AlEntrarConInternet(codigoLimpio, (user ?? "").Trim(), pass ?? "", u, State.FuncionesHabilitadas);
 
                 // Avisamos al layout que se dibuje el menú
                 State.NotifyStateChanged();
 
                 // Redirigimos
-                Nav.NavigateTo("/productos");
+                // el superadmin arranca en Administrar negocios; el resto en Productos
+                Nav.NavigateTo(Roles.EsSuperAdmin(u.Rol) ? RutasApp.Celular.AdminNegocios : "/productos");
             }
             else
             {
                 error = "Usuario o contraseña incorrectos";
             }
+        }
+        catch (Exception ex) when (VentaSinInternet.Actual != null && VentaSinInternet.EsErrorDeRed(ex))
+        {
+            await EntrarSinInternetAsync();
         }
         catch (Exception ex)
         {
@@ -182,5 +365,42 @@
         {
             cargando = false;
         }
+    }
+
+    /// <summary>
+    /// ETAPA 7 (escritorio): no hay internet. Pueden entrar los usuarios que ya entraron CON internet en esta PC,
+    /// con la misma contraseña. Hasta que vuelvan a entrar con internet, solo pueden vender y cobrar.
+    /// </summary>
+    private async Task EntrarSinInternetAsync()
+    {
+        var off = VentaSinInternet.Actual!;
+        var codigoLimpio = System.Text.RegularExpressions.Regex.Replace(codigoVinculacion ?? "", @"\s", "");
+        var guardado = off.EntrarSinInternet(codigoLimpio, (user ?? "").Trim(), pass ?? "");
+        if (guardado == null)
+        {
+            error = "No hay internet. Sin internet solo pueden entrar los usuarios que ya entraron antes en esta PC, con la misma contraseña.";
+            return;
+        }
+
+        var u = guardado.Value.Login;
+        var kiosco = u.Kiosco ?? new SesionSegura.KioscoLogin();
+        State.KioscoId = u.IdKiosco;
+        State.UsuarioId = u.Id;
+        State.UsuarioNombre = u.Username;
+        State.UsuarioRol = u.Rol;
+        State.NombreNegocio = kiosco.NombreNegocio;
+        State.UsarRedondeo = kiosco.UsarRedondeo ?? true;
+        State.MultiploRedondeo = kiosco.MultiploRedondeo ?? 0;
+        State.ColorTema = TemasColor.Buscar(kiosco.ColorTema).Clave;
+        State.UnidadesNegocio = kiosco.Unidades;
+        State.FuncionesHabilitadas = guardado.Value.Funciones?.ToHashSet();
+        Roles.CargarPermisos(null);   // sin internet solo se vende: los permisos de fábrica alcanzan
+        if (Roles.EsEncargado(u.Rol) && !State.Tiene(FuncionesPlan.Encargado)) State.UsuarioRol = Roles.Vendedor;
+        State.AsistenciaId = null;      // sin internet no se ficha la entrada
+        State.SesionSuperAdmin = null;
+
+        await RecordarDatosAsync();
+        State.NotifyStateChanged();
+        Nav.NavigateTo(RutasApp.Escritorio.Vender);
     }
 }

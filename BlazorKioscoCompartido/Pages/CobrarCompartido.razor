@@ -1,336 +1,358 @@
-﻿@inject BlazorKioscoCompartido.Services.AppState State
+@inject BlazorKioscoCompartido.Services.AppState State
+@implements IDisposable
 @inject CarritoService Carrito
 @inject NavigationManager Nav
 @inject Supabase.Client SupaClient
+@inject IJSRuntime JS
 @using BlazorKioscoCompartido.Models
+@using BlazorKioscoCompartido.Components
+@using System.Globalization
+@using BlazorKioscoCompartido.Services
+@using BlazorKioscoCompartido.Services.SinInternet
 
-<div class="container-fluid px-3 py-2 bg-light min-vh-100 animate__animated animate__fadeIn style-notebook mb-5">
+<PedidosEstilos />
+<ConfigEstilos />
+<ProductoEstilos />
+<VentasEstilos />
+<AvisosPagina @ref="avisos" />
 
-    @* === ENCABEZADO CON TU ESTILO CUADERNO === *@
-    <div class="d-flex justify-content-between align-items-center mb-2 bg-white p-2 rounded-3 shadow-sm border-start border-primary border-4">
-        <div class="d-flex align-items-center">
-            <div class="bg-primary text-white p-2 rounded-3 me-2 d-flex align-items-center justify-content-center" style="width: 35px; height: 35px;">
-                <i class="bi bi-credit-card-2-front fs-5"></i>
-            </div>
-            <div>
-                <h5 class="mb-0 fw-bold text-dark-custom">Panel de Cobro Mixto</h5>
-            </div>
-        </div>
-        <button type="button" class="btn btn-sm btn-outline-secondary d-none d-md-flex align-items-center gap-1 rounded-3 fw-bold">
-            <i class="bi bi-question-circle"></i> Ayuda
-        </button>
-    </div>
+<div class="container-fluid px-3 py-2 min-vh-100 style-notebook gp-scope gp-page">
+    <EncabezadoPagina Titulo="Cobrar"
+                      Subtitulo="Elegí cómo paga el cliente"
+                      IconoClass="bi-credit-card-2-front-fill"
+                      ColorBorde="success"
+                      ColorIcono="success"
+                      MostrarBotonAyuda="false"
+                      RutaVolver="@RutaOrigenVentas" />
 
     @if (State.KioscoId == 0 || State.CarritoActual == null || !State.CarritoActual.Any())
     {
-        <div class="alert alert-warning text-center mt-3 border-0 shadow-sm rounded-3 p-3">
-            <h6 class="fw-bold"><i class="bi bi-exclamation-triangle-fill text-warning me-1"></i> No hay una venta activa para cobrar.</h6>
-            <button class="btn btn-sm btn-primary mt-2 rounded-3 fw-bold px-4" @onclick="VolverAVender">Volver a Ventas</button>
+        <div class="vt-wrap gp-card gp-card-pad">
+            <div class="gp-empty">
+                <span class="gp-bubble"><i class="bi bi-cart-x"></i></span>
+                <strong>No hay una venta para cobrar</strong>
+                <span>Cargá los productos en Vender y después tocá "Cobrar".</span>
+                <button type="button" class="gp-btn gp-btn-primary" style="margin-top:.8rem" @onclick="VolverAVender"><i class="bi bi-arrow-left"></i> Ir a Vender</button>
+            </div>
         </div>
     }
     else
     {
-        <div class="row g-2">
-            @* ============================================================================= *@
-            @* COLUMNA IZQUIERDA: DETALLES Y MEDIOS                                          *@
-            @* ============================================================================= *@
-            <div class="col-12 col-lg-7">
-
-                @* SELECCIÓN DE CLIENTE / PERSONA *@
-                <div class="card shadow-sm border-0 rounded-3 mb-2 p-2 bg-white">
-                    <label class="form-label text-primary fw-bold x-small-text text-uppercase mb-1">
-                        <i class="bi bi-person-badge me-1"></i> Cliente / Persona
-                    </label>
-                    <select class="form-select form-select-sm rounded-3 border-secondary" @bind="personaSeleccionadaId">
-                        <option value="0">-- Consumidor Final / Ninguno --</option>
-                        @foreach (var persona in listaPersonas)
+        @if (SinInternet)
+        {
+            <div class="vt-wrap gp-banner" style="margin-bottom:.8rem; background:var(--gp-warn-soft); border-color:var(--gp-warn-line); color:var(--gp-warn)">
+                <i class="bi bi-wifi-off"></i>
+                <p><b>Sin internet:</b> la venta se guarda en esta PC y se sube sola cuando vuelva internet. Sin internet no se puede fiar.</p>
+            </div>
+        }
+        <div class="vt-wrap vt-cols">
+            @* ================= IZQUIERDA ================= *@
+            <div class="vt-col">
+                @* Cliente (solo si el plan incluye fiado; sin internet no se fía) *@
+                @if (State.Tiene(FuncionesPlan.Fiado) && !SinInternet)
+                {
+                <section class="gp-card gp-card-pad">
+                    <div class="gp-card-head" style="margin-bottom:.7rem">
+                        <span class="gp-bubble gp-bubble-sm"><i class="bi bi-person-badge-fill"></i></span>
+                        <div class="vt-head-text">
+                            <h2 style="font-size:1.05rem">Cliente</h2>
+                            <p>Para fiar, elegí primero el cliente: ahí aparece la forma de pago Fiado.</p>
+                        </div>
+                    </div>
+                    <select class="gp-control" style="@(FaltaClienteParaFiado ? "border-color:var(--gp-danger); box-shadow:0 0 0 3px var(--gp-danger-soft)" : "")" @bind="personaSeleccionadaId">
+                        <option value="0">-- Consumidor final --</option>
+                        @foreach (var persona in listaPersonas.Where(p => p.Habilitado))
                         {
-                            if (persona.Habilitado)
-                            {
-                                <option value="@persona.Id">@persona.Nombre</option>
-                            }
+                            <option value="@persona.Id">@persona.Nombre</option>
                         }
                     </select>
-                </div>
+                    @if (FaltaClienteParaFiado)
+                    {
+                        <div class="gp-hint" style="margin-top:.5rem; color:var(--gp-danger)"><i class="bi bi-exclamation-triangle-fill" style="color:var(--gp-danger)"></i> Hay un pago con Fiado: elegí a quién se le fía.</div>
+                    }
+                </section>
+                }
 
-                @* TARJETA 1: DETALLE DE ARTÍCULOS *@
-                <div class="card shadow-sm border-0 rounded-3 mb-2">
-                    <div class="card-header bg-white py-2 border-bottom d-flex align-items-center">
-                        <i class="bi bi-cart3 text-primary me-2"></i>
-                        <span class="fw-bold text-dark-custom small">Detalle de Productos (@State.CarritoActual.Count)</span>
-                    </div>
-                    <div class="card-body p-0" style="max-height: 140px; overflow-y: auto;">
-                        <table class="table table-sm table-hover align-middle mb-0" style="font-size: 0.85rem;">
-                            <thead class="table-light sticky-top">
-                                <tr class="text-muted small">
-                                    <th class="ps-3">Producto</th>
-                                    <th class="text-center">Cant.</th>
-                                    <th class="text-end pe-3">Subtotal</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var item in State.CarritoActual)
-                                {
-                                    <tr>
-                                        <td class="ps-3 fw-semibold text-uppercase text-dark-custom text-truncate" style="max-width: 180px;">
-                                            @if (item.EsProductoVario)
-                                            {
-                                                <span class="badge bg-warning text-dark me-1" style="font-size: 0.65rem;">VARIO</span>
-                                            }
-                                            @item.Producto.Nombre
-                                        </td>
-                                        <td class="text-center fw-bold text-secondary">@item.Cantidad</td>
-                                        <td class="text-end pe-3 text-primary fw-bold">$ @item.Subtotal.ToString("N2")</td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                @* TARJETA 2: SELECCIÓN DE FORMA DE PAGO Y INGRESOS *@
-                <div class="card shadow-sm border-0 rounded-3 p-3 mb-2 bg-white">
-                    <span class="text-primary fw-bold x-small-text text-uppercase d-block mb-2"><i class="bi bi-wallet2 me-1"></i> Seleccione Forma de Pago</span>
-
-                    <div class="row row-cols-2 row-cols-sm-4 row-cols-md-6 g-1 mb-3">
-                        <div class="col">
-                            <button type="button" class="btn btn-sm w-100 py-2 px-0 d-flex flex-column align-items-center border rounded-3 @(formaPagoSeleccionada == 1 ? "active-efectivo" : "btn-medio-custom")" @onclick='() => SeleccionarMedio(1, "Efectivo")'>
-                                <i class="bi bi-cash fs-5"></i>
-                                <span class="small-font fw-semibold">Efectivo</span>
-                            </button>
-                        </div>
-                        <div class="col">
-                            <button type="button" class="btn btn-sm w-100 py-2 px-0 d-flex flex-column align-items-center border rounded-3 @(formaPagoSeleccionada == 2 ? "active-mercado" : "btn-medio-custom")" @onclick='() => SeleccionarMedio(2, "Mercado Pago")'>
-                                <i class="bi bi-qr-code fs-5"></i>
-                                <span class="small-font fw-semibold">MP</span>
-                            </button>
-                        </div>
-                        <div class="col">
-                            <button type="button" class="btn btn-sm w-100 py-2 px-0 d-flex flex-column align-items-center border rounded-3 @(formaPagoSeleccionada == 3 ? "active-transferencia" : "btn-medio-custom")" @onclick='() => SeleccionarMedio(3, "Transferencia")'>
-                                <i class="bi bi-bank fs-5"></i>
-                                <span class="small-font fw-semibold">Transf.</span>
-                            </button>
-                        </div>
-                        <div class="col">
-                            <button type="button" class="btn btn-sm w-100 py-2 px-0 d-flex flex-column align-items-center border rounded-3 @(formaPagoSeleccionada == 6 ? "active-fiado" : "btn-medio-custom")" @onclick='() => SeleccionarMedio(6, "Fiado")'>
-                                <i class="bi bi-journal-bookmark-fill fs-5"></i>
-                                <span class="small-font fw-semibold">Fiado</span>
-                            </button>
+                @* Forma de pago *@
+                <section class="gp-card gp-card-pad">
+                    <div class="gp-card-head">
+                        <span class="gp-bubble"><i class="bi bi-wallet2"></i></span>
+                        <div class="vt-head-text">
+                            <h2>Forma de pago</h2>
+                            <p>Se puede pagar con más de una: cargá cada parte.</p>
                         </div>
                     </div>
+                    <MediosDePago Restante="@Math.Max(0, Restante)" OnPagoCargado="AgregarPago" PermitirFiado="@(personaSeleccionadaId > 0)" />
+                </section>
 
-                    <span class="text-primary fw-bold x-small-text text-uppercase d-block mb-1">Monto a abonar en: @nombreFormaPagoSeleccionada.ToUpper()</span>
-                    <div class="row g-2 align-items-center mb-2">
-                        <div class="col-8 col-md-9">
-                            <div class="input-group input-group-sm border rounded-3 overflow-hidden border-secondary shadow-sm">
-                                <span class="input-group-text bg-light text-dark-custom border-0 fw-bold">$</span>
-                                <input type="number" class="form-control border-0 fw-black fs-5 text-end pe-3 text-dark-custom" @bind-value="montoAIngresar" @bind-value:event="oninput" placeholder="0,00" />
+                @* Productos *@
+                <section class="gp-card gp-card-pad">
+                    <div class="gp-card-head">
+                        <span class="gp-bubble"><i class="bi bi-cart3"></i></span>
+                        <div class="vt-head-text">
+                            <h2>Productos (@State.CarritoActual.Count)</h2>
+                        </div>
+                        <button type="button" class="gp-btn gp-btn-outline gp-btn-sm vt-head-right" @onclick="VolverAVender"><i class="bi bi-pencil"></i> Modificar</button>
+                    </div>
+                    <DetalleArticulos Filas="FilasCarrito" AltoMaximo="320px" />
+
+                    @if (!SinInternet && State.CarritoActual.Any(item => item.Producto.EsCombo == true))
+                    {
+                        <div class="cf-section"><i class="bi bi-boxes"></i> Contenido de los combos</div>
+                        @foreach (var item in State.CarritoActual.Where(i => i.Producto.EsCombo == true))
+                        {
+                            <div style="margin:0 0 .6rem; padding-left:.7rem; border-left:3px solid var(--gp-ok-line)">
+                                <div class="gp-muted" style="margin-bottom:.2rem">@item.Producto.Nombre</div>
+                                <DetalleComboView ComboId="@item.Producto.Id" />
                             </div>
-                        </div>
-                        <div class="col-4 col-md-3">
-                            <button type="button" class="btn btn-primary btn-sm w-100 py-2 fw-black rounded-3 text-uppercase shadow-sm" @onclick="AgregarPago">
-                                <i class="bi bi-plus-lg me-1"></i> Cargar
-                            </button>
-                        </div>
-                    </div>
-
-                    @* Montos Rápidos *@
-                    <div class="d-flex flex-wrap gap-1 mt-1">
-                        <button type="button" class="btn btn-sm btn-outline-secondary px-2 rounded-3 text-dark-custom bg-white" @onclick="() => CargarMontoRapido(1500)">$ 1.500</button>
-                        <button type="button" class="btn btn-sm btn-outline-secondary px-2 rounded-3 text-dark-custom bg-white" @onclick="() => CargarMontoRapido(5000)">$ 5.000</button>
-                        <button type="button" class="btn btn-sm btn-outline-secondary px-2 rounded-3 text-dark-custom bg-white" @onclick="() => CargarMontoRapido(10000)">$ 10.000</button>
-                        <button type="button" class="btn btn-sm btn-outline-primary px-2 rounded-3 text-primary border-primary bg-white fw-bold" @onclick="() => CargarMontoRapido(Restante)">Restante</button>
-                    </div>
-                </div>
-
-                @* BOTÓN CANCELAR *@
-                <div class="mb-2 mt-1">
-                    <button type="button" class="btn btn-outline-danger btn-sm px-3 py-2 rounded-3 fw-bold bg-white shadow-sm" @onclick="CancelarVenta">
-                        <i class="bi bi-x-circle me-1"></i> Cancelar Toda la Venta
-                    </button>
-                </div>
+                        }
+                    }
+                </section>
             </div>
 
-            @* ============================================================================= *@
-            @* COLUMNA DERECHA: RESUMEN Y TOTALES                                            *@
-            @* ============================================================================= *@
-            <div class="col-12 col-lg-5">
-
-                @* TARJETA 3: TABLA DE PAGOS PARCIALES *@
-                <div class="card shadow-sm border-0 rounded-3 mb-2">
-                    <div class="card-header bg-white py-2 border-bottom d-flex align-items-center">
-                        <i class="bi bi-file-text text-primary me-2"></i>
-                        <span class="fw-bold text-dark-custom small">RESUMEN DE PAGOS INGRESADOS</span>
+            @* ================= DERECHA ================= *@
+            <div class="vt-col">
+                @* Pagos cargados *@
+                <section class="gp-card gp-card-pad">
+                    <div class="gp-card-head" style="margin-bottom:.8rem">
+                        <span class="gp-bubble gp-bubble-sm"><i class="bi bi-receipt"></i></span>
+                        <div class="vt-head-text"><h2 style="font-size:1.05rem">Pagos cargados</h2></div>
                     </div>
-                    <div class="card-body p-0" style="max-height: 110px; overflow-y: auto;">
-                        @if (!pagosAgregados.Any())
+                    @if (!pagosAgregados.Any())
+                    {
+                        <div class="gp-hint"><i class="bi bi-info-circle" style="color:var(--gp-primary)"></i> Todavía no cargaste ningún pago. Elegí la forma de pago y tocá "Cargar".</div>
+                    }
+                    else
+                    {
+                        <ul class="vt-pagos">
+                            @foreach (var p in pagosAgregados)
+                            {
+                                <li class="vt-pago">
+                                    <i class="bi @BlazorKioscoCompartido.Services.Utilidades.ObtenerIconoFormaPago(p.NombreFormaPago)"></i>
+                                    <div class="vt-pago-info"><b>@p.NombreFormaPago</b></div>
+                                    <span class="vt-pago-monto">$ @p.Monto.ToString("N2")</span>
+                                    <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm gp-btn-icon" title="Quitar" @onclick="() => RemoverPago(p)"><i class="bi bi-x-lg"></i></button>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </section>
+
+                @* Caja *@
+                <div class="vt-caja">
+                    <span class="vt-caja-label">Total a cobrar</span>
+                    <div class="vt-caja-total">$ @State.TotalVentaActual.ToString("N2")</div>
+                    @if (PrecioDiaAplicado)
+                    {
+                        <div style="margin:-.2rem 0 .6rem; color:#7ee2b8; font-size:.82rem; font-weight:800">
+                            <i class="bi bi-sun-fill"></i> Fiado: se cobra a precio de día (- $ @ahorroPrecioDia.ToString("N2"))
+                        </div>
+                    }
+
+                    <div class="vt-caja-filas">
+                        <div class="vt-caja-fila"><span>Pagado</span><b>$ @TotalIngresado.ToString("N2")</b></div>
+                        <div class="vt-caja-fila">
+                            <span>Falta</span>
+                            <b class="@(Restante > 0 ? "is-falta" : "is-ok")">$ @(Restante > 0 ? Restante.ToString("N2") : "0,00")</b>
+                        </div>
+                    </div>
+
+                    <div class="vt-caja-vuelto">
+                        <span class="vt-caja-label">Vuelto</span>
+                        <strong>$ @VueltoCalculado.ToString("N2")</strong>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(mensajeError))
+                    {
+                        <div class="gp-banner is-danger"><i class="bi bi-exclamation-octagon-fill"></i><p>@mensajeError</p></div>
+                    }
+
+                    <div class="tk-opc">
+                        <label class="tk-sw" title="Imprime el ticket en la impresora de rollo al confirmar (queda guardado en este equipo)">
+                            <input type="checkbox" checked="@imprimirTicket" @onchange="CambiarTicket" />
+                            <i class="bi bi-receipt"></i> Imprimir ticket
+                        </label>
+                        @if (imprimirTicket)
                         {
-                            <div class="text-center text-muted py-3 small">
-                                <i class="bi bi-info-circle me-1"></i> Sin medios cargados aún.
-                            </div>
+                            <select class="tk-ancho" value="@anchoTicket" @onchange="CambiarAncho" title="Ancho del rollo">
+                                <option value="58">Rollo 58 mm</option>
+                                <option value="80">Rollo 80 mm</option>
+                            </select>
+                        }
+                    </div>
+
+                    <button type="button" class="gp-btn gp-btn-ok" data-atajo="F4" title="F4" disabled="@(guardando || TotalIngresado < State.TotalVentaActual || !pagosAgregados.Any())" @onclick="ProcesarCobro">
+                        @if (guardando)
+                        {
+                            <span class="gp-spinner" style="width:1.1rem;height:1.1rem;border-width:2px"></span> <span>Guardando...</span>
                         }
                         else
                         {
-                            <table class="table table-sm align-middle mb-0" style="font-size: 0.85rem;">
-                                <tbody>
-                                    @foreach (var p in pagosAgregados)
-                                    {
-                                        <tr>
-                                            <td class="ps-3 fw-semibold text-dark-custom">@p.NombreFormaPago</td>
-                                            <td class="text-end fw-black text-dark-custom">$ @p.Monto.ToString("N2")</td>
-                                            <td class="text-center" style="width: 50px;">
-                                                <button type="button" class="btn btn-link text-danger p-0 border-0" @onclick="() => RemoverPago(p)" title="Eliminar pago">
-                                                    <i class="bi bi-trash3-fill text-danger fs-6"></i>
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    }
-                                </tbody>
-                            </table>
+                            <i class="bi bi-check-circle-fill"></i> <span>Confirmar venta</span>
                         }
-                    </div>
-                </div>
-
-                @* TARJETA CENTRAL NEGRA: CAJA DE CONTROL FINAL Y GUARDADO *@
-                <div class="card shadow border-0 rounded-3 bg-dark text-white p-3">
-                    <span class="text-white-50 text-uppercase x-small-text fw-bold d-block">Total a Cobrar</span>
-                    <h2 class="fw-black text-warning mb-2 font-monospace">$ @State.TotalVentaActual.ToString("N2")</h2>
-
-                    <div class="rounded-3 p-2 mb-2" style="background-color: rgba(255,255,255,0.07); font-size: 0.85rem;">
-                        <div class="d-flex justify-content-between mb-1">
-                            <span class="text-white-50">Ingresado:</span>
-                            <span class="fw-bold text-info font-monospace">$ @TotalIngresado.ToString("N2")</span>
-                        </div>
-                        <div class="d-flex justify-content-between mb-0">
-                            <span class="text-white-50">Falta Pagar:</span>
-                            <span class="fw-bold font-monospace @(Restante > 0 ? "text-danger" : "text-white-50")">
-                                $ @(Restante > 0 ? Restante.ToString("N2") : "0,00")
-                            </span>
-                        </div>
-                    </div>
-
-                    <div class="mb-3">
-                        <span class="text-white-50 x-small-text d-block">Vuelto para el Cliente</span>
-                        <h3 class="fw-black text-success mb-0 font-monospace">$ @VueltoCalculado.ToString("N2")</h3>
-                    </div>
-                    @if (!string.IsNullOrEmpty(mensajeError))
-                    {
-                        <div class="alert alert-danger alert-dismissible fade show shadow-sm my-2 fw-bold align-items-center d-flex gap-2" role="alert">
-                            <i class="bi bi-exclamation-triangle-fill fs-5"></i>
-                            <div>@mensajeError</div>
-                            <button type="button" class="btn-close" @onclick="() => mensajeError = null" aria-label="Close"></button>
-                        </div>
-                    }
-                    <button type="button" class="btn btn-success w-100 py-3 fw-black rounded-3 shadow fs-5 d-flex align-items-center justify-content-center gap-2 @(TotalIngresado >= State.TotalVentaActual ? "" : "disabled")"
-                            style="background-color: #00875a; border: none;"
-                            @onclick="ProcesarCobro">
-                        <span>CONFIRMAR Y GUARDAR</span>
-                        <i class="bi bi-check-circle-fill"></i>
                     </button>
                 </div>
+
+                <button type="button" class="gp-btn gp-btn-danger-soft" @onclick="CancelarVentaAsync"><i class="bi bi-x-circle"></i> Cancelar toda la venta</button>
             </div>
         </div>
     }
-
-    @* === PIE DE PÁGINA MENOR === *@
-    <div class="bg-white border rounded-3 p-2 d-flex align-items-center justify-content-between shadow-sm mt-3" style="font-size: 0.75rem;">
-        <div class="d-flex align-items-center text-muted">
-            <i class="bi bi-info-circle-fill text-primary me-2 fs-6"></i>
-            <span>Verifica bien los montos recibidos.</span>
-        </div>
-        <div class="text-muted d-none d-sm-block">
-            <i class="bi bi-shield-lock-fill text-primary me-1"></i> Sistema Cerrado
-        </div>
-    </div>
 </div>
 
-<style>
-    .style-notebook {
-        font-size: 0.95rem;
-        color: #111111;
-        padding-bottom: 25px;
-    }
-
-    .x-small-text {
-        font-size: 0.82rem;
-    }
-
-    .small-font {
-        font-size: 0.75rem;
-    }
-
-    .fw-black {
-        font-weight: 850;
-    }
-
-    .text-dark-custom {
-        color: #111111 !important;
-    }
-
-    .btn-medio-custom {
-        background-color: #ffffff;
-        color: #111111;
-        border-color: #ced4da !important;
-    }
-
-        .btn-medio-custom:hover {
-            background-color: #f8f9fa;
+@* ===== TICKET: es lo único que sale en la impresión ===== *@
+@if (ticket != null)
+{
+    <div class="tk-ticket" style="width:@(anchoTicket)mm; font-size:@(anchoTicket >= 80 ? "10pt" : "8.5pt")">
+        <div class="tk-c tk-neg">@ticket.Negocio</div>
+        <div class="tk-c">@ticket.Fecha.ToString("dd/MM/yyyy HH:mm")</div>
+        @if (!string.IsNullOrWhiteSpace(ticket.Cliente)) { <div class="tk-c">Cliente: @ticket.Cliente</div> }
+        <div class="tk-sep"></div>
+        @foreach (var l in ticket.Lineas)
+        {
+            <div class="tk-item">@l.Nombre</div>
+            <div class="tk-fila"><span>@l.Detalle</span><span>$ @Plata(l.Subtotal)</span></div>
         }
+        <div class="tk-sep"></div>
+        <div class="tk-fila tk-total"><span>TOTAL</span><span>$ @Plata(ticket.Total)</span></div>
+        @foreach (var p in ticket.Pagos)
+        {
+            <div class="tk-fila"><span>@p.Nombre</span><span>$ @Plata(p.Monto)</span></div>
+        }
+        @if (ticket.Vuelto > 0)
+        {
+            <div class="tk-fila"><span>Vuelto</span><span>$ @Plata(ticket.Vuelto)</span></div>
+        }
+        <div class="tk-sep"></div>
+        <div class="tk-c">¡Gracias por su compra!</div>
+        <div class="tk-c tk-chico">Comprobante no válido como factura</div>
+    </div>
 
-    .active-efectivo {
-        background-color: #e8f5e9;
-        color: #2e7d32;
-        border-color: #2e7d32 !important;
-        font-weight: bold;
-    }
+    <style>
+        @@media print {
+            @@page { size: @(anchoTicket)mm auto; margin: 0; }
+            html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
+            body * { visibility: hidden !important; }
+            .tk-ticket, .tk-ticket * { visibility: visible !important; }
+            .tk-ticket { display: block !important; position: absolute; left: 0; top: 0; }
+        }
+    </style>
+}
 
-    .active-mercado {
-        background-color: #e3f2fd;
-        color: #0d6efd;
-        border-color: #0d6efd !important;
-        font-weight: bold;
-    }
-
-    .active-transferencia {
-        background-color: #f3e5f5;
-        color: #7b1fa2;
-        border-color: #7b1fa2 !important;
-        font-weight: bold;
-    }
-
-    .active-fiado {
-        background-color: #ffebee;
-        color: #c62828;
-        border-color: #c62828 !important;
-        font-weight: bold;
-    }
-
-    .style-notebook input:focus, .style-notebook select:focus {
-        border-color: #000000 !important;
-        box-shadow: 0 0 0 0.2rem rgba(0,0,0,0.1) !important;
-    }
+<style>
+    .tk-opc { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin: .2rem 0 .7rem; }
+    .tk-sw { display: inline-flex; align-items: center; gap: .45rem; margin: 0; color: #cfd6ea; font-weight: 700; font-size: .88rem; cursor: pointer; }
+    .tk-sw input { width: 1.1rem; height: 1.1rem; accent-color: #22c55e; }
+    .tk-ancho { border: 1px solid rgba(255,255,255,.25); border-radius: 8px; background: rgba(255,255,255,.08); color: #fff; font-size: .8rem; font-weight: 700; padding: .2rem .4rem; }
+    .tk-ancho option { color: #1b2540; }
+    .tk-ticket { display: none; padding: 2mm 3mm 6mm; background: #fff; color: #000; font-family: "Courier New", Consolas, monospace; line-height: 1.25; }
+    .tk-c { text-align: center; }
+    .tk-neg { font-weight: 900; font-size: 1.25em; text-transform: uppercase; }
+    .tk-chico { font-size: .8em; }
+    .tk-sep { border-top: 1px dashed #000; margin: 1.5mm 0; }
+    .tk-item { text-transform: uppercase; word-break: break-word; }
+    .tk-fila { display: flex; justify-content: space-between; gap: 2mm; }
+    .tk-fila span:last-child { white-space: nowrap; }
+    .tk-total { font-weight: 900; font-size: 1.2em; }
 </style>
 
 @code {
     [Parameter] public string RutaOrigenVentas { get; set; } = "/vender-desktop";
+
+    // ===================== TICKET (impresora de rollo angosto) =====================
+    private sealed record LineaTicket(string Nombre, string Detalle, decimal Subtotal);
+    private sealed record PagoTicket(string Nombre, decimal Monto);
+    private sealed record DatosTicket(string Negocio, DateTime Fecha, string? Cliente, List<LineaTicket> Lineas, decimal Total, List<PagoTicket> Pagos, decimal Vuelto);
+
+    private bool imprimirTicket;      // se recuerda en este equipo
+    private int anchoTicket = 58;     // 58 u 80 mm
+    private DatosTicket? ticket;
+    private const string ClaveTicket = "mrv_imprimir_ticket", ClaveAncho = "mrv_ancho_ticket";
+
+    private static string Plata(decimal v) => v.ToString("N2", CultureInfo.GetCultureInfo("es-AR"));
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            imprimirTicket = await JS.InvokeAsync<string?>("localStorage.getItem", ClaveTicket) == "1";
+            if (int.TryParse(await JS.InvokeAsync<string?>("localStorage.getItem", ClaveAncho), out var a) && (a == 58 || a == 80)) anchoTicket = a;
+            if (imprimirTicket) StateHasChanged();
+        }
+        catch { /* sin almacenamiento del navegador: queda apagado */ }
+    }
+
+    private async Task CambiarTicket(ChangeEventArgs e)
+    {
+        imprimirTicket = e.Value is bool b && b;
+        try { await JS.InvokeVoidAsync("localStorage.setItem", ClaveTicket, imprimirTicket ? "1" : "0"); } catch { }
+    }
+
+    private async Task CambiarAncho(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var a) && (a == 58 || a == 80)) anchoTicket = a;
+        try { await JS.InvokeVoidAsync("localStorage.setItem", ClaveAncho, anchoTicket.ToString()); } catch { }
+    }
+
+    /// <summary>Foto de la venta para el ticket (antes de vaciar el carrito).</summary>
+    private DatosTicket ArmarTicket(decimal vuelto)
+    {
+        var c = CultureInfo.GetCultureInfo("es-AR");
+        var lineas = (State.CarritoActual ?? new()).Select(i =>
+        {
+            string detalle = !i.EsProductoVario && i.Producto.EsVentaPorPeso()
+                ? $"{i.Cantidad:N0} g"
+                : $"{i.Cantidad} x $ {i.PrecioUnitario.ToString("N2", c)}";
+            return new LineaTicket(i.Producto.Nombre ?? "", detalle, i.Subtotal);
+        }).ToList();
+        var cliente = personaSeleccionadaId > 0 ? listaPersonas.FirstOrDefault(p => p.Id == personaSeleccionadaId)?.Nombre : null;
+        return new DatosTicket(State.NombreNegocio ?? "", DateTime.Now, cliente, lineas, State.TotalVentaActual,
+            PagosAGuardar().Select(p => new PagoTicket(p.NombreFormaPago, p.Monto)).ToList(), vuelto);
+    }
+
+    private async Task ImprimirTicketAsync(DatosTicket datos)
+    {
+        ticket = datos;
+        StateHasChanged();
+        await Task.Delay(120);   // que se dibuje el ticket antes de abrir la impresión
+        try { await JS.InvokeVoidAsync("print"); }
+        catch { avisos.Toast("No se pudo abrir la impresión del ticket.", "peligro"); }
+    }
+
+    private AvisosPagina avisos = default!;
     private string mensajeError = "";
+    private bool guardando;
+
     public class PagoTemporal
     {
         public long FormaPagoId { get; set; }
-        public string NombreFormaPago { get; set; }
+        public string NombreFormaPago { get; set; } = "";
         public decimal Monto { get; set; }
     }
 
-    private List<PagoTemporal> pagosAgregados = new List<PagoTemporal>();
-    private List<Persona> listaPersonas = new List<Persona>();
+    private List<PagoTemporal> pagosAgregados = new();
+    private List<Persona> listaPersonas = new();
     private long personaSeleccionadaId = 0;
-
-    private long formaPagoSeleccionada = 1;
-    private string nombreFormaPagoSeleccionada = "Efectivo";
-    private decimal montoAIngresar;
 
     private decimal TotalIngresado => pagosAgregados.Sum(p => p.Monto);
     private decimal Restante => State.TotalVentaActual - TotalIngresado;
+
+    private static bool EsFiado(string? nombre) => string.Equals(nombre?.Trim(), "FIADO", StringComparison.OrdinalIgnoreCase);
+    private static bool EsEfectivo(string? nombre) => (nombre ?? "").Contains("efectivo", StringComparison.OrdinalIgnoreCase);
+
+    private bool FaltaClienteParaFiado => personaSeleccionadaId == 0 && pagosAgregados.Any(p => EsFiado(p.NombreFormaPago));
+
+    private List<DetalleArticulos.FilaArticulo> FilasCarrito => (State.CarritoActual ?? new()).Select(i => new DetalleArticulos.FilaArticulo
+    {
+        ProductoId = i.Producto.Id,
+        Nombre = i.Producto.Nombre ?? "",
+        UnidadMedida = i.Producto.UnidadMedida,
+        Cantidad = i.Cantidad,
+        PrecioUnitario = i.PrecioUnitario,
+        Subtotal = i.Subtotal,
+        EsVario = i.EsProductoVario,
+        EsCombo = i.Producto.EsCombo == true
+    }).ToList();
 
     private decimal VueltoCalculado
     {
@@ -348,9 +370,12 @@
         }
     }
 
+    /// <summary>ETAPA 7: sin internet (o entró sin internet) la venta se guarda en la PC.</summary>
+    private static bool SinInternet => VentaSinInternet.Actual?.ModoLimitado == true;
+
     protected override async Task OnInitializedAsync()
     {
-        montoAIngresar = State.TotalVentaActual;
+        if (SinInternet) return;   // sin internet no se fía: no hacen falta los clientes
         await CargarPersonas();
     }
 
@@ -358,11 +383,8 @@
     {
         try
         {
-            var res = await SupaClient.From<Persona>().Get();
-            if (res.Models != null)
-            {
-                listaPersonas = res.Models.OrderBy(p => p.Nombre).ToList();
-            }
+            var res = await SupaClient.From<Persona>().Where(f => f.KioscoId == State.KioscoId).Get();
+            listaPersonas = (res.Models ?? new()).OrderBy(p => p.Nombre).ToList();
         }
         catch (Exception ex)
         {
@@ -370,40 +392,105 @@
         }
     }
 
-    private void SeleccionarMedio(long id, string nombre)
+    private async Task AgregarPago(MediosDePago.PagoCargado p)
     {
-        formaPagoSeleccionada = id;
-        nombreFormaPagoSeleccionada = nombre;
-        montoAIngresar = Restante > 0 ? Restante : 0;
-    }
+        mensajeError = "";
+        decimal monto = p.Monto;
 
-    private void CargarMontoRapido(decimal monto)
-    {
-        montoAIngresar = monto;
-    }
-
-    private void AgregarPago()
-    {
-        if (montoAIngresar <= 0) return;
-
-        pagosAgregados.Add(new PagoTemporal
+        if (EsFiado(p.Nombre))
         {
-            FormaPagoId = formaPagoSeleccionada,
-            NombreFormaPago = nombreFormaPagoSeleccionada,
-            Monto = montoAIngresar
-        });
+            // Si la venta va con otra lista (ej: noche) se PREGUNTA a qué precio se fía. Antes era siempre precio de día.
+            decimal restanteAntes = Restante;
+            decimal ahorro = AhorroSiPrecioDia();
+            if (ahorro > 0 && !PrecioDiaAplicado)
+            {
+                var colAhora = BlazorKioscoCompartido.Services.PrecioService.ColumnaSegunMomento(State.KioscoId, DateTime.Now) ?? "precio_lista2";
+                var lista = BlazorKioscoCompartido.Services.PrecioService.NombreLista(State.KioscoId, colAhora == "precio_venta" ? "precio_lista2" : colAhora);
+                if (string.IsNullOrWhiteSpace(lista)) lista = "noche";
+                decimal total = State.TotalVentaActual;
+                bool aDia = await avisos.ConfirmarAsync("¿A qué precio se fía?",
+                    $"La venta va con precio {lista}: $ {total:N2}. A precio de día sería $ {total - ahorro:N2} ($ {ahorro:N2} menos).",
+                    $"Precio de día ($ {total - ahorro:N2})", "aviso", $"Precio {lista} ($ {total:N2})");
+                if (aDia) AplicarPrecioDia();
+            }
+            if (PrecioDiaAplicado && monto >= restanteAntes) monto = Math.Max(0, Restante);   // era "lo que falta": se ajusta al nuevo total
+            if (monto <= 0) { avisos.Toast("No queda nada por cobrar.", "info"); return; }
+        }
 
-        montoAIngresar = Restante > 0 ? Restante : 0;
+        pagosAgregados.Add(new PagoTemporal { FormaPagoId = p.FormaPagoId, NombreFormaPago = p.Nombre, Monto = monto });
     }
 
     private void RemoverPago(PagoTemporal pago)
     {
         pagosAgregados.Remove(pago);
-        montoAIngresar = Restante > 0 ? Restante : 0;
+        if (EsFiado(pago.NombreFormaPago) && !pagosAgregados.Any(x => EsFiado(x.NombreFormaPago)))
+            QuitarPrecioDia();
     }
 
-    private void CancelarVenta()
+    // ===================== PRECIO DE DÍA PARA EL FIADO =====================
+    // Se guarda el precio que tenía cada producto para poder volver atrás si se quita el fiado.
+    private readonly Dictionary<ItemCarrito, decimal> preciosAntesDelFiado = new();
+    private decimal ahorroPrecioDia = 0;
+    private bool PrecioDiaAplicado => preciosAntesDelFiado.Any();
+
+    /// <summary>Cuánto bajaría la venta si todo fuera a precio de día (0 = ya está a precio de día).</summary>
+    private decimal AhorroSiPrecioDia()
     {
+        if (State.CarritoActual == null) return 0;
+        decimal ahorro = 0;
+        foreach (var item in State.CarritoActual.Where(i => !i.EsProductoVario))
+        {
+            decimal precioDia = item.Producto.PrecioVenta ?? 0;
+            if (precioDia > 0 && precioDia < item.PrecioUnitario)
+            {
+                decimal antes = item.Subtotal;
+                decimal guardado = item.PrecioUnitario;
+                item.PrecioUnitario = precioDia;
+                ahorro += antes - item.Subtotal;
+                item.PrecioUnitario = guardado;
+            }
+        }
+        return Math.Max(0, ahorro);
+    }
+
+    private void AplicarPrecioDia()
+    {
+        if (PrecioDiaAplicado || State.CarritoActual == null) return;
+        decimal totalAntes = State.TotalVentaActual;
+
+        foreach (var item in State.CarritoActual.Where(i => !i.EsProductoVario))
+        {
+            decimal precioDia = item.Producto.PrecioVenta ?? 0;
+            if (precioDia > 0 && precioDia < item.PrecioUnitario)
+            {
+                preciosAntesDelFiado[item] = item.PrecioUnitario;
+                item.PrecioUnitario = precioDia;
+            }
+        }
+
+        if (PrecioDiaAplicado)
+        {
+            State.TotalVentaActual = State.CarritoActual.Sum(i => i.Subtotal);
+            ahorroPrecioDia = totalAntes - State.TotalVentaActual;
+            avisos.Toast($"Fiado: precio de día. El total bajó $ {ahorroPrecioDia:N2}", "info", 3500);
+        }
+    }
+
+    /// <summary>Si sale de la página sin confirmar (flecha de volver, menú), los precios vuelven a los de la lista del horario.</summary>
+    public void Dispose() => QuitarPrecioDia();
+
+    private void QuitarPrecioDia()
+    {
+        if (!PrecioDiaAplicado || State.CarritoActual == null) return;
+        foreach (var kv in preciosAntesDelFiado) kv.Key.PrecioUnitario = kv.Value;
+        preciosAntesDelFiado.Clear();
+        ahorroPrecioDia = 0;
+        State.TotalVentaActual = State.CarritoActual.Sum(i => i.Subtotal);
+    }
+
+    private async Task CancelarVentaAsync()
+    {
+        if (!await avisos.ConfirmarAsync("¿Cancelar toda la venta?", "Se borran los productos y los pagos cargados.", "Cancelar venta", "peligro", "Seguir cobrando")) return;
         pagosAgregados.Clear();
         Carrito.Vaciar();
         State.CarritoActual = null;
@@ -413,30 +500,75 @@
 
     private void VolverAVender()
     {
+        QuitarPrecioDia();   // en Vender se sigue con los precios de la lista del horario
         Nav.NavigateTo(RutaOrigenVentas);
     }
 
-    
+    /// <summary>
+    /// Lo que se guarda de cada pago. Si el cliente entregó de más, ese excedente es VUELTO y no es venta:
+    /// se descuenta del efectivo (y si no hubo efectivo, del último pago). Antes se guardaba lo entregado,
+    /// y una compra de $3.200 pagada con $5.000 quedaba como venta de $5.000.
+    /// </summary>
+    private List<PagoTemporal> PagosAGuardar()
+    {
+        var lista = pagosAgregados.Select(p => new PagoTemporal { FormaPagoId = p.FormaPagoId, NombreFormaPago = p.NombreFormaPago, Monto = p.Monto }).ToList();
+        decimal exceso = lista.Sum(p => p.Monto) - State.TotalVentaActual;
+        if (exceso <= 0) return lista;
+
+        foreach (var p in lista.Where(x => EsEfectivo(x.NombreFormaPago)).Reverse().Concat(Enumerable.Reverse(lista)))
+        {
+            if (exceso <= 0) break;
+            var q = Math.Min(p.Monto, exceso);
+            p.Monto -= q;
+            exceso -= q;
+        }
+        return lista.Where(p => p.Monto > 0).ToList();
+    }
+
     private async Task ProcesarCobro()
     {
+        if (guardando) return;   // evita guardar dos veces con un doble toque
+        mensajeError = "";
+        if (!pagosAgregados.Any()) return;
+
+        if (FaltaClienteParaFiado)
+        {
+            mensajeError = "Elegí el cliente: hay una parte que queda fiada.";
+            return;
+        }
+
+        guardando = true;
+        decimal vuelto = VueltoCalculado;
+        datosTicket = imprimirTicket ? ArmarTicket(vuelto) : null;
+
+        // ETAPA 7: sin internet se guarda en la PC
+        if (SinInternet)
+        {
+            await GuardarSinInternetAsync(vuelto);
+            return;
+        }
+
         try
         {
-            if (!pagosAgregados.Any()) return;
-
-            bool tieneFiado = pagosAgregados.Any(p => p.FormaPagoId == 6);
-            if (tieneFiado && personaSeleccionadaId == 0)
+            long numeroMovimientoUnico;
+            try
             {
-                mensajeError = "Atención: Debe seleccionar un cliente para registrar una venta fiada.";
+                var respuestaRpc = await SupaClient.Rpc("obtener_proximo_movimiento", null);
+                numeroMovimientoUnico = Convert.ToInt64(respuestaRpc.Content);
+            }
+            catch (Exception exRed) when (VentaSinInternet.Actual != null && VentaSinInternet.EsErrorDeRed(exRed)
+                                          && !pagosAgregados.Any(p => EsFiado(p.NombreFormaPago)))
+            {
+                // se cortó internet ANTES de guardar nada: la venta queda en la PC (no se guarda a medias)
+                VentaSinInternet.Actual.MarcarSinConexion();
+                await GuardarSinInternetAsync(vuelto);
                 return;
             }
 
-            var respuestaRpc = await SupaClient.Rpc("obtener_proximo_movimiento", null);
-            long numeroMovimientoUnico = Convert.ToInt64(respuestaRpc.Content);
-
-            // 1. Guardar las formas de pago / cabeceras de venta
-            foreach (var pago in pagosAgregados)
+            // --- 1. Cabeceras: una fila de venta por cada forma de pago (cobros mixtos) ---
+            foreach (var pago in PagosAGuardar())
             {
-                bool esFiado = pago.FormaPagoId == 6;
+                bool esFiado = EsFiado(pago.NombreFormaPago);
 
                 var filaVenta = new Venta
                 {
@@ -452,11 +584,11 @@
                 await SupaClient.From<Venta>().Insert(filaVenta);
             }
 
-            // 2. Separar los ítems normales de los productos varios
-            var itemsNormales = State.CarritoActual.Where(i => !i.EsProductoVario).ToList();
-            var itemsVarios = State.CarritoActual.Where(i => i.EsProductoVario).ToList();
+            // --- 2. Separar los productos normales de los "varios" (sin código) ---
+            var itemsNormales = State.CarritoActual!.Where(i => !i.EsProductoVario).ToList();
+            var itemsVarios = State.CarritoActual!.Where(i => i.EsProductoVario).ToList();
 
-            // 3. Insertar detalles normales y decrementar stock de cada producto
+            // --- 3. Detalle de productos y descuento de stock / límite de combos ---
             if (itemsNormales.Any())
             {
                 var detallesProductos = itemsNormales.Select(item => new VentaDetalle
@@ -470,22 +602,66 @@
 
                 await SupaClient.From<VentaDetalle>().Insert(detallesProductos);
 
-                // === 3.1 DECREMENTAR STOCK DE PRODUCTOS ===
                 foreach (var item in itemsNormales)
                 {
-                    // Si la propiedad de stock en tu modelo Producto se llama 'Stock' o 'CantidadStock':
-                    item.Producto.StockActual -= item.Cantidad;
+                    if (item.Producto.EsCombo == true)
+                    {
+                        // Combo: se descuenta el stock de cada producto que lo compone
+                        var resDetallesCombo = await SupaClient
+                            .From<ComboDetalle>()
+                            .Where(d => d.ComboId == item.Producto.Id)
+                            .Get();
 
-                    // Actualizamos la fila del producto en Supabase
-                    await SupaClient
-                        .From<Producto>()
-                        .Where(p => p.Id == item.Producto.Id)
-                        .Set(p => p.StockActual, item.Producto.StockActual)
-                        .Update();
+                        foreach (var det in resDetallesCombo.Models ?? new())
+                        {
+                            long cantidadADescontar = (long)(det.Cantidad * item.Cantidad);
+
+                            var productoIngrediente = await SupaClient
+                                .From<Producto>()
+                                .Where(p => p.Id == det.ProductoHijoId && p.KioscoId == State.KioscoId)
+                                .Single();
+
+                            if (productoIngrediente != null)
+                            {
+                                productoIngrediente.StockActual -= (int)cantidadADescontar;
+                                if (productoIngrediente.StockActual < 0) productoIngrediente.StockActual = 0;
+
+                                await SupaClient
+                                    .From<Producto>()
+                                    .Where(p => p.Id == productoIngrediente.Id && p.KioscoId == State.KioscoId)
+                                    .Set(p => p.StockActual, productoIngrediente.StockActual)
+                                    .Update();
+                            }
+                        }
+
+                        // Límite de unidades de la promo
+                        if (item.Producto.LimiteUnidadesCombo.HasValue)
+                        {
+                            item.Producto.LimiteUnidadesCombo -= (int)item.Cantidad;
+                            if (item.Producto.LimiteUnidadesCombo < 0) item.Producto.LimiteUnidadesCombo = 0;
+
+                            await SupaClient
+                                .From<Producto>()
+                                .Where(p => p.Id == item.Producto.Id && p.KioscoId == State.KioscoId)
+                                .Set(p => p.LimiteUnidadesCombo, item.Producto.LimiteUnidadesCombo)
+                                .Update();
+                        }
+                    }
+                    else
+                    {
+                        // Producto normal: unidades, o gramos si es por peso
+                        item.Producto.StockActual -= item.Cantidad;
+
+                        await SupaClient
+                            .From<Producto>()
+                            .Where(p => p.Id == item.Producto.Id && p.KioscoId == State.KioscoId)
+                            .Set(p => p.StockActual, item.Producto.StockActual)
+                            .Update();
+                    }
                 }
             }
 
-            // 4. Insertar los productos varios en la tabla 'productos_varios_ventas'
+            // --- 4. Productos "varios" (sin código) ---
             if (itemsVarios.Any())
             {
                 var registrosVarios = itemsVarios.Select(item => new ProductoVarioVenta
@@ -502,17 +678,96 @@
                 await SupaClient.From<ProductoVarioVenta>().Insert(registrosVarios);
             }
 
-            // Limpieza y redirección
+            // --- Limpieza ---
             pagosAgregados.Clear();
             Carrito.Vaciar();
             State.CarritoActual = null;
             State.TotalVentaActual = 0;
-
-            Nav.NavigateTo(RutaOrigenVentas);
         }
         catch (Exception ex)
         {
             mensajeError = "Error al guardar el cobro: " + ex.Message;
+            guardando = false;
+            return;
         }
+
+        guardando = false;
+        if (datosTicket != null) await ImprimirTicketAsync(datosTicket);
+        if (vuelto > 0)
+            await avisos.InformarAsync("Venta guardada", $"Vuelto para el cliente: $ {vuelto:N2}", "exito", "Listo");
+
+        Nav.NavigateTo(RutaOrigenVentas);
+    }
+
+    private DatosTicket? datosTicket;   // la venta que se está guardando (si se imprime ticket)
+
+    /// <summary>
+    /// ETAPA 7: guarda la venta en un archivo de la PC. Se sube sola cuando vuelve internet
+    /// (con su hora real, sin duplicarse, y ahí se descuenta el stock).
+    /// </summary>
+    private async Task GuardarSinInternetAsync(decimal vuelto)
+    {
+        var off = VentaSinInternet.Actual;
+        if (off == null)
+        {
+            mensajeError = "No hay internet y esta app no puede guardar ventas sin internet.";
+            guardando = false;
+            return;
+        }
+        if (pagosAgregados.Any(p => EsFiado(p.NombreFormaPago)))
+        {
+            mensajeError = "Sin internet no se puede fiar. Quitá el pago con Fiado.";
+            guardando = false;
+            return;
+        }
+
+        try
+        {
+            var carrito = State.CarritoActual ?? new();
+            var venta = new VentaPendiente
+            {
+                KioscoId = State.KioscoId,
+                UsuarioId = State.UsuarioId,
+                UsuarioNombre = State.UsuarioNombre,
+                Fecha = new DateTimeOffset(DateTime.Today),
+                Hora = DateTimeOffset.Now,
+                Total = State.TotalVentaActual,
+                Pagos = PagosAGuardar().Select(p => new PagoPendiente { FormaPagoId = p.FormaPagoId, Nombre = p.NombreFormaPago, Monto = p.Monto }).ToList(),
+                Items = carrito.Where(i => !i.EsProductoVario).Select(i => new ItemPendiente
+                {
+                    ProductoId = i.Producto.Id,
+                    Nombre = i.Producto.Nombre,
+                    Cantidad = i.Cantidad,
+                    PrecioUnitario = i.PrecioUnitario,
+                    Subtotal = i.Subtotal
+                }).ToList(),
+                Varios = carrito.Where(i => i.EsProductoVario).Select(i => new VarioPendiente
+                {
+                    Nombre = i.Producto.Nombre,
+                    Cantidad = i.Cantidad,
+                    PrecioUnitario = i.PrecioUnitario,
+                    Subtotal = i.Subtotal
+                }).ToList()
+            };
+            off.GuardarPendiente(venta);
+
+            pagosAgregados.Clear();
+            Carrito.Vaciar();
+            State.CarritoActual = null;
+            State.TotalVentaActual = 0;
+        }
+        catch (Exception ex)
+        {
+            mensajeError = "No se pudo guardar la venta en la PC: " + ex.Message;
+            guardando = false;
+            return;
+        }
+
+        guardando = false;
+        if (datosTicket != null) await ImprimirTicketAsync(datosTicket);
+        await avisos.InformarAsync("Venta guardada en la PC",
+            (vuelto > 0 ? $"Vuelto para el cliente: $ {vuelto:N2}. " : "") + "Se sube sola cuando vuelva internet.",
+            "exito", "Listo");
+        Nav.NavigateTo(RutaOrigenVentas);
     }
 }

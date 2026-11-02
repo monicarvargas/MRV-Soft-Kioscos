@@ -1,0 +1,134 @@
+﻿@implements IDisposable
+@inject AppState State
+
+<AvisosPagina @ref="avisos" />
+
+<section class="gp-card gp-card-pad">
+    <div class="gp-card-head">
+        <span class="gp-bubble"><i class="bi bi-palette-fill"></i></span>
+        <div class="cf-head-text">
+            <h2>Color del negocio</h2>
+            <p>Se usa en la barra de arriba, el login, el menú y los botones principales.</p>
+        </div>
+    </div>
+
+    @if (cargando)
+    {
+        <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>Cargando...</p></div>
+    }
+    else
+    {
+        <div class="ap-colores" role="radiogroup">
+            @foreach (var t in TemasColor.Todos)
+            {
+                var activo = t.Clave == elegido;
+                <button type="button" role="radio" aria-checked="@activo" class="ap-color @(activo ? "is-active" : "")"
+                        style="--ap-c:@t.Principal; --ap-o:@t.Oscuro; --ap-s:@t.Suave" @onclick="() => Elegir(t.Clave)">
+                    <span class="ap-muestra"><i class="bi @(activo ? "bi-check-lg" : "")"></i></span>
+                    <span class="ap-nombre">@t.Nombre</span>
+                </button>
+            }
+        </div>
+
+        @* Vista previa con el color elegido *@
+        <div class="cf-section" style="margin-top:1.2rem"><i class="bi bi-eye-fill"></i> Así se ve</div>
+        <div class="ap-preview" style="--ap-c:@Tp.Principal; --ap-o:@Tp.Oscuro; --ap-s:@Tp.Suave">
+            <div class="ap-barra"><small>MRV Soft |</small> @(State.NombreNegocio ?? "Mi negocio")</div>
+            <div class="ap-cuerpo">
+                <span class="ap-boton">Entrar</span>
+                <span class="ap-boton is-outline">Cancelar</span>
+                <span class="ap-vender"><i class="bi bi-currency-dollar"></i></span>
+            </div>
+        </div>
+
+        <div class="cf-form-actions" style="margin-top:1rem">
+            @if (elegido != guardado)
+            {
+                <button type="button" class="gp-btn gp-btn-outline" @onclick="Deshacer">Deshacer</button>
+            }
+            <button type="button" class="gp-btn gp-btn-ok" disabled="@(guardando || elegido == guardado)" @onclick="Guardar">
+                <i class="bi bi-check-lg"></i> @(guardando ? "Guardando..." : "Guardar color")
+            </button>
+        </div>
+        @if (!EsMiNegocio)
+        {
+            <div class="gp-hint" style="margin-top:.6rem"><i class="bi bi-info-circle-fill" style="color:var(--gp-primary)"></i> Estás configurando otro negocio: el color se ve cuando ellos entran.</div>
+        }
+    }
+</section>
+
+<style>
+    .ap-colores { display: grid; grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr)); gap: .6rem; }
+    .ap-color { display: flex; flex-direction: column; align-items: center; gap: .45rem; padding: .7rem .4rem; border: 2px solid var(--gp-line); border-radius: 16px; background: #fff; font: inherit; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+    .ap-color:hover { border-color: var(--ap-c); }
+    .ap-color.is-active { border-color: var(--ap-c); box-shadow: 0 0 0 3px var(--ap-s); }
+    .ap-muestra { display: inline-flex; align-items: center; justify-content: center; width: 2.6rem; height: 2.6rem; border-radius: 50%; background: linear-gradient(135deg, var(--ap-c), var(--ap-o)); color: #fff; font-size: 1.3rem; }
+    .ap-nombre { font-size: .8rem; font-weight: 800; color: var(--gp-text); text-align: center; line-height: 1.2; }
+
+    .ap-preview { overflow: hidden; max-width: 26rem; border: 1px solid var(--gp-line); border-radius: 16px; background: linear-gradient(135deg, #f5f7fa 0%, var(--ap-s) 100%); }
+    .ap-barra { padding: .7rem 1rem; background: var(--ap-c); color: #fff; font-weight: 800; }
+    .ap-barra small { opacity: .7; font-weight: 600; }
+    .ap-cuerpo { display: flex; align-items: center; gap: .6rem; padding: 1rem; }
+    .ap-boton { padding: .45rem 1rem; border-radius: 10px; background: var(--ap-c); color: #fff; font-weight: 800; font-size: .88rem; }
+    .ap-boton.is-outline { background: #fff; color: var(--ap-c); border: 1.5px solid var(--ap-c); }
+    .ap-vender { display: inline-flex; align-items: center; justify-content: center; width: 2.6rem; height: 2.6rem; margin-left: auto; border-radius: 50%; background: var(--ap-c); color: #fff; font-size: 1.2rem; box-shadow: 0 4px 10px rgba(0,0,0,.18); }
+</style>
+
+@code {
+    [Parameter] public long KioscoId { get; set; }
+
+    private AvisosPagina avisos = default!;
+    private bool cargando = true, guardando;
+    private string elegido = TemasColor.PorDefecto;
+    private string guardado = TemasColor.PorDefecto;
+
+    private bool EsMiNegocio => KioscoId == State.KioscoId;
+    private TemasColor.Tema Tp => TemasColor.Buscar(elegido);   // vista previa
+
+    protected override async Task OnParametersSetAsync()
+    {
+        cargando = true;
+        try
+        {
+            guardado = TemasColor.Buscar(await Config.GetColorTema(KioscoId)).Clave;
+        }
+        catch
+        {
+            guardado = TemasColor.Buscar(EsMiNegocio ? State.ColorTema : null).Clave;
+        }
+        elegido = guardado;
+        cargando = false;
+    }
+
+    private void Elegir(string clave)
+    {
+        elegido = clave;
+        // vista previa en vivo en toda la app (solo si es mi negocio)
+        if (EsMiNegocio) { State.ColorTema = clave; State.NotifyStateChanged(); }
+    }
+
+    private void Deshacer() => Elegir(guardado);
+
+    private async Task Guardar()
+    {
+        guardando = true;
+        try
+        {
+            await Config.GuardarColorTema(KioscoId, elegido);
+            guardado = elegido;
+            if (EsMiNegocio) { State.ColorTema = elegido; State.NotifyStateChanged(); }
+            _ = avisos.GuardadoAsync("Color guardado");
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudo guardar el color", ConfiguracionService.MensajeError(ex) + " (¿corriste el SQL que agrega la columna color_tema?)", "peligro");
+        }
+        finally { guardando = false; }
+    }
+
+    // si sale de la pestaña sin guardar, vuelve el color que estaba
+    public void Dispose()
+    {
+        if (EsMiNegocio && elegido != guardado) { State.ColorTema = guardado; State.NotifyStateChanged(); }
+    }
+}

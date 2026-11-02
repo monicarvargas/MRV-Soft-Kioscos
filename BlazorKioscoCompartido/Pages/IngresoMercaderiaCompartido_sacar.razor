@@ -1,0 +1,771 @@
+﻿@using BlazorKioscoCompartido.Models
+@using System.Globalization
+@inject PrecioService PrecioServ
+@inject Supabase.Client SupaClient
+@inject AppState State
+@inject NavigationManager Nav
+<div class="container-fluid p-2 p-md-3 bg-light min-vh-100">
+    <!-- Header -->
+
+    <EncabezadoPagina Titulo="Ingreso de Mercadería"
+                      Subtitulo="Cargá las compras de proveedores para actualizar stock y precios de venta."
+                      IconoClass="bi-box-arrow-in-down"
+                      RutaVolver="/productos" />
+
+    <!-- Cabecera de la Compra (Proveedor y Comprobante) -->
+    <div class="card border-0 shadow-sm rounded-3 mb-3 bg-white">
+        <div class="card-body p-3">
+            <div class="row g-2 align-items-end">
+                <div class="col-12 col-md-4">
+                    <label class="form-label fw-bold small text-dark mb-1"><i class="bi bi-truck me-1"></i>Proveedor</label>
+                    <select class="form-select form-select-sm rounded-3" @bind="proveedorId">
+                        <option value="0">-- Sin Proveedor / Compra Varia --</option>
+                        @foreach (var prov in listaProveedores)
+                        {
+                            <option value="@prov.Id">@prov.Nombre</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label fw-bold small text-dark mb-1"><i class="bi bi-receipt me-1"></i>N° Remito / Factura</label>
+                    <input type="text" class="form-control form-control-sm rounded-3" placeholder="Ej: 0001-000452" @bind="numeroComprobante" />
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label fw-bold small text-dark mb-1"><i class="bi bi-calendar-event me-1"></i>Fecha Compra</label>
+                    <input type="date" class="form-control form-control-sm rounded-3" @bind="fechaCompra" />
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Buscador de Productos / Botón de Alta -->
+    <div class="card border-0 shadow-sm rounded-3 mb-3 bg-white">
+        <div class="card-body p-3">
+            <label class="form-label fw-bold small text-dark mb-1">Buscar o Escanear Producto:</label>
+            <div class="d-flex gap-2">
+                <div class="flex-grow-1">
+                    <BuscadorProducto CargarAlInicio="false"
+                                      MostrarPrimeraLista="false"
+                                      MostrarSegundaLista="false"
+                                      OnProductoEncontrado="AgregarProductoALaLista" />
+                </div>
+                <button class="btn btn-outline-success fw-bold rounded-3 text-nowrap" @onclick="AbrirModalNuevoProducto">
+                    <i class="bi bi-plus-lg me-1"></i> Producto Nuevo
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mensajes de Alerta -->
+    @if (!string.IsNullOrEmpty(mensajeError))
+    {
+        <div class="alert alert-danger alert-dismissible fade show rounded-3" role="alert">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i> @mensajeError
+            <button type="button" class="btn-close" @onclick="() => mensajeError = null"></button>
+        </div>
+    }
+
+    <!-- Tabla de Ítems a Ingresar -->
+    <div class="card border-0 shadow-sm rounded-3 bg-white mb-3">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light small fw-bold">
+                        <tr>
+                            <th style="width: 130px;">Código</th>
+                            <th>Producto</th>
+                            <th style="width: 120px;" class="text-center">Cantidad</th>
+                            <th style="width: 140px;">Precio Costo ($)</th>
+                            <th style="width: 120px;">Utilidad %</th>
+                            <th style="width: 140px;">Precio Venta ($)</th>
+                            @if (nombreLista2 != "")
+                            {
+                                <th style="width: 120px;">Utilidad @nombreLista2 %</th>
+                                <th style="width: 140px;">@nombreLista2 ($)</th>
+                            }
+                            <th style="width: 130px;" class="text-end">Subtotal Costo</th>
+                            <th style="width: 50px;"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (!itemsCompra.Any())
+                        {
+                            <tr>
+                                <td colspan="@(nombreLista2 != "" ? 10 : 8)" class="text-center py-5 text-muted">
+                                    <i class="bi bi-cart-x fs-1 d-block mb-2 text-secondary"></i>
+                                    No hay productos agregados a la compra. Escaneá un código o buscalo arriba.
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var item in itemsCompra)
+                            {
+                                <tr>
+                                    <!-- Código de Barras -->
+                                    <td class="small text-muted">
+                                        @(string.IsNullOrEmpty(item.Producto.CodigoBarras) ? "S/D" : item.Producto.CodigoBarras)
+                                    </td>
+
+                                    <!-- Nombre del Producto -->
+                                    <td class="fw-bold text-dark">@item.Producto.Nombre</td>
+
+                                    <!-- Cantidad (con Stock Anterior) -->
+                                    <td class="text-center">
+                                        <div class="d-flex flex-column align-items-center">
+                                            <span class="border border-danger text-danger rounded px-1 fw-bold mb-1" style="font-size: 0.65rem; line-height: 1.2;">
+                                                Stk: @(item.Producto.StockActual ?? 0)
+                                            </span>
+                                            <input type="number" min="1" class="form-control form-control-sm text-center fw-bold rounded-2"
+                                                   style="max-width: 90px;"
+                                                   value="@item.Cantidad" @onchange="@(e => ActualizarCantidad(item, e))" />
+                                            @if (item.Producto != null && item.Producto.IsMedidaGramos())
+                                            {
+                                                <small class="text-muted fw-bold" style="font-size: 0.65rem;">(x Gr)</small>
+                                            }
+                                        </div>
+                                    </td>
+
+                                    <!-- Costo (con Costo Anterior) -->
+                                    @* <td>
+                                        <div class="d-flex flex-column align-items-center">
+                                            <span class="border border-danger text-danger rounded px-1 fw-bold mb-1" style="font-size: 0.65rem; line-height: 1.2;">
+                                                $@((item.Producto.PrecioCosto ?? 0m).ToString("N2", cultura))
+                                            </span>
+                                            <input type="number"  class="form-control form-control-sm fw-bold rounded-2 text-primary"
+                                                   value="@item.CostoPV" @onchange="@(e => ActualizarCosto(item, e))" />
+                                            @if (item.Producto != null && item.Producto.IsMedidaGramos())
+                                            {
+                                                <small class="text-muted fw-bold" style="font-size: 0.65rem;">(x Kg)</small>
+                                            }
+                                        </div>
+                                    </td> *@
+
+                                    <!-- Reemplazar en la celda de Precio Costo ($) -->
+                                    <td>
+                                        <div class="d-flex flex-column align-items-center">
+                                            <span class="border border-danger text-danger rounded px-1 fw-bold mb-1" style="font-size: 0.65rem; line-height: 1.2;">
+                                                $@((item.Producto.PrecioCosto ?? 0m).ToString("N2", cultura))
+                                            </span>
+                                            <input type="number" class="form-control form-control-sm fw-bold rounded-2 text-primary text-center"
+                                                   @bind="item.CostoPV"
+                                                   @bind:after="() => RecalcularPrecios(item)" />
+                                            @if (item.Producto != null && item.Producto.IsMedidaGramos())
+                                            {
+                                                <small class="text-muted fw-bold" style="font-size: 0.65rem;">(x Kg)</small>
+                                            }
+                                        </div>
+                                    </td>
+
+                                    <!-- Margen % (Utilidad 1) -->
+                                    <td>
+                                        <div class="d-flex flex-column align-items-center">
+                                            <span class="border border-danger text-danger rounded px-1 fw-bold mb-1" style="font-size: 0.65rem; line-height: 1.2;">
+                                                @((item.Producto.UtilidadPV ?? 0m).ToString("N0"))%
+                                            </span>
+                                            <input type="number" class="form-control form-control-sm rounded-2 text-center"
+                                                   @bind="item.UtilidadPV"
+                                                   @bind:after="() => RecalcularPrecios(item)" />
+                                            @if (item.Producto != null && item.Producto.IsMedidaGramos())
+                                            {
+                                                <small class="text-muted fw-bold" style="font-size: 0.65rem;">&nbsp;</small>
+                                            }
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="d-flex flex-column align-items-center">
+                                            <!-- Precio Anterior en BD con formato y divisiones si es por Gramos -->
+                                            <span class="border border-danger text-danger rounded px-1 fw-bold mb-1" style="font-size: 0.65rem; line-height: 1.2;">
+                                                $@item.Producto.ObtenerPrecioVentaMostrar("Principal", State, cultura)
+                                            </span>
+
+                                            <!-- Input Editable para el nuevo Precio de Venta Calculado -->
+                                            <input type="number" class="form-control form-control-sm rounded-2 text-success fw-bold text-center"
+                                                   value="@ObtenerPrecioCalculadoMostrar(item.Producto, item.PrecioVentaCalculado)"
+                                                   @onchange="@(e => ActualizarPrecioVenta(item, e))" />
+
+                                            @if (item.Producto != null && item.Producto.IsMedidaGramos())
+                                            {
+                                                <small class="text-muted fw-bold" style="font-size: 0.65rem;">@item.Producto.ObtenerTextoModoPesoVentaCorto()</small>
+                                            }
+                                        </div>
+                                    </td>
+
+
+                                    @if (nombreLista2 != "")
+                                    {
+
+                                        <!-- Margen Lista 2 % (Utilidad Noche) -->
+                                        <td>
+                                            <div class="d-flex flex-column align-items-center">
+                                                <span class="border border-danger text-danger rounded px-1 fw-bold mb-1" style="font-size: 0.65rem; line-height: 1.2;">
+                                                    @((item.Producto.UtilidadLista2 ?? 0m).ToString("N0"))%
+                                                </span>
+                                                <input type="number" class="form-control form-control-sm rounded-2 text-center"
+                                                       @bind="item.UtilidadLista2"
+                                                       @bind:after="() => RecalcularPrecios(item)" />
+                                                @if (item.Producto != null && item.Producto.IsMedidaGramos())
+                                                {
+                                                    <small class="text-muted fw-bold" style="font-size: 0.65rem;">&nbsp;</small>
+                                                }
+                                            </div>
+                                        </td>
+
+
+                                        <td>
+                                            <div class="d-flex flex-column align-items-center">
+                                                <!-- Precio Lista 2 Anterior en BD -->
+                                                <span class="border border-danger text-danger rounded px-1 fw-bold mb-1" style="font-size: 0.65rem; line-height: 1.2;">
+                                                    $@item.Producto.ObtenerPrecioVentaMostrar("Lista2", State, cultura)
+                                                </span>
+
+                                                <!-- Input Editable Lista 2 -->
+                                                <input type="number" class="form-control form-control-sm rounded-2 text-success fw-bold text-center"
+                                                       value="@ObtenerPrecioCalculadoMostrar(item.Producto, item.PrecioVentaLista2Calculado)"
+                                                       @onchange="@(e => ActualizarPrecioLista2(item, e))" />
+
+                                                @if (item.Producto != null && item.Producto.IsMedidaGramos())
+                                                {
+                                                    <small class="text-muted fw-bold" style="font-size: 0.65rem;">@item.Producto.ObtenerTextoModoPesoVentaCorto()</small>
+                                                }
+                                            </div>
+                                        </td>
+                                    }
+
+                                    <!-- Subtotal de la Compra -->
+                                    <td class="text-end fw-bold text-dark fs-6 align-center pb-2">
+                                        $@item.SubtotalCosto.ToString("N2", cultura)
+                                    </td>
+
+                                    <!-- Eliminar Ítem -->
+                                    <td class="text-center align-middle">
+                                        <button class="btn btn-sm btn-link text-danger p-0" @onclick="() => EliminarItem(item)">
+                                            <i class="bi bi-trash fs-6"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Barra Inferior de Totales y Guardar -->
+    @if (itemsCompra.Any())
+    {
+        <div class="card border-0 shadow-sm rounded-3 bg-white p-3">
+            <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
+                <div>
+                    <span class="text-muted small d-block">Ítems a ingresar: <b>@itemsCompra.Count</b></span>
+                    <span class="text-muted small d-block">Unidades totales: <b>@itemsCompra.Sum(i => i.Cantidad)</b></span>
+                </div>
+                <div class="d-flex align-items-center gap-4">
+                    <div class="text-end">
+                        <span class="text-muted small d-block fw-bold">TOTAL DE COMPRA:</span>
+                        <h3 class="fw-black text-primary mb-0">$@TotalCompra.ToString("N2", cultura)</h3>
+                    </div>
+                    <button class="btn btn-success btn-lg px-4 fw-bold rounded-3 shadow-sm" @onclick="GuardarIngresoCompraAsync" disabled="@guardando">
+                        <i class="bi bi-check-circle-fill me-1"></i> @(guardando ? "Procesando..." : "Confirmar Ingreso")
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<!-- Modal para Crear Producto Rápido -->
+@if (mostrarModalNuevoProducto)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content rounded-4 border-0 shadow-lg">
+                <div class="modal-header py-2 px-3">
+                    <h5 class="modal-title fw-bold fs-6"><i class="bi bi-box-seam me-1 text-success"></i> Alta Rápida de Producto</h5>
+                    <button type="button" class="btn-close" @onclick="CerrarModalNuevoProducto"></button>
+                </div>
+                <div class="modal-body p-3">
+                    <div class="mb-2">
+                        <label class="form-label x-small fw-bold mb-1">Código de Barras</label>
+                        <input type="text" class="form-control form-control-sm rounded-3" @bind="nuevoProducto.CodigoBarras" placeholder="Escaneá o ingresá el código" />
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label x-small fw-bold mb-1">Nombre del Producto *</label>
+                        <input type="text" class="form-control form-control-sm rounded-3" @bind="nuevoProducto.Nombre" placeholder="Ej: Galletitas Donas 100g" />
+                    </div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-6">
+                            <label class="form-label x-small fw-bold mb-1">Precio Costo ($)</label>
+                            <input type="number" class="form-control form-control-sm rounded-3" @bind="nuevoProducto.PrecioCosto" />
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label x-small fw-bold mb-1">Utilidad (%)</label>
+                            <input type="number" class="form-control form-control-sm rounded-3" @bind="nuevoProducto.UtilidadPV" />
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer py-2 px-3 border-top-0">
+                    <button type="button" class="btn btn-secondary btn-sm rounded-3" @onclick="CerrarModalNuevoProducto">Cancelar</button>
+                    <button type="button" class="btn btn-success btn-sm fw-bold rounded-3" @onclick="GuardarNuevoProductoYSumarALista">Guardar y Sumar a la Compra</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Proveedor> listaProveedores = new();
+    private List<ItemIngresoModel> itemsCompra = new();
+
+    private long proveedorId = 0;
+    private string numeroComprobante = "";
+    private DateTime fechaCompra = DateTime.Today;
+
+    private bool guardando = false;
+    private bool mostrarModalNuevoProducto = false;
+    private string? mensajeError;
+    private CultureInfo cultura = CultureInfo.GetCultureInfo("es-AR");
+    private string nombreLista2 = "";
+    private Producto nuevoProducto = new();
+
+    private decimal TotalCompra => itemsCompra.Sum(i => i.SubtotalCosto);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarProveedoresAsync();
+        nombreLista2 = await PrecioServ.ObtenerNombreColumnaAsync(State.KioscoId, "precio_lista2");
+    }
+
+    private async Task CargarProveedoresAsync()
+    {
+        try
+        {
+            var res = await SupaClient.From<Proveedor>().Where(p => p.KioscoId == State.KioscoId).Get();
+            listaProveedores = res.Models ?? new List<Proveedor>();
+        }
+        catch { }
+    }
+
+
+    // private void AgregarProductoALaLista(Producto prod)
+    // {
+    //     var existente = itemsCompra.FirstOrDefault(i => i.Producto.Id == prod.Id);
+    //     if (existente != null)
+    //     {
+    //         existente.Cantidad++;
+    //     }
+    //     else
+    //     {
+    //         // Tomamos los valores directos de la BD
+    //         decimal utilidad1 = prod.UtilidadPV ?? 0m;
+    //         decimal utilidad2 = prod.UtilidadLista2 ?? 0m;
+    //         decimal costoPV = prod.PrecioCosto ?? 0m;
+    //         decimal precioVenta = prod.PrecioCosto * prod.UtilidadPV ?? 0m;
+
+    //         itemsCompra.Add(new ItemIngresoModel
+    //         {
+    //             Producto = prod,
+    //             Cantidad = 1,
+    //             CostoPV = costoPV,
+    //             UtilidadPV = utilidad1,
+    //             UtilidadLista2 = utilidad2,
+    //             PrecioVentaCalculado = precioVenta,
+    //             PrecioVentaLista2Calculado = 0m
+    //         });
+    //     }
+    // }
+    private void AgregarProductoALaLista(Producto prod)
+    {
+        var existente = itemsCompra.FirstOrDefault(i => i.Producto.Id == prod.Id);
+        if (existente != null)
+        {
+            existente.Cantidad++;
+        }
+        else
+        {
+            // 1. Obtenemos costo y utilidades que vienen del producto (o BD / Alta Rápida)
+            decimal costo = prod.PrecioCosto ?? 0m;
+            decimal utilidad1 = prod.UtilidadPV ?? 0m;
+            decimal utilidad2 = prod.UtilidadLista2 ?? 0m;
+
+            // 2. Creamos el ítem asignando el costo ingresado
+            var nuevoItem = new ItemIngresoModel
+            {
+                Producto = prod,
+                Cantidad = 1,
+                CostoPV = costo,
+                UtilidadPV = utilidad1,
+                UtilidadLista2 = utilidad2,
+                PrecioVentaCalculado = 0m,
+                PrecioVentaLista2Calculado = 0m
+            };
+
+            // 3. Si el producto ya traía un costo, recalculamos los precios de venta inmediatamente
+            if (costo > 0)
+            {
+                RecalcularPrecios(nuevoItem);
+            }
+
+            itemsCompra.Add(nuevoItem);
+        }
+    }
+    private void ActualizarCantidad(ItemIngresoModel item, ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int val) && val > 0)
+            item.Cantidad = val;
+    }
+
+    private void ActualizarCosto(ItemIngresoModel item, ChangeEventArgs e)
+    {
+        if (decimal.TryParse(e.Value?.ToString(), NumberStyles.Any, cultura, out decimal val))
+        {
+            item.CostoPV = val;
+            RecalcularPrecios(item);
+        }
+    }
+
+    private void ActualizarMargen(ItemIngresoModel item, ChangeEventArgs e)
+    {
+        if (decimal.TryParse(e.Value?.ToString(), NumberStyles.Any, cultura, out decimal val))
+        {
+            item.UtilidadPV = val;
+            item.PrecioVentaCalculado = item.Producto.CalcularPrecioPorUtilidad(item.CostoPV, val, State) ?? 0m;
+        }
+    }
+
+    private void ActualizarUtilidadLista2(ItemIngresoModel item, ChangeEventArgs e)
+    {
+        if (decimal.TryParse(e.Value?.ToString(), NumberStyles.Any, cultura, out decimal val))
+        {
+            item.UtilidadLista2 = val;
+            item.PrecioVentaLista2Calculado = item.Producto.CalcularPrecioPorUtilidad(item.CostoPV, val, State) ?? 0m;
+        }
+    }
+
+    private void ActualizarPrecioVenta(ItemIngresoModel item, ChangeEventArgs e)
+    {
+        if (decimal.TryParse(e.Value?.ToString(), NumberStyles.Any, cultura, out decimal val))
+        {
+            // Si se vende por gramos, lo multiplicamos por 10 para guardar el precio por kilo entero en el modelo
+            item.PrecioVentaCalculado = (item.Producto != null && item.Producto.IsMedidaGramos()) ? val * 10m : val;
+        }
+    }
+
+    private void ActualizarPrecioLista2(ItemIngresoModel item, ChangeEventArgs e)
+    {
+        if (decimal.TryParse(e.Value?.ToString(), NumberStyles.Any, cultura, out decimal val))
+        {
+            item.PrecioVentaLista2Calculado = (item.Producto != null && item.Producto.IsMedidaGramos()) ? val * 10m : val;
+        }
+    }
+
+    // private void RecalcularPrecios(ItemIngresoModel item)
+    // {
+    //     if (item.CostoPV > 0)
+    //     {
+    //         // Calcular Precio Venta Lista 1
+    //         item.PrecioVentaCalculado = item.Producto.CalcularPrecioPorUtilidad(item.CostoPV, item.UtilidadPV, State) ?? 0m;
+
+    //         // Calcular Precio Venta Lista 2 solo si la utilidad es mayor a 0
+    //         if (item.UtilidadLista2 > 0)
+    //         {
+    //             item.PrecioVentaLista2Calculado = item.Producto.CalcularPrecioPorUtilidad(item.CostoPV, item.UtilidadLista2, State) ?? 0m;
+    //         }
+    //         else
+    //         {
+    //             item.PrecioVentaLista2Calculado = 0m;
+    //         }
+    //     }
+    // }
+    private void RecalcularPrecios(ItemIngresoModel item)
+    {
+        if (item.CostoPV > 0)
+        {
+            // 1. Asignar costo y utilidad al modelo temporal del producto para que el servicio pueda calcularlo
+            item.Producto.PrecioCosto = item.CostoPV;
+            item.Producto.UtilidadPV = item.UtilidadPV;
+
+            // 2. Calcular Precio Venta Lista 1
+            item.PrecioVentaCalculado = item.Producto.CalcularPrecioPorUtilidad(item.CostoPV, item.UtilidadPV, State) ?? 0m;
+            item.Producto.PrecioVenta = item.PrecioVentaCalculado;
+
+            // 3. Ejecutar la lógica automática de Lista 2 (Reglas del Kiosco / Recargos sobre Precio Venta)
+            // PrecioService.ProcesarLista2Automatico(item.Producto, (int)State.KioscoId);
+            PrecioService.ProcesarLista2Automatico(item.Producto, State.KioscoId, State);
+
+            // 4. Copiar los valores automáticos calculados por el servicio al ItemIngresoModel
+            item.UtilidadLista2 = item.Producto.UtilidadLista2 ?? 0m;
+            item.PrecioVentaLista2Calculado = item.Producto.PrecioLista2 ?? 0m;
+        }
+    }
+    private void EliminarItem(ItemIngresoModel item) => itemsCompra.Remove(item);
+
+    // --- LÓGICA DE ALTA RÁPIDA DE PRODUCTO NUEVO ---
+    private void AbrirModalNuevoProducto()
+    {
+        nuevoProducto = new Producto
+        {
+            KioscoId = State.KioscoId,
+            FamiliaId = null,
+            Activo = true,
+            UtilidadPV = 40
+        };
+        mostrarModalNuevoProducto = true;
+    }
+
+    private void CerrarModalNuevoProducto() => mostrarModalNuevoProducto = false;
+
+    // private async Task GuardarNuevoProductoYSumarALista()
+    // {
+    //     if (string.IsNullOrWhiteSpace(nuevoProducto.Nombre))
+    //     {
+    //         mensajeError = "Ingresá un nombre para el nuevo producto.";
+    //         return;
+    //     }
+
+    //     try
+    //     {
+    //         nuevoProducto.PrecioVenta = nuevoProducto.CalcularPrecioPorUtilidad(nuevoProducto.PrecioCosto ?? 0m, nuevoProducto.UtilidadPV ?? 40m, State);
+
+    //         var res = await SupaClient.From<Producto>().Insert(nuevoProducto);
+    //         var prodGuardado = res.Models.FirstOrDefault();
+
+    //         if (prodGuardado != null)
+    //         {
+    //             AgregarProductoALaLista(prodGuardado);
+    //             CerrarModalNuevoProducto();
+    //         }
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         mensajeError = "Error al dar de alta el producto: " + ex.Message;
+    //     }
+    // }
+    private async Task GuardarNuevoProductoYSumarALista()
+    {
+        if (string.IsNullOrWhiteSpace(nuevoProducto.Nombre))
+        {
+            mensajeError = "Ingresá un nombre para el nuevo producto.";
+            return;
+        }
+
+        try
+        {
+            // Calcular precio antes de insertar
+            nuevoProducto.PrecioVenta = nuevoProducto.CalcularPrecioPorUtilidad(
+                nuevoProducto.PrecioCosto ?? 0m,
+                nuevoProducto.UtilidadPV ?? 40m,
+                State
+            );
+
+            var res = await SupaClient.From<Producto>().Insert(nuevoProducto);
+            var prodGuardado = res.Models.FirstOrDefault();
+
+            if (prodGuardado != null)
+            {
+                // Agregar a la lista manteniendo el costo y utilidades ingresadas en el modal
+                AgregarProductoALaLista(prodGuardado);
+                CerrarModalNuevoProducto();
+            }
+        }
+        catch (Exception ex)
+        {
+            mensajeError = "Error al dar de alta el producto: " + ex.Message;
+        }
+    }
+    // --- PROCESAR LA COMPRA COMPLETA ---
+    // private async Task GuardarIngresoCompraAsync()
+    // {
+    //     if (!itemsCompra.Any()) return;
+
+    //     guardando = true;
+    //     mensajeError = null;
+
+    //     try
+    //     {
+    //         foreach (var item in itemsCompra)
+    //         {
+    //             var prod = item.Producto;
+
+    //             // Actualizar stock e incrementarlo
+    //             prod.StockActual = (prod.StockActual ?? 0) + item.Cantidad;
+    //             prod.PrecioCosto = item.CostoPV;
+    //             prod.UtilidadPV = item.UtilidadPV;
+    //             prod.PrecioVenta = item.PrecioVentaCalculado;
+
+    //             prod.UtilidadLista2 = item.UtilidadLista2;
+    //             prod.PrecioLista2 = item.PrecioVentaLista2Calculado;
+
+    //             await SupaClient.From<Producto>()
+    //                 .Where(p => p.Id == prod.Id && p.KioscoId == State.KioscoId)
+    //                 .Set(p => p.StockActual, prod.StockActual)
+    //                 .Set(p => p.PrecioCosto, prod.PrecioCosto)
+    //                 .Set(p => p.UtilidadPV, prod.UtilidadPV)
+    //                 .Set(p => p.PrecioVenta, prod.PrecioVenta)
+    //                 .Set(p => p.UtilidadLista2, prod.UtilidadLista2)
+    //                 .Set(p => p.PrecioLista2, prod.PrecioLista2)
+    //                 .Update();
+    //         }
+
+    //         // Limpieza al terminar
+    //         itemsCompra.Clear();
+    //         numeroComprobante = "";
+    //         proveedorId = 0;
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         mensajeError = "Error al procesar el ingreso de mercadería: " + ex.Message;
+    //     }
+    //     finally
+    //     {
+    //         guardando = false;
+    //     }
+    // }
+    private async Task GuardarIngresoCompraAsync()
+    {
+        if (!itemsCompra.Any()) return;
+
+        guardando = true;
+        mensajeError = null;
+
+        try
+        {
+            // Guardamos estos datos antes de limpiar la pantalla (se usan al final)
+            var proveedorCompra = proveedorId;
+            var idsProductos = itemsCompra.Select(i => i.Producto.Id).Distinct().ToList();
+
+            foreach (var item in itemsCompra)
+            {
+                var prod = item.Producto;
+
+                // 1. Convertir cantidad si el producto mide en gramos (1200g -> 1.2kg)
+                // int cantidadAIncrementar = (prod != null && prod.IsMedidaGramos())
+                //     ? item.Cantidad / 1000
+                //     : item.Cantidad;
+
+                // 2. Incrementar stock
+                prod.StockActual = (prod.StockActual ?? 0) + item.Cantidad;
+
+                // 3. Definir la consulta de Supabase
+                var query = SupaClient.From<Producto>()
+                    .Where(p => p.Id == prod.Id && p.KioscoId == State.KioscoId)
+                    .Set(p => p.StockActual, prod.StockActual);
+
+                // 4. Si ingresó un precio de costo mayor a cero, actualizamos precios y utilidades
+                if (item.CostoPV > 0)
+                {
+                    prod.PrecioCosto = item.CostoPV;
+                    prod.UtilidadPV = item.UtilidadPV;
+                    // Actualizar stock e incrementarlo
+                    prod.StockActual = (prod.StockActual ?? 0) + item.Cantidad;
+                    prod.PrecioVenta = item.PrecioVentaCalculado;
+                    prod.UtilidadLista2 = item.UtilidadLista2;
+                    prod.PrecioLista2 = item.PrecioVentaLista2Calculado;
+
+
+                    query = query
+                        .Set(p => p.PrecioCosto, prod.PrecioCosto)
+                        .Set(p => p.UtilidadPV, prod.UtilidadPV)
+                        .Set(p => p.PrecioVenta, prod.PrecioVenta)
+                        .Set(p => p.UtilidadLista2, prod.UtilidadLista2)
+                        .Set(p => p.PrecioLista2, prod.PrecioLista2);
+                }
+
+                // 5. Ejecutar actualización
+                await query.Update();
+            }
+
+            // Limpieza al terminar
+            itemsCompra.Clear();
+            numeroComprobante = "";
+            proveedorId = 0;
+
+            // Asociar el proveedor de la compra a los productos (solo los que aún no lo tienen)
+            if (proveedorCompra > 0)
+            {
+                try
+                {
+                    await AsociarProveedorAProductosAsync(proveedorCompra, idsProductos);
+                }
+                catch (Exception ex)
+                {
+                    // El stock y los precios ya quedaron guardados; solo falló la asociación
+                    mensajeError = "La compra se guardó, pero no se pudo asociar el proveedor a los productos: " + ex.Message;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            mensajeError = "Error al procesar el ingreso de mercadería: " + ex.Message;
+        }
+        finally
+        {
+            guardando = false;
+        }
+    }
+    /// <summary>
+    /// Vincula el proveedor con cada producto en productos_proveedores, solo si todavía no existe la relación.
+    /// No toca las relaciones existentes (ni su código de barras ni si están habilitadas).
+    /// </summary>
+    private async Task AsociarProveedorAProductosAsync(long idProveedor, List<long> idsProductos)
+    {
+        // Relaciones que ya existen entre este proveedor y los productos del kiosco
+        var res = await SupaClient.From<ProductoProveedor>()
+            .Where(r => r.IdProveedor == idProveedor && r.IdKiosco == State.KioscoId)
+            .Get();
+
+        var yaAsociados = res.Models.Select(r => r.IdProducto).ToHashSet();
+
+        var nuevas = idsProductos
+            .Where(id => !yaAsociados.Contains(id))
+            .Select(id => new ProductoProveedor
+            {
+                IdProducto = id,
+                IdProveedor = idProveedor,
+                IdKiosco = State.KioscoId,
+                CodigoBarrasProveedor = null,   // el código se carga después desde el producto
+                Habilitado = true
+            })
+            .ToList();
+
+        if (nuevas.Any())
+        {
+            await SupaClient.From<ProductoProveedor>().Insert(nuevas);
+        }
+    }
+
+    // private decimal ObtenerPrecioCalculadoMostrar(Producto prod, decimal precioCalculado)
+    // {
+    //     if (prod != null && prod.IsMedidaGramos())
+    //     {
+    //         return precioCalculado / 10m;
+    //     }
+    //     return precioCalculado;
+    // }
+    private decimal? ObtenerPrecioCalculadoMostrar(Producto prod, decimal precioCalculado)
+    {
+        if (precioCalculado == 0m) return null; // Retorna null para que el input quede vacío si no hay precio
+
+        if (prod != null && prod.IsMedidaGramos())
+        {
+            return precioCalculado / 10m;
+        }
+        return precioCalculado;
+    }
+    public class ItemIngresoModel
+    {
+        public Producto Producto { get; set; } = new();
+        public int Cantidad { get; set; } = 1;
+        public decimal CostoPV { get; set; }
+        public decimal UtilidadPV { get; set; }
+        public decimal PrecioVentaCalculado { get; set; }
+        public decimal UtilidadLista2 { get; set; }
+        public decimal PrecioVentaLista2Calculado { get; set; }
+        // public decimal SubtotalCosto => Cantidad * CostoPV;
+        public decimal SubtotalCosto =>
+        (Producto != null && Producto.IsMedidaGramos())
+            ? (Cantidad / 1000m) * CostoPV
+            : Cantidad * CostoPV;
+    }
+}

@@ -1,0 +1,182 @@
+﻿@inject AppState State
+
+<AvisosPagina @ref="avisos" />
+
+<section class="gp-card gp-card-pad">
+    <div class="gp-card-head">
+        <span class="gp-bubble"><i class="bi bi-people-fill"></i></span>
+        <div class="cf-head-text">
+            <h2>Usuarios</h2>
+            <p>Quiénes pueden entrar al sistema. <b>Admin</b>: todo. <b>Encargado/a</b> y <b>Vendedor/a</b>: lo que elijas en Ayuda y plan → Perfiles (de fábrica, el encargado todo menos la recaudación, el fiado y los usuarios; el vendedor, vender, productos y carteles).</p>
+        </div>
+        <button type="button" class="gp-btn gp-btn-primary gp-btn-sm cf-head-btn" @onclick="AbrirNuevo"><i class="bi bi-plus-lg"></i> Nuevo usuario</button>
+    </div>
+
+    @if (formAbierto)
+    {
+    <div class="cf-modal-fondo" @onclick="CerrarForm">
+        <div class="cf-form cf-modal cf-m-usu @(esNuevo ? "" : "is-editing")" @onclick:stopPropagation="true" role="dialog" aria-modal="true">
+            <div class="cf-form-title">
+                <i class="bi @(esNuevo ? "bi-person-plus-fill" : "bi-pencil-fill")"></i>
+                @(esNuevo ? "Nuevo usuario" : $"Editando: {editando.Username}")
+            <button type="button" class="cf-modal-x" title="Cerrar" @onclick="CerrarForm"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="cf-grid">
+                <div>
+                    <label class="cf-lbl">Usuario *</label>
+                    <input class="gp-control" @bind="editando.Username" autocomplete="off" />
+                </div>
+                <div>
+                    <label class="cf-lbl">@(esNuevo ? "Contraseña *" : "Nueva contraseña (opcional)")</label>
+                    <div class="cf-input-btn">
+                        <input class="gp-control" type="@(verPass ? "text" : "password")" @bind="password" autocomplete="new-password" />
+                        <button type="button" class="gp-btn gp-btn-outline gp-btn-icon" title="@(verPass ? "Ocultar" : "Mostrar")" @onclick="() => verPass = !verPass">
+                            <i class="bi @(verPass ? "bi-eye-slash-fill" : "bi-eye-fill")"></i>
+                        </button>
+                    </div>
+                </div>
+                <div>
+                    <label class="cf-lbl">Rol</label>
+                    <select class="gp-control cf-control" @bind="editando.Rol" disabled="@EsYoMismo(editando)">
+                        <option value="vendedor">Vendedor/a</option>
+                        @if (State.Tiene(FuncionesPlan.Encargado) || Roles.EsEncargado(editando?.Rol))
+                        {
+                            <option value="encargado">Encargado/a</option>
+                        }
+                        <option value="admin">Admin (dueño)</option>
+                    </select>
+                </div>
+            </div>
+            <div class="cf-form-actions">
+                <button type="button" class="gp-btn gp-btn-outline" @onclick="CerrarForm">Cancelar</button>
+                <button type="button" class="gp-btn gp-btn-ok" disabled="@guardando" @onclick="Guardar">
+                    <i class="bi @(esNuevo ? "bi-plus-lg" : "bi-check-lg")"></i> @(guardando ? "Guardando..." : esNuevo ? "Agregar" : "Guardar")
+                </button>
+            </div>
+        </div>
+    </div>
+    }
+
+    @if (!string.IsNullOrEmpty(error))
+    {
+        <div class="gp-banner is-danger"><i class="bi bi-exclamation-octagon-fill"></i><p>@error</p></div>
+    }
+
+    @if (lista == null)
+    {
+        <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>Cargando usuarios...</p></div>
+    }
+    else
+    {
+        <div class="gp-table-wrap gp-stack-wrap">
+            <table class="gp-table gp-stack">
+                <thead><tr><th>Usuario</th><th class="t-center">Rol</th><th class="t-center">Acciones</th></tr></thead>
+                <tbody>
+                    @foreach (var u in lista)
+                    {
+                        <tr class="@(!esNuevo && editando.Id == u.Id ? "is-selected" : "")">
+                            <td class="gp-td-main" data-label="Usuario">
+                                <span class="gp-product"><i class="bi bi-person-circle" style="color:var(--gp-muted)"></i> @u.Username</span>
+                                @if (EsYoMismo(u)) { <span class="cf-tag is-me">vos</span> }
+                            </td>
+                            <td class="t-center" data-label="Rol">
+                                <span class="gp-pill @(EsAdmin(u) ? "cf-pill-admin" : Roles.EsEncargado(u.Rol) ? "cf-pill-warn" : "cf-pill-neutral")">@RolTexto(u)</span>
+                            </td>
+                            <td class="t-center gp-td-actions" data-label="">
+                                <div class="gp-cell-actions">
+                                    <button type="button" class="gp-btn gp-btn-soft gp-btn-sm gp-btn-icon" title="Editar" @onclick="() => Editar(u)"><i class="bi bi-pencil-fill"></i></button>
+                                    @if (!EsYoMismo(u))
+                                    {
+                                        <button type="button" class="gp-btn gp-btn-danger-soft gp-btn-sm gp-btn-icon" title="Eliminar" @onclick="() => Eliminar(u)"><i class="bi bi-trash3-fill"></i></button>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+@code {
+    bool formAbierto;
+    void AbrirNuevo() { Limpiar(); formAbierto = true; }
+    void CerrarForm() { Limpiar(); formAbierto = false; }
+    [Parameter] public long KioscoId { get; set; }
+    [Parameter] public Guid? UsuarioActualId { get; set; }
+
+    private AvisosPagina avisos = default!;
+    List<Usuario>? lista;
+    Usuario editando = new();
+    string? password;
+    bool verPass;
+    bool esNuevo = true, guardando;
+    string error = "";
+
+    static bool EsAdmin(Usuario u) => string.Equals(u.Rol, "admin", StringComparison.OrdinalIgnoreCase);
+    static string RolTexto(Usuario u) => Roles.Legible(u.Rol);
+    bool EsYoMismo(Usuario u) => UsuarioActualId != null && u.Id == UsuarioActualId;
+
+    protected override async Task OnParametersSetAsync() { Limpiar(); await Cargar(); }
+
+    async Task Cargar()
+    {
+        try { lista = await Config.GetUsuarios(KioscoId); error = ""; }
+        catch (Exception ex) { error = ConfiguracionService.MensajeError(ex); }
+    }
+
+    void Limpiar() { esNuevo = true; password = null; verPass = false; editando = new Usuario { IdKiosco = KioscoId, Rol = "vendedor" }; }
+
+    void Editar(Usuario u)
+    {
+        formAbierto = true;
+        esNuevo = false; password = null;
+        editando = new Usuario { Id = u.Id, IdKiosco = u.IdKiosco, Username = u.Username, Rol = u.Rol };
+    }
+
+    async Task Guardar()
+    {
+        editando.Username = editando.Username?.Trim();
+        if (string.IsNullOrWhiteSpace(editando.Username)) { avisos.Toast("El usuario es obligatorio.", "peligro"); return; }
+        if (esNuevo && string.IsNullOrWhiteSpace(password)) { avisos.Toast("La contraseña es obligatoria.", "peligro"); return; }
+        if (!string.IsNullOrWhiteSpace(password) && password.Length < 4) { avisos.Toast("La contraseña debe tener al menos 4 caracteres.", "peligro"); return; }
+
+        // no dejar el negocio sin ningún admin
+        if (!esNuevo && !EsAdmin(editando))
+        {
+            var original = lista!.First(x => x.Id == editando.Id);
+            if (EsAdmin(original) && lista!.Count(EsAdmin) == 1)
+            { await avisos.InformarAsync("Falta un admin", "Tiene que quedar al menos un usuario admin."); return; }
+        }
+
+        guardando = true;
+        try
+        {
+            // el username es único en todo el sistema (es el login)
+            if (await Config.ExisteUsername(editando.Username, esNuevo ? null : editando.Id))
+            { avisos.Toast("Ese nombre de usuario ya está en uso.", "peligro"); return; }
+
+            if (esNuevo)
+            {
+                editando.Password = password;
+                await Config.CrearUsuario(editando);
+            }
+            else await Config.ActualizarUsuario(editando, password);
+
+            _ = avisos.GuardadoAsync("Usuario guardado");
+            Limpiar(); formAbierto = false;
+            await Cargar();
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo guardar", ConfiguracionService.MensajeError(ex), "peligro"); }
+        finally { guardando = false; }
+    }
+
+    async Task Eliminar(Usuario u)
+    {
+        if (EsAdmin(u) && lista!.Count(EsAdmin) == 1) { await avisos.InformarAsync("No se puede eliminar", "Es el único admin del negocio."); return; }
+        if (!await avisos.ConfirmarAsync($"¿Eliminar a {u.Username}?", "Ya no va a poder entrar al sistema.", "Eliminar")) return;
+        try { u.Kiosco = null; await Config.EliminarUsuario(u); avisos.Toast("Usuario eliminado", "exito"); await Cargar(); }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo eliminar", ConfiguracionService.MensajeError(ex), "peligro"); }
+    }
+}

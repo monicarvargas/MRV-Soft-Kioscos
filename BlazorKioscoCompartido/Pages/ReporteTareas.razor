@@ -1,0 +1,322 @@
+﻿@page "/reporte-tareas"
+@using BlazorKioscoCompartido.Models
+@using BlazorKioscoCompartido.Components
+@using System.Globalization
+@using System.Text
+@using static Supabase.Postgrest.Constants
+@inject Supabase.Client SupaClient
+@inject AppState State
+@inject NavigationManager Nav
+@inject IJSRuntime JSRuntime
+
+@* Reporte de tareas: planilla semanal empleado x día (cantidad y tiempo), detalle de cada casillero
+   y las tareas más repetidas. Datos: tabla "tareas" (_sql\23.tareas.sql). Solo dueño y encargado. *@
+
+<PedidosEstilos />
+<ConfigEstilos />
+<VentasEstilos />
+<AvisosPagina @ref="avisos" />
+
+<div class="container-fluid px-3 py-2 min-vh-100 style-notebook gp-scope gp-page">
+    <EncabezadoPagina Titulo="Reporte de tareas"
+                      Subtitulo="Qué hizo cada empleado, día por día"
+                      IconoClass="bi-table"
+                      ColorBorde="primary"
+                      ColorIcono="primary"
+                      MostrarBotonAyuda="false"
+                      RutaVolver="/productos" />
+
+    <div class="vt-wrap" style="display:flex; flex-direction:column; gap:1rem">
+
+        <section class="gp-card gp-card-pad">
+            <div class="rt-cab">
+                <div class="rt-semana">
+                    <button type="button" class="gp-btn gp-btn-outline gp-btn-sm gp-btn-icon" title="Semana anterior" @onclick="() => CambiarSemana(-7)"><i class="bi bi-chevron-left"></i></button>
+                    <b>@TextoSemana</b>
+                    <button type="button" class="gp-btn gp-btn-outline gp-btn-sm gp-btn-icon" title="Semana siguiente" disabled="@EsEstaSemana" @onclick="() => CambiarSemana(7)"><i class="bi bi-chevron-right"></i></button>
+                    @if (!EsEstaSemana)
+                    {
+                        <button type="button" class="gp-btn gp-btn-soft gp-btn-sm" @onclick="IrAEstaSemana">Esta semana</button>
+                    }
+                </div>
+                <span class="gp-summary"><strong>@tareas.Count</strong> tarea(s)@(MinTotal > 0 ? $" · {TextoMin(MinTotal)}" : "")</span>
+                @if (tareas.Any())
+                {
+                    <button type="button" class="gp-btn gp-btn-outline gp-btn-sm rt-excel" @onclick="DescargarExcel"><i class="bi bi-file-earmark-excel-fill"></i> Descargar Excel</button>
+                }
+            </div>
+
+            @if (!string.IsNullOrEmpty(error))
+            {
+                <div class="gp-banner is-danger"><i class="bi bi-exclamation-octagon-fill"></i><p>@error</p></div>
+            }
+            else if (cargando)
+            {
+                <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>Armando el reporte...</p></div>
+            }
+            else if (!tareas.Any())
+            {
+                <div class="gp-empty">
+                    <span class="gp-bubble"><i class="bi bi-table"></i></span>
+                    <strong>No hay tareas cargadas esa semana</strong>
+                    <span>Los empleados las cargan desde “Tareas del día”.</span>
+                </div>
+            }
+            else
+            {
+                <p class="gp-muted" style="margin:0 0 .6rem">Tocá un casillero para ver qué hizo ese día.</p>
+                <div class="gp-table-wrap">
+                    <table class="gp-table rt-tabla">
+                        <thead>
+                            <tr>
+                                <th>Empleado</th>
+                                @foreach (var d in Dias)
+                                {
+                                    <th class="t-center @(d == DateTime.Today ? "rt-hoy" : "")">@d.ToString("ddd", Ar)<br /><small>@d.ToString("dd/MM")</small></th>
+                                }
+                                <th class="t-center">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var emp in Empleados)
+                            {
+                                <tr>
+                                    <td class="gp-td-main"><span class="gp-product">@emp</span></td>
+                                    @foreach (var d in Dias)
+                                    {
+                                        var celda = Celda(emp, d);
+                                        var sel = elegidoEmp == emp && elegidoDia == d;
+                                        <td class="t-center">
+                                            @if (celda.Count > 0)
+                                            {
+                                                <button type="button" class="rt-celda @(sel ? "is-sel" : "")" @onclick="() => Elegir(emp, d)">
+                                                    <b>@celda.Count</b>
+                                                    @if (Minutos(celda) > 0) { <small>@TextoMin(Minutos(celda))</small> }
+                                                </button>
+                                            }
+                                            else
+                                            {
+                                                <span class="rt-vacio">—</span>
+                                            }
+                                        </td>
+                                    }
+                                    @{ var delEmp = tareas.Where(t => Nombre(t) == emp).ToList(); }
+                                    <td class="t-center rt-total"><b>@delEmp.Count</b>@if (Minutos(delEmp) > 0) { <small>@TextoMin(Minutos(delEmp))</small> }</td>
+                                </tr>
+                            }
+                        </tbody>
+                        <tfoot>
+                            <tr>
+                                <td><b>Total</b></td>
+                                @foreach (var d in Dias)
+                                {
+                                    var delDia = tareas.Where(t => t.Fecha == Iso(d)).ToList();
+                                    <td class="t-center rt-total">@if (delDia.Any()) { <b>@delDia.Count</b> @if (Minutos(delDia) > 0) { <small>@TextoMin(Minutos(delDia))</small> } } else { <span class="rt-vacio">—</span> }</td>
+                                }
+                                <td class="t-center rt-total"><b>@tareas.Count</b>@if (MinTotal > 0) { <small>@TextoMin(MinTotal)</small> }</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            }
+        </section>
+
+        @* ================= DETALLE DEL CASILLERO ================= *@
+        @if (elegidoEmp != null && elegidoDia != null)
+        {
+            var det = Celda(elegidoEmp, elegidoDia.Value);
+            <section class="gp-card gp-card-pad">
+                <div class="gp-card-head">
+                    <span class="gp-bubble"><i class="bi bi-person-fill"></i></span>
+                    <div class="vt-head-text">
+                        <h2>@elegidoEmp</h2>
+                        <p style="text-transform:capitalize">@elegidoDia.Value.ToString("dddd dd/MM/yyyy", Ar) · @det.Count tarea(s)@(Minutos(det) > 0 ? $" · {TextoMin(Minutos(det))}" : "")</p>
+                    </div>
+                    <button type="button" class="gp-btn gp-btn-ghost gp-btn-icon" style="margin-left:auto" title="Cerrar" @onclick="() => { elegidoEmp = null; elegidoDia = null; }"><i class="bi bi-x-lg"></i></button>
+                </div>
+                <ul class="rt-det">
+                    @foreach (var t in det.OrderBy(x => x.Hora).ThenBy(x => x.Id))
+                    {
+                        <li>
+                            <span class="rt-hora">@(t.Hora ?? "--:--")</span>
+                            <span class="rt-desc">@t.Descripcion</span>
+                            @if (t.Minutos > 0) { <small class="gp-muted"><i class="bi bi-clock"></i> @TextoMin(t.Minutos.Value)</small> }
+                        </li>
+                    }
+                </ul>
+            </section>
+        }
+
+        @* ================= LAS MÁS REPETIDAS ================= *@
+        @if (!cargando && Ranking.Any())
+        {
+            <section class="gp-card gp-card-pad">
+                <div class="gp-card-head">
+                    <span class="gp-bubble"><i class="bi bi-bar-chart-fill"></i></span>
+                    <div class="vt-head-text">
+                        <h2>Tareas más repetidas de la semana</h2>
+                        <p>Cuántas veces se hizo cada una, cuánto tiempo llevó y quiénes la hicieron.</p>
+                    </div>
+                </div>
+                <div class="gp-table-wrap gp-stack-wrap">
+                    <table class="gp-table gp-stack">
+                        <thead><tr><th>Tarea</th><th class="t-right">Veces</th><th class="t-right">Tiempo</th><th>Quiénes</th></tr></thead>
+                        <tbody>
+                            @foreach (var r in Ranking)
+                            {
+                                <tr>
+                                    <td class="gp-td-main" data-label="Tarea">@r.Tarea</td>
+                                    <td class="t-right gp-num" data-label="Veces">@r.Veces</td>
+                                    <td class="t-right gp-num" data-label="Tiempo">@(r.Minutos > 0 ? TextoMin(r.Minutos) : "—")</td>
+                                    <td data-label="Quiénes">@string.Join(", ", r.Quienes)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        }
+    </div>
+</div>
+
+<style>
+    .rt-cab { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; margin-bottom: .8rem; }
+    .rt-semana { display: flex; align-items: center; gap: .4rem; }
+    .rt-semana b { min-width: 11rem; text-align: center; }
+    .rt-excel { margin-left: auto; }
+    .rt-tabla th, .rt-tabla td { white-space: nowrap; }
+    .rt-tabla th small { color: var(--gp-muted); font-weight: 600; }
+    .rt-tabla th { text-transform: capitalize; }
+    .rt-hoy { color: var(--gp-primary); }
+    .rt-celda { display: inline-flex; flex-direction: column; align-items: center; min-width: 3.6rem; padding: .3rem .5rem; border: 1.5px solid var(--gp-primary-line); border-radius: 10px; background: var(--gp-primary-soft); color: var(--gp-primary); font: inherit; cursor: pointer; line-height: 1.15; }
+    .rt-celda b { font-size: 1.05rem; font-weight: 900; }
+    .rt-celda small { font-size: .72rem; font-weight: 700; }
+    .rt-celda:hover, .rt-celda.is-sel { background: var(--gp-primary); border-color: var(--gp-primary); color: #fff; }
+    .rt-vacio { color: #c3c9d8; }
+    .rt-total { line-height: 1.15; }
+    .rt-total small { display: block; color: var(--gp-muted); font-weight: 700; font-size: .72rem; }
+    .rt-tabla tfoot td { border-top: 2px solid var(--gp-line); background: #f7f9fc; }
+    .rt-det { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .35rem; }
+    .rt-det li { display: flex; align-items: baseline; gap: .7rem; padding: .5rem .7rem; border: 1px solid var(--gp-line); border-radius: 12px; }
+    .rt-hora { flex: none; font-weight: 800; color: var(--gp-muted); font-variant-numeric: tabular-nums; }
+    .rt-desc { flex: 1 1 auto; min-width: 0; font-weight: 700; overflow-wrap: anywhere; }
+</style>
+
+@code {
+    private AvisosPagina avisos = default!;
+    private static readonly CultureInfo Ar = new("es-AR");
+
+    private DateTime lunes = LunesDe(DateTime.Today);
+    private List<Tarea> tareas = new();
+    private bool cargando;
+    private string error = "";
+    private string? elegidoEmp;
+    private DateTime? elegidoDia;
+
+    private static DateTime LunesDe(DateTime d) => d.Date.AddDays(-(((int)d.DayOfWeek + 6) % 7));
+    private bool EsEstaSemana => lunes == LunesDe(DateTime.Today);
+    private IEnumerable<DateTime> Dias => Enumerable.Range(0, 7).Select(i => lunes.AddDays(i));
+    private string TextoSemana => EsEstaSemana ? "Esta semana" : $"{lunes:dd/MM} al {lunes.AddDays(6):dd/MM/yyyy}";
+
+    private static string Iso(DateTime d) => d.ToString("yyyy-MM-dd");
+    private static string Nombre(Tarea t) => string.IsNullOrWhiteSpace(t.UsuarioNombre) ? "Sin nombre" : t.UsuarioNombre!;
+    private List<string> Empleados => tareas.Select(Nombre).Distinct().OrderBy(x => x).ToList();
+    private List<Tarea> Celda(string emp, DateTime d) => tareas.Where(t => Nombre(t) == emp && t.Fecha == Iso(d)).ToList();
+    private static int Minutos(IEnumerable<Tarea> l) => l.Sum(t => t.Minutos ?? 0);
+    private int MinTotal => Minutos(tareas);
+    private static string TextoMin(int m) => m < 60 ? $"{m} min" : m % 60 == 0 ? $"{m / 60} h" : $"{m / 60} h {m % 60} min";
+
+    private sealed record FilaRanking(string Tarea, int Veces, int Minutos, List<string> Quienes);
+    private List<FilaRanking> Ranking => tareas
+        .GroupBy(t => (t.Descripcion ?? "").Trim().ToLowerInvariant())
+        .Where(g => g.Key.Length > 0)
+        .Select(g => new FilaRanking(g.First().Descripcion.Trim(), g.Count(), Minutos(g),
+                                     g.Select(Nombre).Distinct().OrderBy(x => x).ToList()))
+        .OrderByDescending(r => r.Veces).ThenByDescending(r => r.Minutos)
+        .Take(15)
+        .ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (State.KioscoId == 0) { Nav.NavigateTo("/login"); return; }
+        if (!Roles.Puede(State.UsuarioRol, Roles.PPersonal)) { Nav.NavigateTo("/tareas"); return; }   // los empleados ven solo lo suyo
+        await Cargar();
+    }
+
+    private async Task CambiarSemana(int dias)
+    {
+        var nuevo = lunes.AddDays(dias);
+        if (nuevo > LunesDe(DateTime.Today)) return;
+        lunes = nuevo;
+        await Cargar();
+    }
+
+    private async Task IrAEstaSemana() { lunes = LunesDe(DateTime.Today); await Cargar(); }
+
+    private void Elegir(string emp, DateTime d)
+    {
+        if (elegidoEmp == emp && elegidoDia == d) { elegidoEmp = null; elegidoDia = null; }
+        else { elegidoEmp = emp; elegidoDia = d; }
+    }
+
+    private async Task Cargar()
+    {
+        cargando = true; error = ""; elegidoEmp = null; elegidoDia = null;
+        StateHasChanged();
+        try
+        {
+            long k = State.KioscoId;
+            var todas = new List<Tarea>();
+            const int tam = 1000;
+            for (int desde = 0; desde < 20000; desde += tam)
+            {
+                var res = await SupaClient.From<Tarea>()
+                    .Where(t => t.KioscoId == k)
+                    .Filter("fecha", Operator.GreaterThanOrEqual, Iso(lunes))
+                    .Filter("fecha", Operator.LessThanOrEqual, Iso(lunes.AddDays(6)))
+                    .Order("id", Ordering.Ascending)
+                    .Range(desde, desde + tam - 1)
+                    .Get();
+                var tanda = res.Models ?? new();
+                todas.AddRange(tanda);
+                if (tanda.Count < tam) break;
+            }
+            tareas = todas;
+        }
+        catch (Exception ex)
+        {
+            tareas = new();
+            var msg = ex.Message ?? "";
+            error = msg.Contains("tareas") && (msg.Contains("PGRST205") || msg.Contains("does not exist") || msg.Contains("42P01"))
+                ? "Falta preparar la base: hay que correr el script 23.tareas.sql en Supabase."
+                : "No se pudo armar el reporte: " + msg;
+        }
+        finally { cargando = false; }
+    }
+
+    // ---------- Excel (CSV que abre Excel): una fila por tarea ----------
+    private IJSObjectReference? jsModulo;
+
+    private async Task DescargarExcel()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("Fecha;Empleado;Hora;Tarea;Minutos");
+        foreach (var t in tareas.OrderBy(x => x.Fecha).ThenBy(Nombre).ThenBy(x => x.Hora))
+        {
+            var fecha = DateTime.TryParseExact(t.Fecha, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var f) ? f.ToString("dd/MM/yyyy") : t.Fecha;
+            sb.AppendLine(string.Join(";", fecha, Csv(Nombre(t)), t.Hora ?? "", Csv(t.Descripcion), t.Minutos?.ToString() ?? ""));
+        }
+        try
+        {
+            jsModulo ??= await JSRuntime.InvokeAsync<IJSObjectReference>("import", "./_content/BlazorKioscoCompartido/js/descargas.js?v=2");
+            await jsModulo.InvokeVoidAsync("descargarArchivo", $"tareas-{Iso(lunes)}.csv", "text/csv", sb.ToString());
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo descargar", ex.Message, "peligro"); }
+    }
+
+    private static string Csv(string? s)
+    {
+        s ??= "";
+        return s.Contains(';') || s.Contains('"') || s.Contains('\n') ? "\"" + s.Replace("\"", "\"\"") + "\"" : s;
+    }
+}

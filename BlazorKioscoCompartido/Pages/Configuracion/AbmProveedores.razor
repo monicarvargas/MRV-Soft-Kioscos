@@ -1,0 +1,312 @@
+@inject AppState State
+@inject NavigationManager Nav
+
+<AvisosPagina @ref="avisos" />
+
+<section class="gp-card gp-card-pad">
+    <div class="gp-card-head">
+        <span class="gp-bubble"><i class="bi bi-truck"></i></span>
+        <div class="cf-head-text">
+            <h2>Proveedores</h2>
+            <p>A quién le comprás la mercadería@(VeCuentas ? " y cuánto le debés a cada uno" : "").</p>
+        </div>
+    </div>
+
+    <div class="gp-toolbar cf-tools">
+        <div class="gp-search">
+            <i class="bi bi-search"></i>
+            <input type="text" class="gp-control" placeholder="Buscar proveedor..." @bind="filtro" @bind:event="oninput" />
+            @if (!string.IsNullOrEmpty(filtro))
+            {
+                <button type="button" class="gp-search-clear" title="Borrar búsqueda" @onclick='() => filtro = ""'><i class="bi bi-x-lg"></i></button>
+            }
+        </div>
+        @if (lista != null)
+        {
+            <span class="gp-summary"><strong>@Filtrados.Count()</strong> de @lista.Count proveedores</span>
+            @if (CntBaja > 0)
+            {
+                <label class="gp-summary" style="cursor:pointer;display:inline-flex;gap:.35rem;align-items:center" title="Los dados de baja no aparecen para elegir en productos, pedidos, compras ni importación">
+                    <input type="checkbox" @bind="verBajas" /> Ver dados de baja (@CntBaja)
+                </label>
+            }
+        }
+        @if (VeCuentas && TotalDeuda > 0)
+        {
+            <span class="gp-pill cf-pill-off" title="Suma de lo que le debés a todos los proveedores"><i class="bi bi-journal-text"></i> Le debés en total: $ @TotalDeuda.ToString("N2")</span>
+        }
+        <button type="button" class="gp-btn gp-btn-primary cf-head-btn" @onclick="Nuevo"><i class="bi bi-plus-lg"></i> Nuevo proveedor</button>
+    </div>
+
+    @if (editando != null)
+    {
+        <div class="cf-modal-fondo" @onclick="CerrarForm">
+            <div class="cf-form cf-modal cf-m-prov @(esNuevo ? "" : "is-editing")" @onclick:stopPropagation="true" role="dialog" aria-modal="true">
+                <div class="cf-form-title">
+                    <i class="bi @(esNuevo ? "bi-plus-circle-fill" : "bi-pencil-fill")"></i>
+                    @(esNuevo ? "Nuevo proveedor" : $"Editando: {editando.Nombre}")
+                <button type="button" class="cf-modal-x" title="Cerrar" @onclick="CerrarForm"><i class="bi bi-x-lg"></i></button>
+                </div>
+                <div class="cf-grid">
+                    <div class="cf-col-2">
+                        <label class="cf-lbl">Nombre *</label>
+                        <input class="gp-control cf-control" @bind="editando.Nombre" disabled="@(!esNuevo && ConfiguracionService.EsProveedorDefault(editando))" />
+                    </div>
+                    <div>
+                        <label class="cf-lbl">CUIT</label>
+                        <input class="gp-control" @bind="editando.Cuit" />
+                    </div>
+                    <div>
+                        <label class="cf-lbl">Teléfono</label>
+                        <input class="gp-control" type="tel" @bind="editando.Telefono" />
+                    </div>
+                    <div class="cf-col-2">
+                        <label class="cf-lbl">Email</label>
+                        <input class="gp-control" type="email" @bind="editando.Email" />
+                    </div>
+                    <div class="cf-col-full">
+                        <label class="cf-lbl">Dirección</label>
+                        <input class="gp-control" @bind="editando.Direccion" />
+                    </div>
+                    <div class="cf-col-full">
+                        <label class="cf-lbl">Columnas del pedido</label>
+                        <input class="gp-control" @bind="editando.ColumnasPedido" placeholder="ej: codigo,descripcion,cantidad" />
+                    </div>
+                </div>
+                <div class="cf-form-actions">
+                    <button type="button" class="gp-btn gp-btn-outline" @onclick="() => editando = null">Cancelar</button>
+                    <button type="button" class="gp-btn gp-btn-ok" disabled="@guardando" @onclick="Guardar">
+                        <i class="bi bi-check-lg"></i> @(guardando ? "Guardando..." : "Guardar")
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(error))
+    {
+        <div class="gp-banner is-danger"><i class="bi bi-exclamation-octagon-fill"></i><p>@error</p></div>
+    }
+
+    @if (lista == null)
+    {
+        <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>Cargando proveedores...</p></div>
+    }
+    else
+    {
+        <div class="gp-table-wrap gp-stack-wrap">
+            <table class="gp-table gp-stack">
+                <thead>
+                    <tr><th>Nombre</th><th>CUIT</th><th>Teléfono</th><th>Email</th>@if (VeCuentas) { <th class="t-right">Le debés</th> }<th class="t-center">Acciones</th></tr>
+                </thead>
+                <tbody>
+                    @if (!Filtrados.Any())
+                    {
+                        <tr class="gp-empty-row">
+                            <td colspan="@(VeCuentas ? 6 : 5)">
+                                <div class="gp-empty">
+                                    <span class="gp-bubble"><i class="bi bi-truck"></i></span>
+                                    <strong>No hay proveedores</strong>
+                                    <span>@(lista.Any() ? "Ninguno coincide con la búsqueda." : "Agregá el primero con “Nuevo proveedor”.")</span>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                    @foreach (var p in Filtrados)
+                    {
+                        var esDefault = ConfiguracionService.EsProveedorDefault(p);
+                        var deBaja = !p.EstaActivo();
+                        <tr class="@(editando?.Id == p.Id && !esNuevo ? "is-selected" : "")" style="@(deBaja ? "opacity:.6" : "")">
+                            <td class="gp-td-main" data-label="Nombre">
+                                <span class="gp-product">@p.Nombre</span>
+                                @if (esDefault) { <span class="cf-tag">por defecto</span> }
+                                @if (deBaja) { <span class="cf-tag" title="No aparece para elegir en ningún lado">dado de baja</span> }
+                            </td>
+                            <td class="gp-num" data-label="CUIT">@Guion(p.Cuit)</td>
+                            <td data-label="Teléfono">@Guion(p.Telefono)</td>
+                            <td data-label="Email">@Guion(p.Email)</td>
+                            @if (VeCuentas)
+                            {
+                                var saldo = saldos.TryGetValue(p.Id, out var sv) ? sv : 0m;
+                                <td class="t-right gp-num" data-label="Le debés">
+                                    @if (saldo > 0) { <b style="color:var(--gp-danger)">$ @saldo.ToString("N2")</b> }
+                                    else if (saldo < 0) { <span style="color:var(--gp-ok)">a favor $ @((-saldo).ToString("N2"))</span> }
+                                    else { <span class="gp-muted">—</span> }
+                                </td>
+                            }
+                            <td class="t-center gp-td-actions" data-label="">
+                                <div class="gp-cell-actions">
+                                    @if (VeCuentas)
+                                    {
+                                        <button type="button" class="gp-btn gp-btn-outline gp-btn-sm" title="Deudas y entregas con este proveedor (Mercadería → Cuentas con proveedores)" @onclick='() => Nav.NavigateTo("/cuentas-proveedores?prov=" + p.Id)'><i class="bi bi-journal-text"></i> Cuenta</button>
+                                    }
+                                    <button type="button" class="gp-btn gp-btn-soft gp-btn-sm gp-btn-icon" title="Editar" @onclick="() => Editar(p)"><i class="bi bi-pencil-fill"></i></button>
+                                    @if (deBaja)
+                                    {
+                                        <button type="button" class="gp-btn gp-btn-ok gp-btn-sm" title="Volver a usarlo" @onclick="() => CambiarActivo(p, true)"><i class="bi bi-arrow-counterclockwise"></i> Reactivar</button>
+                                    }
+                                    else if (!esDefault)
+                                    {
+                                        <button type="button" class="gp-btn gp-btn-danger-soft gp-btn-sm gp-btn-icon" title="Eliminar" @onclick="() => Eliminar(p)"><i class="bi bi-trash3-fill"></i></button>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+@if (cuentaDe != null)
+{
+    <CuentaProveedor KioscoId="KioscoId" Proveedor="cuentaDe" OnCerrar="() => cuentaDe = null" OnCambio="CargarSaldos" />
+}
+
+@code {
+    void CerrarForm() => editando = null;
+    [Parameter] public long KioscoId { get; set; }
+
+    private AvisosPagina avisos = default!;
+    List<Proveedor>? lista;
+    Proveedor? editando;
+    bool esNuevo, guardando;
+    string filtro = "", error = "";
+
+    // ---- deudas con proveedores: dueño y encargado/a (cargan deudas y entregas) ----
+    bool VeCuentas => Roles.Puede(State.UsuarioRol, Roles.PMercaderia) && State.Tiene(FuncionesPlan.DeudasProveedores);   // y si el plan lo incluye
+    Dictionary<long, decimal> saldos = new();
+    Proveedor? cuentaDe;
+    decimal TotalDeuda => saldos.Values.Where(v => v > 0).Sum();
+
+    async Task CargarSaldos()
+    {
+        if (!VeCuentas) return;
+        try
+        {
+            long k = KioscoId;
+            var res = await Db.From<SaldoProveedor>().Where(x => x.KioscoId == k).Get();
+            saldos = (res.Models ?? new()).ToDictionary(x => x.ProveedorId, x => x.Saldo);
+        }
+        catch { saldos = new(); }   // si falta el SQL 17, la lista anda igual
+        StateHasChanged();
+    }
+
+    [Inject] private Supabase.Client Db { get; set; } = default!;
+
+    bool verBajas;
+    int CntBaja => lista?.Count(p => !p.EstaActivo()) ?? 0;
+
+    // activos primero; los dados de baja solo si se pide verlos
+    IEnumerable<Proveedor> Filtrados => lista!
+        .Where(p => verBajas || p.EstaActivo())
+        .Where(p => string.IsNullOrWhiteSpace(filtro) || (p.Nombre ?? "").Contains(filtro, StringComparison.OrdinalIgnoreCase))
+        .OrderBy(p => p.EstaActivo() ? 0 : 1);
+
+    static string Guion(string? s) => string.IsNullOrWhiteSpace(s) ? "—" : s;
+
+    protected override async Task OnParametersSetAsync() => await Cargar();
+
+    async Task Cargar()
+    {
+        try { lista = await Config.GetProveedores(KioscoId); error = ""; }
+        catch (Exception ex) { error = ConfiguracionService.MensajeError(ex); }
+        await CargarSaldos();
+    }
+
+    void Nuevo() { esNuevo = true; editando = new Proveedor { KioscoId = KioscoId }; }
+
+    void Editar(Proveedor p)
+    {
+        esNuevo = false;
+        editando = new Proveedor
+        {
+            Id = p.Id, KioscoId = p.KioscoId, Nombre = p.Nombre, Cuit = p.Cuit, Telefono = p.Telefono,
+            Email = p.Email, Direccion = p.Direccion, FechaCreacion = p.FechaCreacion, ColumnasPedido = p.ColumnasPedido,
+            Activo = p.Activo
+        };
+    }
+
+    async Task Guardar()
+    {
+        if (string.IsNullOrWhiteSpace(editando!.Nombre)) { avisos.Toast("El nombre es obligatorio.", "peligro"); return; }
+        editando.Nombre = editando.Nombre.Trim().ToUpper();
+        if (lista!.Any(x => x.Id != editando.Id && string.Equals(x.Nombre, editando.Nombre, StringComparison.OrdinalIgnoreCase)))
+        { avisos.Toast("Ya existe un proveedor con ese nombre.", "peligro"); return; }
+
+        guardando = true;
+        try
+        {
+            await Config.Guardar(editando, esNuevo);
+            _ = avisos.GuardadoAsync("Proveedor guardado");
+            editando = null;
+            await Cargar();
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo guardar", ConfiguracionService.MensajeError(ex), "peligro"); }
+        finally { guardando = false; }
+    }
+
+    /// <summary>
+    /// Se elimina solo si no hay deuda (saldo 0). Si le debés (o tiene saldo a favor), o si ya está
+    /// usado en productos/pedidos/compras, se ofrece darlo de baja: queda guardado con su cuenta,
+    /// pero no aparece para elegir en ningún lado.
+    /// </summary>
+    async Task Eliminar(Proveedor p)
+    {
+        await CargarSaldos();   // saldo al día, por si otro cargó algo
+        var saldo = saldos.TryGetValue(p.Id, out var sv) ? sv : 0m;
+
+        if (saldo != 0)
+        {
+            var texto = saldo > 0
+                ? $"Todavía le debés $ {saldo:N2}."
+                : $"Tiene un saldo a tu favor de $ {(-saldo):N2}.";
+            if (await avisos.ConfirmarAsync($"No se puede eliminar a {p.Nombre}",
+                    texto + " Lo podés dar de baja: se guarda con su cuenta, pero no aparece para elegir en productos, pedidos, compras ni importación.",
+                    "Dar de baja", "aviso"))
+                await CambiarActivo(p, false);
+            return;
+        }
+
+        if (!await avisos.ConfirmarAsync($"¿Eliminar a {p.Nombre}?", "Se borra el proveedor (y su historial de cuenta, si tenía). No se puede deshacer.", "Eliminar")) return;
+        try { await Config.Eliminar(p); avisos.Toast("Proveedor eliminado", "exito"); await Cargar(); }
+        catch (Exception ex)
+        {
+            var msg = ex.Message ?? "";
+            if (msg.Contains("23503") || msg.Contains("foreign key", StringComparison.OrdinalIgnoreCase))
+            {
+                if (await avisos.ConfirmarAsync($"No se puede eliminar a {p.Nombre}",
+                        "Está usado en productos, pedidos o compras. Lo podés dar de baja: no aparece más para elegir, pero el historial queda.",
+                        "Dar de baja", "aviso"))
+                    await CambiarActivo(p, false);
+            }
+            else await avisos.InformarAsync("No se pudo eliminar", ConfiguracionService.MensajeError(ex), "peligro");
+        }
+    }
+
+    async Task CambiarActivo(Proveedor p, bool activo)
+    {
+        var copia = new Proveedor
+        {
+            Id = p.Id, KioscoId = p.KioscoId, Nombre = p.Nombre, Cuit = p.Cuit, Telefono = p.Telefono,
+            Email = p.Email, Direccion = p.Direccion, FechaCreacion = p.FechaCreacion, ColumnasPedido = p.ColumnasPedido,
+            Activo = activo
+        };
+        try
+        {
+            await Config.Guardar(copia, false);
+            _ = avisos.GuardadoAsync(activo ? $"{p.Nombre} vuelve a estar disponible" : $"{p.Nombre} quedó dado de baja");
+            if (editando?.Id == p.Id) editando = null;
+            await Cargar();
+        }
+        catch (Exception ex)
+        {
+            var msg = ex.Message ?? "";
+            var detalle = msg.Contains("activo", StringComparison.OrdinalIgnoreCase)
+                ? "Falta preparar la base: hay que correr el script 18.proveedores_activo.sql en Supabase."
+                : ConfiguracionService.MensajeError(ex);
+            await avisos.InformarAsync("No se pudo cambiar", detalle, "peligro");
+        }
+    }
+}

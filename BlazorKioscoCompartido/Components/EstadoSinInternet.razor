@@ -1,0 +1,138 @@
+﻿@using BlazorKioscoCompartido.Services.SinInternet
+@implements IDisposable
+@inject AppState State
+@inject NavigationManager Nav
+
+@* =====================================================================
+   ETAPA 7 · Cartel de "vender sin internet" (solo en la app de escritorio; en el celular no muestra nada).
+     - Sin internet: "Sin internet – N ventas pendientes".
+     - Volvió internet pero el usuario entró sin internet: botón "Entrar de nuevo".
+     - Hay ventas por subir: "Subiendo..." o el error, con "Reintentar".
+     - Recién se subieron: "Se subieron N ventas".
+   ===================================================================== *@
+
+@if (off != null)
+{
+    var pend = off.Pendientes;
+    if (off.SinConexion)
+    {
+        <div class="si-cartel si-off" role="status">
+            <i class="bi bi-wifi-off"></i>
+            <div class="si-txt">
+                <b>Sin internet – @(pend == 1 ? "1 venta pendiente" : pend + " ventas pendientes")</b>
+                @if (State.KioscoId == 0)
+                {
+                    <small>Pueden entrar los usuarios que ya entraron antes en esta PC.</small>
+                }
+                else if (!off.TieneCopia)
+                {
+                    <small>Esta PC no tiene los productos guardados: solo se puede vender como “producto sin código”.</small>
+                }
+                else
+                {
+                    <small>Podés seguir vendiendo. Las ventas se suben solas cuando vuelva internet.
+                        @if (off.FechaCopia is DateTime f) { <span>Precios guardados el @f.ToString("dd/MM HH:mm").</span> }</small>
+                }
+            </div>
+        </div>
+    }
+    else if (off.SesionSinInternet && State.KioscoId != 0)
+    {
+        <div class="si-cartel si-volvio" role="status">
+            <i class="bi bi-wifi"></i>
+            <div class="si-txt">
+                <b>Volvió internet</b>
+                <small>Entraste sin internet: para usar todo el sistema, entrá de nuevo.@(pend > 0 ? " Se están subiendo " + Ventas(pend) + "." : "")</small>
+            </div>
+            <button type="button" class="si-btn" @onclick="EntrarDeNuevo"><i class="bi bi-box-arrow-in-right"></i> Entrar de nuevo</button>
+        </div>
+    }
+    else if (pend > 0)
+    {
+        <div class="si-cartel @(off.ErrorSubida != null ? "si-error" : "si-subiendo")" role="status">
+            <i class="bi @(off.ErrorSubida != null ? "bi-exclamation-triangle-fill" : "bi-cloud-arrow-up-fill")"></i>
+            <div class="si-txt">
+                <b>@(off.ErrorSubida != null ? "No se pudieron subir " + Ventas(pend) + " hechas sin internet" : "Subiendo " + Ventas(pend) + " hechas sin internet...")</b>
+                @if (off.ErrorSubida != null) { <small>@off.ErrorSubida</small> }
+            </div>
+            @if (off.ErrorSubida != null)
+            {
+                <button type="button" class="si-btn" disabled="@reintentando" @onclick="Reintentar"><i class="bi bi-arrow-repeat"></i> @(reintentando ? "Probando..." : "Reintentar")</button>
+            }
+        </div>
+    }
+    else if (off.CuandoSeSubieron is DateTime cuando && cuando > cerradoHasta && DateTime.Now - cuando < TimeSpan.FromMinutes(2))
+    {
+        <div class="si-cartel si-ok" role="status">
+            <i class="bi bi-cloud-check-fill"></i>
+            <div class="si-txt"><b>@(off.UltimasSubidas == 1 ? "Se subió 1 venta hecha" : "Se subieron " + off.UltimasSubidas + " ventas hechas") sin internet</b><small>Ya están en el reporte y descontaron el stock.</small></div>
+            <button type="button" class="si-x" title="Cerrar" @onclick="() => cerradoHasta = DateTime.Now"><i class="bi bi-x-lg"></i></button>
+        </div>
+    }
+}
+
+<style>
+    .si-cartel { display: flex; align-items: center; gap: .75rem; margin: 0 0 .8rem; padding: .7rem .9rem; border-radius: 14px; border: 2px solid; font-weight: 600; }
+    .si-cartel > i { font-size: 1.5rem; flex: none; }
+    .si-txt { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: .1rem; }
+    .si-txt b { font-weight: 900; font-size: 1rem; }
+    .si-txt small { font-size: .82rem; opacity: .85; }
+    .si-btn { flex: none; display: inline-flex; align-items: center; gap: .35rem; padding: .45rem .85rem; border: 0; border-radius: 10px; font-weight: 800; color: #fff; cursor: pointer; }
+    .si-btn:disabled { opacity: .6; cursor: default; }
+    .si-x { flex: none; border: 0; background: transparent; color: inherit; cursor: pointer; }
+    .si-off { background: #fff2d3; border-color: #f2d48a; color: #7a4d00; }
+    .si-volvio { background: #e7f0ff; border-color: #9ec0ff; color: #0a3d91; }
+    .si-volvio .si-btn { background: #0d6efd; }
+    .si-subiendo { background: #eef6ff; border-color: #b9d6fb; color: #1b4f8a; }
+    .si-error { background: #ffe9ec; border-color: #f5b5bf; color: #9b1c31; }
+    .si-error .si-btn { background: #cf2f4b; }
+    .si-ok { background: #e3f7ee; border-color: #9fdcc0; color: #11643f; }
+</style>
+
+@code {
+    private VentaSinInternet? off;
+    private bool reintentando;
+    private DateTime cerradoHasta = DateTime.MinValue;
+
+    private static string Ventas(int n) => n == 1 ? "1 venta" : n + " ventas";
+
+    protected override void OnInitialized()
+    {
+        off = VentaSinInternet.Actual;
+        if (off != null) off.OnCambio += Refrescar;
+        State.OnChange += Refrescar;
+    }
+
+    private void Refrescar() => InvokeAsync(StateHasChanged);
+
+    private async Task Reintentar()
+    {
+        if (off == null) return;
+        reintentando = true;
+        try { await off.RevisarAhoraAsync(); }
+        finally { reintentando = false; }
+    }
+
+    /// <summary>Volvió internet: se sale para entrar de nuevo con internet (ahí vuelve todo el menú).</summary>
+    private void EntrarDeNuevo()
+    {
+        off?.AlSalir();
+        State.KioscoId = 0;
+        State.UsuarioId = null;
+        State.UsuarioNombre = null;
+        State.UsuarioRol = null;
+        State.SesionSuperAdmin = null;
+        State.NombreNegocio = null;
+        State.AsistenciaId = null;
+        State.CarritoActual = new();
+        State.TotalVentaActual = 0;
+        State.NotifyStateChanged();
+        Nav.NavigateTo(RutasApp.Escritorio.Login);
+    }
+
+    public void Dispose()
+    {
+        if (off != null) off.OnCambio -= Refrescar;
+        State.OnChange -= Refrescar;
+    }
+}

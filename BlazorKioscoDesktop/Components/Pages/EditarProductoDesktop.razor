@@ -1,8 +1,9 @@
-﻿@page "/producto/editar-desktop/{Id:long}"
+﻿@page "/producto/editar/{Id:long}"
+@page "/producto/editar-desktop/{Id:long}"
+@* Escritorio: usa las mismas direcciones que el celular (la vieja "-desktop" sigue andando) *@
 
-@* O la ruta que estés usando en PC *@
 <EditarProductoCompartido Id="@Id" />
+
 @code {
-    // Una propiedad simple para que Blazor guarde lo que leyó de la URL
     [Parameter] public long Id { get; set; }
 }

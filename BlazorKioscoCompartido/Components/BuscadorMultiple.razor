@@ -1,0 +1,356 @@
+﻿@using BlazorKioscoCompartido.Models
+@using System.Globalization
+@using static Supabase.Postgrest.Constants
+@inject Supabase.Client SupaClient
+@inject AppState State
+
+@* =====================================================================
+   BuscadorMultiple: buscar productos (nombre, marca o código, sin importar acentos),
+   filtrar por familia y TILDAR varios. Lo usan "Cambiar precios en grupo" y "Carteles".
+   No guarda nada: avisa con OnAlternar / OnAgregarTodos y pregunta EstaElegido para mostrar el tilde.
+   Con el lector de códigos: si el código trae un solo producto, al apretar Enter se agrega solo.
+   ===================================================================== *@
+
+<AvisosPagina @ref="avisos" />
+
+<div class="bm-buscar">
+    <div class="gp-search">
+        <i class="bi bi-search"></i>
+        <input type="text" class="gp-control" placeholder="@Placeholder" value="@busqueda" @oninput="AlEscribir" @onkeyup="AlTeclear" />
+        @if (!string.IsNullOrEmpty(busqueda))
+        {
+            <button type="button" class="gp-search-clear" title="Borrar búsqueda" @onclick="Limpiar"><i class="bi bi-x-lg"></i></button>
+        }
+    </div>
+    @if (familias.Count > 0)
+    {
+        <select class="gp-control" @bind="familiaId" @bind:after="CambioFamilia">
+            <option value="0">Todas las familias</option>
+            @foreach (var f in familias)
+            {
+                <option value="@f.Id">@f.Nombre</option>
+            }
+        </select>
+    }
+    @if (SubfamiliasParaElegir.Any())
+    {
+        <select class="gp-control" @bind="subfamiliaId" @bind:after="CambioSubfamilia">
+            <option value="0">Todas las subfamilias</option>
+            @foreach (var s in SubfamiliasParaElegir)
+            {
+                <option value="@s.Id">@(familiaId > 0 ? s.Nombre : NombreFamilia(s.FamiliaId) + " › " + s.Nombre)</option>
+            }
+        </select>
+    }
+    @if (HayFiltro || !string.IsNullOrEmpty(busqueda))
+    {
+        <button type="button" class="gp-btn gp-btn-ghost bm-limpiar" title="Borrar la búsqueda y los filtros" @onclick="LimpiarTodo">
+            <i class="bi bi-eraser-fill"></i> Limpiar
+        </button>
+    }
+    @if (ListaProveedores.Any())
+    {
+        <select class="gp-control" @bind="proveedorId" @bind:after="Buscar">
+            <option value="0">Todos los proveedores</option>
+            @foreach (var p in ListaProveedores)
+            {
+                <option value="@p.Id">@p.Nombre</option>
+            }
+        </select>
+    }
+</div>
+
+@if (buscando)
+{
+    <div class="gp-banner is-neutral" style="margin-top:.7rem"><span class="gp-spinner"></span><p>Buscando...</p></div>
+}
+else if (resultados.Any())
+{
+    <div class="bm-res-cab">
+        <span>@(resultados.Count == 1 ? "1 resultado" : $"{resultados.Count} resultados")@(resultados.Count >= Maximo ? $" (se muestran los primeros {Maximo})" : "")</span>
+        <button type="button" class="gp-btn gp-btn-soft gp-btn-sm" @onclick="AgregarTodos"><i class="bi bi-check2-all"></i> Agregar todos</button>
+    </div>
+    <ul class="bm-res">
+        @foreach (var p in resultados)
+        {
+            var elegido = EstaElegido?.Invoke(p.Id) == true;
+            <li class="@(elegido ? "is-sel" : "")" @onclick="() => Alternar(p)">
+                <span class="bm-check"><i class="bi @(elegido ? "bi-check-square-fill" : "bi-square")"></i></span>
+                <span class="bm-nom"><b>@p.Nombre</b><small>@p.CodigoBarras</small></span>
+                <span class="bm-pv">$ @F(p.PrecioVenta)@(p.EsVentaPorPeso() ? "/kg" : "")</span>
+            </li>
+        }
+    </ul>
+}
+else if (!string.IsNullOrWhiteSpace(busqueda) || HayFiltro)
+{
+    <div class="gp-hint" style="margin-top:.7rem"><i class="bi bi-info-circle"></i> No se encontraron productos.</div>
+}
+
+<style>
+    .bm-buscar { display: flex; flex-wrap: wrap; gap: .5rem; }
+    .bm-buscar .gp-search { max-width: none; flex: 1 1 16rem; }
+    .bm-buscar select { width: auto; min-width: 11rem; }
+    .bm-limpiar { flex: none; order: 99; }
+    .bm-res-cab { display: flex; justify-content: space-between; align-items: center; gap: .5rem; margin: .8rem 0 .4rem; color: var(--gp-muted); font-size: .85rem; font-weight: 700; }
+    .bm-res { display: flex; flex-direction: column; gap: .3rem; max-height: 340px; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
+    .bm-res li { display: flex; align-items: center; gap: .6rem; padding: .5rem .65rem; border: 1px solid var(--gp-line); border-radius: 12px; cursor: pointer; }
+    .bm-res li:hover { border-color: var(--gp-primary-line); }
+    .bm-res li.is-sel { border-color: var(--gp-primary-line); background: var(--gp-primary-soft); }
+    .bm-check { font-size: 1.15rem; color: var(--gp-primary); }
+    .bm-nom { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+    .bm-nom b { font-weight: 800; font-size: .86rem; text-transform: uppercase; }
+    .bm-nom small { color: var(--gp-muted); font-size: .74rem; font-weight: 600; }
+    .bm-pv { font-weight: 800; white-space: nowrap; }
+</style>
+
+@code {
+    /// <summary>¿Este producto ya está elegido? (para mostrar el tilde)</summary>
+    [Parameter] public Func<long, bool>? EstaElegido { get; set; }
+    /// <summary>Se tocó un producto: agregarlo o sacarlo.</summary>
+    [Parameter] public EventCallback<Producto> OnAlternar { get; set; }
+    /// <summary>"Agregar todos": los resultados que todavía no estaban elegidos.</summary>
+    [Parameter] public EventCallback<List<Producto>> OnAgregarTodos { get; set; }
+    [Parameter] public string Placeholder { get; set; } = "Nombre, marca o código...";
+    [Parameter] public int Maximo { get; set; } = 200;
+    /// <summary>Si se pasan, aparece también el filtro por proveedor (ej: Pedidos a proveedores).</summary>
+    [Parameter] public List<Proveedor> Proveedores { get; set; } = new();
+    /// <summary>Proveedor elegido de entrada (0 = todos).</summary>
+    [Parameter] public long ProveedorInicial { get; set; }
+    /// <summary>true = el buscador trae solo los proveedores del negocio y muestra el filtro (ej: Cambiar precios en grupo).</summary>
+    [Parameter] public bool CargarProveedores { get; set; }
+
+    private List<Proveedor> provsPropios = new();
+    private List<Proveedor> ListaProveedores => Proveedores.Any() ? Proveedores : provsPropios;
+    // productos que trae cada proveedor (tabla productos_proveedores), además del "proveedor principal"
+    private readonly Dictionary<long, List<object>> idsDelProveedor = new();
+
+    private AvisosPagina avisos = default!;
+    private string busqueda = "";
+    private long familiaId = 0;
+    private List<Familia> familias = new();
+    private long subfamiliaId = 0;
+    private long proveedorId = 0;
+    private List<Subfamilia> subfamilias = new();
+    private List<Subfamilia> SubfamiliasDeLaFamilia => subfamilias.Where(s => s.FamiliaId == familiaId).OrderBy(s => s.Nombre).ToList();
+    private bool HayFiltro => familiaId > 0 || subfamiliaId > 0 || proveedorId > 0;
+
+    /// <summary>Con familia elegida: sus subfamilias. Sin familia: todas (como "FAMILIA › SUBFAMILIA").</summary>
+    private List<Subfamilia> SubfamiliasParaElegir => familiaId > 0
+        ? SubfamiliasDeLaFamilia
+        : subfamilias.OrderBy(s => NombreFamilia(s.FamiliaId)).ThenBy(s => s.Nombre).ToList();
+
+    private string NombreFamilia(long id) => familias.FirstOrDefault(f => f.Id == id)?.Nombre ?? "";
+
+    /// <summary>Si se elige una subfamilia sin haber elegido familia, la familia se pone sola.</summary>
+    private async Task CambioSubfamilia()
+    {
+        if (subfamiliaId > 0 && familiaId == 0)
+            familiaId = subfamilias.FirstOrDefault(s => s.Id == subfamiliaId)?.FamiliaId ?? 0;
+        await Buscar();
+    }
+    private List<Producto> resultados = new();
+    private bool buscando;
+    private CancellationTokenSource? espera;
+    private static bool usarSinAcentos = true;
+    private static readonly CultureInfo Ar = CultureInfo.GetCultureInfo("es-AR");
+
+    private static string F(decimal? v) => (v ?? 0).ToString(v.HasValue && v == Math.Truncate(v.Value) ? "N0" : "N2", Ar);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            long k = State.KioscoId;
+            var res = await SupaClient.From<Familia>().Where(f => f.KioscoId == k).Get();
+            familias = (res.Models ?? new()).OrderBy(f => f.Nombre).ToList();
+        }
+        catch { familias = new(); }
+        try
+        {
+            long k = State.KioscoId;
+            var res = await SupaClient.From<Subfamilia>().Where(s => s.KioscoId == k).Get();
+            subfamilias = res.Models ?? new();
+        }
+        catch { subfamilias = new(); }   // falta el script 26
+        proveedorId = ProveedorInicial;
+        if (CargarProveedores && !Proveedores.Any())
+        {
+            try
+            {
+                long k = State.KioscoId;
+                provsPropios = ((await SupaClient.From<Proveedor>().Where(p => p.KioscoId == k).Get()).Models ?? new())
+                    .Where(p => p.EstaActivo()).OrderBy(p => p.Nombre).ToList();
+            }
+            catch { provsPropios = new(); }
+        }
+    }
+
+    /// <summary>Ids de los productos que vende ese proveedor (según los datos del proveedor cargados en cada producto).</summary>
+    private async Task<List<object>> IdsDelProveedorAsync(long prov)
+    {
+        if (idsDelProveedor.TryGetValue(prov, out var l)) return l;
+        try
+        {
+            long k = State.KioscoId;
+            var r = await SupaClient.From<ProductoProveedor>().Select("id, id_producto, id_proveedor, id_kiosco")
+                .Where(x => x.IdKiosco == k).Where(x => x.IdProveedor == prov).Get();
+            var ids = (r.Models ?? new()).Select(x => x.IdProducto).ToHashSet();
+            // y los que lo tienen como proveedor principal
+            var rp = await SupaClient.From<Producto>().Select("id").Where(x => x.KioscoId == k).Where(x => x.ProveedorId == prov).Get();
+            foreach (var p in rp.Models ?? new()) ids.Add(p.Id);
+            l = ids.Select(i => (object)i).ToList();
+        }
+        catch { l = new(); }
+        idsDelProveedor[prov] = l;
+        return l;
+    }
+
+    private async Task CambioFamilia()
+    {
+        subfamiliaId = 0;
+        await Buscar();
+    }
+
+    private async Task AlEscribir(ChangeEventArgs e)
+    {
+        busqueda = e.Value?.ToString() ?? "";
+        espera?.Cancel();
+        espera = new CancellationTokenSource();
+        try { await Task.Delay(300, espera.Token); } catch (TaskCanceledException) { return; }
+        await Buscar();
+    }
+
+    /// <summary>Enter (o el lector de códigos): si hay un solo producto, se agrega y se limpia para el próximo.</summary>
+    private async Task AlTeclear(KeyboardEventArgs e)
+    {
+        if (e.Key != "Enter") return;
+        espera?.Cancel();
+        await Buscar();
+        if (resultados.Count == 1)
+        {
+            var p = resultados[0];
+            if (EstaElegido?.Invoke(p.Id) != true) await OnAlternar.InvokeAsync(p);
+            Limpiar();
+        }
+    }
+
+    private void Limpiar()
+    {
+        espera?.Cancel();
+        busqueda = "";
+        if (!HayFiltro) resultados = new();
+    }
+
+    public async Task Buscar()
+    {
+        var texto = System.Text.RegularExpressions.Regex.Replace(busqueda ?? "", @"[,()%""\\*]", " ").Trim();
+        if (texto == "" && !HayFiltro) { resultados = new(); return; }
+        buscando = true;
+        StateHasChanged();
+        try
+        {
+            long k = State.KioscoId;
+            // proveedor: el principal del producto O los que lo traen según "datos del proveedor" (de a tandas, para no armar una dirección enorme)
+            var tandasProv = new List<List<object>?> { null };
+            if (proveedorId > 0)
+            {
+                var ids = await IdsDelProveedorAsync(proveedorId);
+                if (!ids.Any()) { resultados = new(); return; }
+                tandasProv = ids.Chunk(150).Select(c => (List<object>?)c.ToList()).ToList();
+            }
+            var junt = new List<Producto>();
+            foreach (var tanda in tandasProv)
+            {
+            Supabase.Postgrest.Interfaces.IPostgrestTable<Producto> q = SupaClient.From<Producto>()
+                .Where(p => p.KioscoId == k)
+                .Where(p => p.Activo == true);
+            if (familiaId > 0) { long f = familiaId; q = q.Where(p => p.FamiliaId == f); }
+            if (familiaId > 0 && subfamiliaId > 0) { long s = subfamiliaId; q = q.Where(p => p.SubfamiliaId == s); }
+            if (tanda != null) q = q.Filter("id", Operator.In, tanda);
+            if (texto != "")
+            {
+                var palabras = texto.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                var patron = "%" + string.Join("%", palabras.Select(w => usarSinAcentos ? SinAcentos(w) : w)) + "%";
+                q = q.Or(new List<Supabase.Postgrest.Interfaces.IPostgrestQueryFilter>
+                {
+                    new Supabase.Postgrest.QueryFilter(usarSinAcentos ? "nombre_busqueda" : "nombre", Operator.ILike, patron),
+                    new Supabase.Postgrest.QueryFilter("marca", Operator.ILike, $"%{texto}%"),
+                    new Supabase.Postgrest.QueryFilter("codigo_barras", Operator.ILike, $"%{string.Join("", palabras)}%")
+                });
+            }
+            var res = await q.Order("nombre", Ordering.Ascending).Limit(Maximo).Get();
+            junt.AddRange(res.Models ?? new());
+            }
+            resultados = junt.GroupBy(p => p.Id).Select(g => g.First()).OrderBy(p => p.Nombre).Take(Maximo).ToList();
+        }
+        catch (Exception ex) when (usarSinAcentos && ex.Message.Contains("nombre_busqueda"))
+        {
+            usarSinAcentos = false;
+            buscando = false;
+            await Buscar();
+            return;
+        }
+        catch
+        {
+            resultados = new();
+        }
+        finally { buscando = false; }
+    }
+
+    private static string SinAcentos(string s)
+    {
+        var d = (s ?? "").ToLowerInvariant().Normalize(System.Text.NormalizationForm.FormD);
+        return new string(d.Where(c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark).ToArray()).Normalize(System.Text.NormalizationForm.FormC);
+    }
+
+    private Task Alternar(Producto p) => OnAlternar.InvokeAsync(p);
+
+    /// <summary>"Agregar todos": pregunta antes y, si dice que sí, agrega y deja el buscador limpio para seguir.</summary>
+    private async Task AgregarTodos()
+    {
+        var nuevos = resultados.Where(p => EstaElegido?.Invoke(p.Id) != true).ToList();
+        if (!nuevos.Any())
+        {
+            avisos.Toast("Ya estaban todos agregados", "info", 2000);
+            LimpiarTodo();
+            return;
+        }
+
+        var que = DescripcionFiltro();
+        var titulo = nuevos.Count == 1 ? "¿Agregar 1 producto?" : $"¿Agregar los {nuevos.Count} productos?";
+        var mensaje = (string.IsNullOrEmpty(que) ? "" : $"De: {que}. ")
+                    + (resultados.Count >= Maximo ? $"Ojo: se muestran solo los primeros {Maximo}; si faltan, filtrá más. " : "")
+                    + "Después se limpia el buscador para seguir con otra cosa.";
+        if (!await avisos.ConfirmarAsync(titulo, mensaje, "Agregar", "info", "Cancelar")) return;
+
+        await OnAgregarTodos.InvokeAsync(nuevos);
+        LimpiarTodo();
+    }
+
+    /// <summary>Texto de lo que está filtrado (para la pregunta), ej: "GOLOSINAS › GOMITAS · que digan OSITO".</summary>
+    private string DescripcionFiltro()
+    {
+        var partes = new List<string>();
+        if (familiaId > 0)
+        {
+            var fam = familias.FirstOrDefault(f => f.Id == familiaId)?.Nombre ?? "";
+            var sub = subfamiliaId > 0 ? subfamilias.FirstOrDefault(s => s.Id == subfamiliaId)?.Nombre : null;
+            partes.Add(sub != null ? $"{fam} › {sub}" : fam);
+        }
+        if (proveedorId > 0) partes.Add("proveedor " + (ListaProveedores.FirstOrDefault(p => p.Id == proveedorId)?.Nombre ?? ""));
+        if (!string.IsNullOrWhiteSpace(busqueda)) partes.Add($"que digan \"{busqueda.Trim()}\"");
+        return string.Join(" · ", partes.Where(p => !string.IsNullOrWhiteSpace(p)));
+    }
+
+    /// <summary>Borra la búsqueda, la familia, la subfamilia y el proveedor.</summary>
+    private void LimpiarTodo()
+    {
+        espera?.Cancel();
+        busqueda = "";
+        familiaId = 0;
+        subfamiliaId = 0;
+        proveedorId = 0;
+        resultados = new();
+    }
+}

@@ -1,0 +1,75 @@
+@using BlazorKioscoCompartido.Services
+
+@* =====================================================================
+   DetalleArticulos: lista de lo que se cobra (Cobrar) o de lo que se debe (Cobrar fiado).
+   Antes era una tabla copiada en las dos páginas. Muestra bien los productos por peso:
+   la cantidad está en gramos y el precio es por kilo.
+   ===================================================================== *@
+
+@if (!Filas.Any())
+{
+    <div class="gp-empty">
+        <span class="gp-bubble"><i class="bi bi-cart-x"></i></span>
+        <strong>@TextoVacio</strong>
+    </div>
+}
+else
+{
+    <div class="gp-table-wrap gp-stack-wrap" style="@(AltoMaximo != null ? $"max-height:{AltoMaximo}; overflow:auto" : "")">
+        <table class="gp-table gp-stack">
+            <thead>
+                <tr>
+                    <th>Producto</th>
+                    <th class="t-center">Cantidad</th>
+                    <th class="t-right">Precio</th>
+                    <th class="t-right">Subtotal</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var f in Filas)
+                {
+                    bool peso = Utilidades.EsMedidaGramos(f.UnidadMedida);
+                    <tr>
+                        <td class="gp-td-main" data-label="Producto">
+                            @if (f.EsVario) { <span class="vt-tag vario">VARIOS</span> }
+                            @if (f.EsCombo) { <span class="vt-tag combo">COMBO</span> }
+                            <span class="gp-product" style="text-transform:uppercase">@f.Nombre</span>
+                            @if (!string.IsNullOrWhiteSpace(f.Extra)) { <div class="gp-sub">@f.Extra</div> }
+                        </td>
+                        <td class="t-center gp-num" data-label="Cantidad">@TextoCantidad(f.Cantidad, f.UnidadMedida)</td>
+                        <td class="t-right gp-num" data-label="Precio">$@f.PrecioUnitario.ToString("N2")@(peso ? " /kg" : "")</td>
+                        <td class="t-right gp-money" data-label="Subtotal">$@f.Subtotal.ToString("N2")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [Parameter] public List<FilaArticulo> Filas { get; set; } = new();
+    [Parameter] public string TextoVacio { get; set; } = "No hay productos";
+    [Parameter] public string? AltoMaximo { get; set; }
+
+    public class FilaArticulo
+    {
+        public long ProductoId { get; set; }
+        public string Nombre { get; set; } = "";
+        public string? UnidadMedida { get; set; }
+        public decimal Cantidad { get; set; }          // gramos si es por peso
+        public decimal PrecioUnitario { get; set; }    // por kilo si es por peso
+        public decimal Subtotal { get; set; }
+        public bool EsVario { get; set; }
+        public bool EsCombo { get; set; }
+        public string? Extra { get; set; }             // texto chico debajo (ej: fecha del fiado)
+    }
+
+    /// <summary>"3 u.", "250 g", "1,25 kg".</summary>
+    public static string TextoCantidad(decimal cantidad, string? unidad)
+    {
+        var cult = System.Globalization.CultureInfo.GetCultureInfo("es-AR");
+        if (Utilidades.EsMedidaGramos(unidad))
+            return cantidad < 1000 ? $"{cantidad:0} g" : $"{(cantidad / 1000m).ToString("0.###", cult)} kg";
+        return $"{cantidad.ToString("0.##", cult)} u.";
+    }
+}

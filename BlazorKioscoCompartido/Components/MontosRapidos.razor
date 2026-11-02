@@ -1,0 +1,61 @@
+﻿@using System.Globalization
+
+@* =====================================================================
+   MontosRapidos: botones con montos sugeridos según lo que falta pagar.
+     Modo "billetes" (cobrar una venta): los billetes con que el cliente puede pagar el total
+        (ej: falta $ 9.300 → $ 9.500 · $ 10.000 · $ 20.000). Lo que sobra es el vuelto.
+     Modo "partes" (entrega de un fiado): partes de la deuda (un cuarto, la mitad, tres cuartos),
+        siempre menos de lo que debe.
+   El último botón completa lo que falta. No guarda nada: avisa con OnElegir.
+   ===================================================================== *@
+
+<div class="vt-rapidos">
+    @foreach (var v in Sugeridos)
+    {
+        <button type="button" @onclick="() => OnElegir.InvokeAsync(v)">$ @v.ToString("N0", Ar)</button>
+    }
+    <button type="button" style="color:var(--gp-primary); border-color:var(--gp-primary-line)" @onclick="() => OnElegir.InvokeAsync(Math.Max(0, Restante))">
+        <i class="bi bi-arrow-repeat"></i> @(Modo == ModoPartes ? "Todo" : "Justo") $ @Math.Max(0, Restante).ToString("N0", Ar)
+    </button>
+</div>
+
+@code {
+    public const string ModoBilletes = "billetes";
+    public const string ModoPartes = "partes";
+
+    /// <summary>Lo que falta pagar.</summary>
+    [Parameter] public decimal Restante { get; set; }
+    /// <summary>"billetes" (venta) o "partes" (entrega de fiado).</summary>
+    [Parameter] public string Modo { get; set; } = ModoBilletes;
+    /// <summary>Monto elegido.</summary>
+    [Parameter] public EventCallback<decimal> OnElegir { get; set; }
+
+    private static readonly CultureInfo Ar = CultureInfo.GetCultureInfo("es-AR");
+
+    private List<decimal> Sugeridos => Modo == ModoPartes ? Partes(Restante) : Billetes(Restante);
+
+    /// <summary>Con qué billetes le pueden pagar: el total redondeado para arriba a 500, 1.000, 2.000, 10.000 y 20.000.</summary>
+    public static List<decimal> Billetes(decimal falta)
+    {
+        if (falta <= 0) return new();
+        return new decimal[] { 500, 1000, 2000, 5000, 10000, 20000 }
+            .Select(paso => Math.Ceiling(falta / paso) * paso)
+            .Where(v => v > falta)
+            .Distinct()
+            .OrderBy(v => v)
+            .Take(4)
+            .ToList();
+    }
+
+    /// <summary>Un cuarto, la mitad y tres cuartos de lo que debe, redondeados y siempre menos que el total.</summary>
+    public static List<decimal> Partes(decimal debe)
+    {
+        if (debe <= 0) return new();
+        decimal paso = debe >= 20000 ? 1000 : debe >= 4000 ? 500 : 100;
+        return new[] { .25m, .5m, .75m }
+            .Select(f => Math.Round(debe * f / paso, MidpointRounding.AwayFromZero) * paso)
+            .Where(v => v > 0 && v < debe)
+            .Distinct()
+            .ToList();
+    }
+}

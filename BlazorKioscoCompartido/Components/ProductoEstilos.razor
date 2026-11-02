@@ -1,0 +1,100 @@
+@* Estilos de las páginas de producto (prefijo pp-). Se usan junto con <PedidosEstilos /> y <ConfigEstilos /> dentro de un .gp-scope *@
+<style>
+    .pp-wrap { max-width: 1100px; margin: 0 auto; }
+    .pp-stack { display: flex; flex-direction: column; gap: 1rem; }
+    .pp-stack > .gp-card { margin: 0; }
+
+    .pp-head-chip { margin-left: auto; }
+
+    /* Unidad de medida como botones */
+    .pp-units { display: flex; width: 100%; }
+    .pp-units button { flex: 1 1 0; justify-content: center; }
+
+    /* Código con ícono adentro */
+    .pp-icon-input { position: relative; }
+    .pp-icon-input > i { position: absolute; left: .9rem; top: 50%; transform: translateY(-50%); color: var(--gp-muted); pointer-events: none; }
+    .pp-icon-input .gp-control { padding-left: 2.5rem; }
+    .pp-codigo .gp-control { font-family: Consolas, monospace; font-weight: 800; letter-spacing: .03em; }
+    .pp-crear-cod { display: inline-flex; align-items: center; gap: .35rem; margin-top: .35rem; padding: .15rem .1rem; border: 0; background: transparent; color: var(--gp-primary); font-size: .82rem; font-weight: 800; cursor: pointer; }
+    .pp-crear-cod:hover { text-decoration: underline; }
+    .pp-crear-cod:disabled { opacity: .6; cursor: default; }
+    .pp-nombre .gp-control { font-size: 1.05rem; font-weight: 800; text-transform: uppercase; }
+
+    /* ---------- Precios ---------- */
+    .pp-precios { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, .75fr) minmax(0, 1.25fr); gap: .85rem; }
+    .pp-tile {
+        display: flex; flex-direction: column; justify-content: space-between; gap: .35rem;
+        padding: .85rem 1rem .9rem; background: #fff;
+        border: 1px solid var(--gp-line); border-radius: var(--gp-radius-md);
+        transition: border-color .15s, box-shadow .15s;
+    }
+    .pp-tile:focus-within { border-color: var(--gp-primary); box-shadow: 0 0 0 3px var(--gp-primary-soft); }
+    .pp-tile-label { display: flex; align-items: center; gap: .45rem; color: var(--gp-muted); font-size: .74rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+    .pp-tile-label i { color: var(--gp-primary); font-size: .95rem; }
+    .pp-tile-label small { margin-left: auto; padding: .05rem .5rem; border-radius: 999px; background: #eef1f8; color: var(--gp-muted); font-size: .68rem; letter-spacing: 0; text-transform: none; }
+    .pp-money { display: flex; align-items: baseline; gap: .3rem; }
+    .pp-money > span { color: var(--gp-muted); font-size: 1.2rem; font-weight: 800; }
+    .pp-big {
+        width: 100%; min-width: 0; padding: 0; border: 0; background: transparent; outline: 0;
+        color: var(--gp-text); font: inherit; font-size: 1.6rem; font-weight: 900; line-height: 1.2;
+    }
+    .pp-big::-webkit-inner-spin-button, .pp-big::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    .pp-big[type=number] { -moz-appearance: textfield; }
+    .pp-tile.is-venta { background: var(--gp-ok-soft); border-color: var(--gp-ok-line); }
+    .pp-tile.is-venta:focus-within { border-color: var(--gp-ok); box-shadow: 0 0 0 3px var(--gp-ok-line); }
+    .pp-tile.is-venta .pp-tile-label, .pp-tile.is-venta .pp-tile-label i { color: var(--gp-ok); }
+    .pp-tile.is-venta .pp-money > span, .pp-tile.is-venta .pp-big { color: var(--gp-ok); }
+    .pp-tile.is-venta .pp-big { font-size: 2rem; text-align: right; }
+    .pp-tile.is-venta .pp-money { justify-content: flex-end; }
+
+    .pp-sublist { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: .85rem 1rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px dashed var(--gp-line); }
+    .pp-addon { display: flex; align-items: center; overflow: hidden; border: 1px solid var(--gp-line); border-radius: var(--gp-radius-sm); background: #fff; transition: border-color .15s, box-shadow .15s; }
+    .pp-addon:focus-within { border-color: var(--gp-primary); box-shadow: 0 0 0 3px var(--gp-primary-soft); }
+    .pp-addon > span { flex: none; padding: 0 .75rem; color: var(--gp-muted); font-weight: 800; }
+    .pp-addon .gp-control { border: 0; box-shadow: none !important; min-width: 0; }
+    .pp-addon .gp-control:focus { box-shadow: none; }
+
+    /* ---------- Stock ---------- */
+    .pp-stock { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .85rem; }
+    .pp-stock .pp-tile.is-main { border-color: var(--gp-primary-line); background: var(--gp-primary-soft); }
+    .pp-stock .pp-big { font-size: 1.45rem; }
+    .pp-help { color: var(--gp-muted); font-size: .76rem; font-weight: 600; line-height: 1.3; }
+
+    /* ---------- Inputs dentro de tablas ---------- */
+    .pp-cell-input { height: 2.3rem; padding: .25rem .6rem; font-size: .9rem; }
+    .pp-cell-code { max-width: 14rem; font-family: Consolas, monospace; font-weight: 800; }
+    .pp-cell-bulto { display: inline-flex; width: 6.6rem; }
+    .pp-cell-desc { min-width: 12rem; font-size: .82rem; }
+    .pp-xunidad { display: inline-block; margin-left: .35rem; padding: .02rem .45rem; border-radius: 999px; background: var(--gp-warn-soft); color: var(--gp-warn); font-size: .66rem; font-weight: 800; letter-spacing: 0; text-transform: none; }
+    .pp-cell-bulto .gp-control { text-align: center; padding: .25rem .2rem; }
+    .pp-cell-bulto > span { padding: 0 .5rem 0 0; font-size: .8rem; }
+    .pp-kg { display: block; color: var(--gp-primary); font-size: .76rem; font-weight: 800; }
+
+    /* Calcular costo desde el bulto */
+    .pp-bulto-calc { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .75rem 1rem; align-items: end; margin-top: .85rem; padding: .9rem 1rem; background: #f8f9fd; border: 1px dashed var(--gp-primary-line); border-radius: var(--gp-radius-md); }
+    .pp-bulto-res { display: flex; flex-direction: column; gap: .1rem; }
+    .pp-bulto-res strong { color: var(--gp-primary); font-size: 1.25rem; font-weight: 900; }
+    .pp-link-row { margin-top: .7rem; }
+
+    /* ---------- Botonera final ---------- */
+    .pp-actions {
+        display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: .6rem;
+        padding: .9rem 1rem; background: #fff; border: 1px solid var(--gp-line); border-radius: var(--gp-radius); box-shadow: var(--gp-shadow);
+    }
+    .pp-actions .gp-btn-ok { min-width: 13rem; height: 3rem; font-size: 1rem; }
+    .pp-actions-info { margin-right: auto; color: var(--gp-muted); font-size: .85rem; font-weight: 600; }
+
+    @@media (max-width: 767.98px) {
+        .gp-stack td .pp-cell-code { max-width: 60%; }
+        .pp-precios { grid-template-columns: 1fr 1fr; }
+        .pp-precios .pp-tile.is-venta { grid-column: 1 / -1; }
+        .pp-stock { grid-template-columns: 1fr 1fr; }
+        .pp-stock .pp-tile.is-main { grid-column: 1 / -1; }
+        .pp-actions .gp-btn { flex: 1 1 auto; }
+        .pp-actions-info { width: 100%; margin: 0; }
+        .pp-head-chip { margin-left: 0; }
+    }
+    @@media (max-width: 420px) {
+        .pp-units button { padding: .5rem .4rem; font-size: .8rem; }
+    }
+</style>

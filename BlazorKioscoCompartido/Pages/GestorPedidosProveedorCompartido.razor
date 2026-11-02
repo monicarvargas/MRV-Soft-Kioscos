@@ -1,0 +1,1199 @@
+﻿@using BlazorKioscoCompartido.Components
+@using BlazorKioscoCompartido.Models
+@using BlazorKioscoCompartido.Models.DTO
+@using System.Globalization
+@using System.Net
+@using System.Text
+@inject BlazorKioscoCompartido.Services.AppState State
+@inject Supabase.Client SupaClient
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Nav
+@implements IAsyncDisposable
+
+<PedidosEstilos />
+<AvisosPagina @ref="avisos" />
+
+<div class="container-fluid px-3 py-2 min-vh-100 style-notebook gp-scope gp-page">
+    <EncabezadoPagina Titulo="Gestión de Pedidos a Proveedor"
+                      Subtitulo="Armar los pedidos a los proveedores"
+                      IconoClass="bi-plus-circle"
+                      ColorBorde="success"
+                      ColorIcono="success"
+                      MostrarBotonAyuda="false"
+                      RutaVolver="/productos" />
+
+    <!-- PESTAÑAS PRINCIPALES -->
+    <div class="gp-tabs" role="tablist">
+        <button type="button" role="tab" aria-selected="@(pestanaActiva == "armar")"
+                class="gp-tab @(pestanaActiva == "armar" ? "is-active" : "")" @onclick='() => CambiarPestana("armar")'>
+            <i class="bi bi-cart-plus"></i> <span>Armar / Editar pedido</span>
+        </button>
+        <button type="button" role="tab" aria-selected="@(pestanaActiva != "armar")"
+                class="gp-tab @(pestanaActiva != "armar" ? "is-active" : "")" @onclick='() => CambiarPestana("historial")'>
+            <i class="bi bi-journal-text"></i> <span>Historial y envíos</span>
+            @if (pedidosPendientesCount > 0)
+            {
+                <span class="gp-count">@pedidosPendientesCount</span>
+            }
+        </button>
+    </div>
+
+    @if (pestanaActiva == "armar")
+    {
+        <!-- PESTAÑA 1: ARMAR PEDIDO -->
+        <ArmarPedidosAProveedor OnPedidoGuardado="OnPedidoGuardado" />
+    }
+    else if (pedidoDetalle != null)
+    {
+        <!-- PESTAÑA 2 (vista de detalle de un pedido) -->
+        <section class="gp-card gp-card-pad">
+            <button type="button" class="gp-btn gp-btn-outline gp-btn-sm" @onclick="CerrarDetalle">
+                <i class="bi bi-arrow-left"></i> Volver al historial
+            </button>
+
+            <div class="gp-detail-head">
+                <div class="gp-detail-title">
+                    <label class="gp-label" for="gpTituloListado">Nombre del listado</label>
+                    <input id="gpTituloListado" type="text" class="gp-title-input" maxlength="80" placeholder="Poné un nombre (Ej: Lácteos)"
+                           value="@pedidoDetalle.NombreListado" @onchange="CambiarNombreAsync" />
+                    <div class="gp-meta">
+                        <span class="gp-chip"><i class="bi bi-truck"></i> @obtenerNombreProveedor(pedidoDetalle.ProveedorId)</span>
+                        <span class="gp-chip"><i class="bi bi-calendar3"></i> @pedidoDetalle.Fecha.ToString("dd/MM/yyyy HH:mm")</span>
+                        <span class="gp-pill @ClasePill(pedidoDetalle.Estado)">@pedidoDetalle.Estado</span>
+                    </div>
+                </div>
+
+                <div class="gp-detail-actions">
+                    <button type="button" class="gp-btn gp-btn-outline" title="Elegir columnas del documento"
+                            @onclick="() => AbrirColumnas(new[] { pedidoDetalle.ProveedorId })">
+                        <i class="bi bi-layout-three-columns"></i> Columnas
+                    </button>
+                    <button type="button" class="gp-btn gp-btn-ok-soft" disabled="@exportando"
+                            @onclick="() => ExportarAsync(new List<ListaPedido> { pedidoDetalle }, true)">
+                        <i class="bi bi-file-earmark-word"></i> Word
+                    </button>
+                    <button type="button" class="gp-btn gp-btn-soft" disabled="@exportando"
+                            @onclick="() => ExportarAsync(new List<ListaPedido> { pedidoDetalle }, false)">
+                        <i class="bi bi-file-earmark-pdf"></i> PDF
+                    </button>
+                    <span class="gp-sep"></span>
+                    @if (pedidoDetalle.Estado == "Pendiente")
+                    {
+                        <button type="button" class="gp-btn gp-btn-ok" title="Marcar el pedido como enviado"
+                                @onclick="() => CerrarPedidoAsync(pedidoDetalle)">
+                            <i class="bi bi-check2-circle"></i> Cerrar pedido
+                        </button>
+                    }
+                    @if (pedidoDetalle.Estado == "Enviado")
+                    {
+                        <button type="button" class="gp-btn gp-btn-ok" title="Cargar la mercadería que llegó de este pedido"
+                                @onclick="() => RecibirPedido(pedidoDetalle)">
+                            <i class="bi bi-box-arrow-in-down"></i> Recibir mercadería
+                        </button>
+                    }
+                    <button type="button" class="gp-btn gp-btn-danger-soft" title="Eliminar este listado"
+                            @onclick="() => EliminarListadoAsync(pedidoDetalle)">
+                        <i class="bi bi-trash"></i> Eliminar listado
+                    </button>
+                </div>
+            </div>
+
+            @if (!string.IsNullOrEmpty(errorDetalle))
+            {
+                <div class="gp-banner is-danger" role="alert">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                    <p>@errorDetalle</p>
+                    <button type="button" class="gp-btn gp-btn-outline gp-btn-sm" @onclick="() => AbrirDetalleAsync(pedidoDetalle)"><i class="bi bi-arrow-clockwise"></i> Reintentar</button>
+                </div>
+            }
+
+            @if (!puedeEditar)
+            {
+                <div class="gp-banner is-neutral">
+                    <i class="bi bi-lock-fill"></i>
+                    <p>Este pedido ya fue enviado: solo se puede consultar.</p>
+                </div>
+            }
+
+            <div class="gp-table-wrap gp-stack-wrap">
+                <table class="gp-table gp-stack">
+                    <thead>
+                        <tr>
+                            <th>Cód. proveedor</th>
+                            <th>Producto</th>
+                            <th class="t-center">Cantidad</th>
+                            <th class="t-right">Costo est.</th>
+                            <th class="t-right">Subtotal est.</th>
+                            @if (puedeEditar)
+                            {
+                                <th class="t-center"></th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (cargandoDetalle)
+                        {
+                            <tr class="gp-empty-row">
+                                <td colspan="6">
+                                    <div class="gp-empty"><span class="gp-spinner"></span><span>Cargando detalle...</span></div>
+                                </td>
+                            </tr>
+                        }
+                        else if (!detalleItems.Any())
+                        {
+                            <tr class="gp-empty-row">
+                                <td colspan="6">
+                                    <div class="gp-empty">
+                                        <span class="gp-bubble"><i class="bi bi-box-seam"></i></span>
+                                        <strong>Sin productos</strong>
+                                        <span>Este pedido no tiene productos.</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var d in detalleItems)
+                            {
+                                <tr>
+                                    <td class="gp-td-code" data-label="Cód. proveedor">@(string.IsNullOrWhiteSpace(d.CodigoBarrasProveedor) ? "-" : d.CodigoBarrasProveedor)</td>
+                                    <td class="gp-td-main" data-label="Producto"><span class="gp-product">@d.NombreProducto</span></td>
+                                    <td class="t-center" data-label="Cantidad">
+                                        @if (puedeEditar)
+                                        {
+                                            <input type="number" min="0" step="any" class="gp-input-sm gp-input-buy gp-input-qty"
+                                                   value="@d.CantidadComprar.ToString(CultureInfo.InvariantCulture)"
+                                                   @onchange="e => CambiarCantidadAsync(d, e)" />
+                                        }
+                                        else
+                                        {
+                                            <strong>@d.CantidadComprar.ToString("0.##")</strong>
+                                        }
+                                        @if (d.UnidadesPorBulto > 1)
+                                        {
+                                            <div class="gp-sub">@BlazorKioscoCompartido.Constants.TiposBulto.Texto(d.TipoBulto, d.UnidadesPorBulto, d.CantidadComprar) x @d.UnidadesPorBulto = @((d.CantidadComprar * d.UnidadesPorBulto).ToString("0.##")) u.</div>
+                                        }
+                                        else if (!BlazorKioscoCompartido.Constants.TiposBulto.EsSuelto(d.TipoBulto, d.UnidadesPorBulto))
+                                        {
+                                            <div class="gp-sub">@BlazorKioscoCompartido.Constants.TiposBulto.Texto(d.TipoBulto, d.UnidadesPorBulto, d.CantidadComprar)</div>
+                                        }
+                                    </td>
+                                    <td class="t-right gp-num" data-label="Costo est.">
+                                        $@d.PrecioCosto.ToString("N2")
+                                        @if (d.UnidadesPorBulto > 1)
+                                        {
+                                            <div class="gp-sub">x @BlazorKioscoCompartido.Constants.TiposBulto.Texto(d.TipoBulto, d.UnidadesPorBulto, 1)</div>
+                                        }
+                                    </td>
+                                    <td class="t-right gp-money" data-label="Subtotal est.">$@d.SubtotalEstimado.ToString("N2")</td>
+                                    @if (puedeEditar)
+                                    {
+                                        <td class="t-center gp-td-actions" data-label="">
+                                            <button type="button" class="gp-btn gp-btn-danger-soft gp-btn-sm gp-btn-icon" title="Quitar del pedido"
+                                                    @onclick="() => EliminarProductoAsync(d)">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </td>
+                                    }
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            @if (detalleItems.Any())
+            {
+                <div class="gp-totalbar">
+                    <span>@detalleItems.Count producto(s) · Total estimado</span>
+                    <strong>$@(detalleItems.Sum(x => x.SubtotalEstimado).ToString("N2"))</strong>
+                </div>
+            }
+        </section>
+    }
+    else
+    {
+        <!-- PESTAÑA 2: HISTORIAL Y ACCIONES DE ENVÍO -->
+        <section class="gp-card gp-card-pad">
+
+            <div class="gp-toolbar">
+                <div class="gp-seg" role="group" aria-label="Filtrar por estado">
+                    <button type="button" class="@(filtroEstado == "Pendiente" ? "is-active" : "")" @onclick='() => FiltrarPorEstado("Pendiente")'>
+                        <span class="gp-dot is-pend"></span> Pendientes <span class="gp-n">@pedidos.Count(p => p.Estado == "Pendiente")</span>
+                    </button>
+                    <button type="button" class="@(filtroEstado == "Enviado" ? "is-active" : "")" @onclick='() => FiltrarPorEstado("Enviado")'>
+                        <span class="gp-dot is-env"></span> Enviados <span class="gp-n">@pedidos.Count(p => p.Estado == "Enviado")</span>
+                    </button>
+                    <button type="button" class="@(filtroEstado == "Recibido" ? "is-active" : "")" @onclick='() => FiltrarPorEstado("Recibido")'>
+                        <span class="gp-dot is-rec"></span> Recibidos <span class="gp-n">@pedidos.Count(p => p.Estado == "Recibido")</span>
+                    </button>
+                    <button type="button" class="@(filtroEstado == "Todos" ? "is-active" : "")" @onclick='() => FiltrarPorEstado("Todos")'>
+                        <span class="gp-dot"></span> Todos <span class="gp-n">@pedidos.Count</span>
+                    </button>
+                </div>
+
+                <div class="gp-search">
+                    <i class="bi bi-search"></i>
+                    <input type="text" class="gp-control" placeholder="Buscar por listado o proveedor..."
+                           @bind="busquedaHistorial" @bind:event="oninput" @bind:after="AplicarBusquedaHistorial" />
+                    @if (!string.IsNullOrEmpty(busquedaHistorial))
+                    {
+                        <button type="button" class="gp-search-clear" title="Borrar búsqueda" @onclick="LimpiarBusquedaHistorial"><i class="bi bi-x-lg"></i></button>
+                    }
+                </div>
+            </div>
+
+            @if (!string.IsNullOrEmpty(errorGeneral))
+            {
+                <div class="gp-banner is-danger" role="alert">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                    <p>@errorGeneral</p>
+                    <button type="button" class="gp-btn gp-btn-outline gp-btn-sm" @onclick="CargarProveedoresYPedidosAsync"><i class="bi bi-arrow-clockwise"></i> Reintentar</button>
+                </div>
+            }
+
+            <!-- TABLA DE LISTAS GUARDADAS -->
+            <div class="gp-table-wrap gp-stack-wrap">
+                <table class="gp-table gp-stack">
+                    <thead>
+                        <tr>
+                            <th class="gp-th-check">
+                                <input class="gp-check" type="checkbox" title="Seleccionar todos" aria-label="Seleccionar todos"
+                                       checked="@TodosSeleccionados" @onchange="ToggleTodos" />
+                            </th>
+                            <th>Fecha</th>
+                            <th>Listado</th>
+                            <th>Proveedor</th>
+                            <th class="t-right">Monto est.</th>
+                            <th class="t-center">Estado</th>
+                            <th class="t-center">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (!pedidosFiltrados.Any())
+                        {
+                            <tr class="gp-empty-row">
+                                <td colspan="7">
+                                    <div class="gp-empty">
+                                        <span class="gp-bubble"><i class="bi bi-journal-x"></i></span>
+                                        <strong>No hay pedidos</strong>
+                                        <span>@(string.IsNullOrWhiteSpace(busquedaHistorial) ? "No hay pedidos en esta sección." : "Ningún pedido coincide con la búsqueda.")</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var p in pedidosFiltrados)
+                            {
+                                <tr class="@(pedidosSeleccionados.Contains(p.Id) ? "is-selected" : "")">
+                                    <td class="gp-td-check" data-label="">
+                                        <input class="gp-check" type="checkbox" aria-label="Seleccionar pedido"
+                                               checked="@pedidosSeleccionados.Contains(p.Id)"
+                                               @onchange="e => TogglePedido(p.Id, e)" />
+                                    </td>
+                                    <td class="gp-nowrap" data-label="Fecha">@p.Fecha.ToString("dd/MM/yyyy HH:mm")</td>
+                                    <td class="gp-td-main" data-label="Listado">
+                                        @if (string.IsNullOrWhiteSpace(p.NombreListado))
+                                        {
+                                            <span class="gp-muted">Sin nombre</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="gp-product">@p.NombreListado</span>
+                                        }
+                                    </td>
+                                    <td data-label="Proveedor"><strong>@(obtenerNombreProveedor(p.ProveedorId))</strong></td>
+                                    <td class="t-right gp-money" data-label="Monto est.">$@p.MontoEstimado.ToString("N2")</td>
+                                    <td class="t-center" data-label="Estado">
+                                        <span class="gp-pill @ClasePill(p.Estado)">@p.Estado</span>
+                                    </td>
+                                    <td class="t-center gp-td-actions" data-label="">
+                                        <div class="gp-cell-actions">
+                                            <button type="button" class="gp-btn gp-btn-soft gp-btn-sm gp-btn-icon" title="Ver detalle del pedido"
+                                                    @onclick="() => AbrirDetalleAsync(p)">
+                                                <i class="bi bi-eye-fill"></i>
+                                            </button>
+                                            @if (p.Estado == "Pendiente")
+                                            {
+                                                <button type="button" class="gp-btn gp-btn-ok-soft gp-btn-sm gp-btn-icon" title="Cerrar pedido (marcar como enviado)"
+                                                        @onclick="() => CerrarPedidoAsync(p)">
+                                                    <i class="bi bi-check2-circle"></i>
+                                                </button>
+                                            }
+                                            @if (p.Estado == "Enviado")
+                                            {
+                                                <button type="button" class="gp-btn gp-btn-ok-soft gp-btn-sm gp-btn-icon" title="Recibir mercadería de este pedido"
+                                                        @onclick="() => RecibirPedido(p)">
+                                                    <i class="bi bi-box-arrow-in-down"></i>
+                                                </button>
+                                            }
+                                            <button type="button" class="gp-btn gp-btn-danger-soft gp-btn-sm gp-btn-icon" title="Eliminar listado"
+                                                    @onclick="() => EliminarListadoAsync(p)">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- BARRA PARA AGRUPAR LOS PEDIDOS TILDADOS EN UN SOLO DOCUMENTO -->
+            @if (pedidosSeleccionados.Any())
+            {
+                <div class="gp-selbar">
+                    <div class="gp-selinfo">
+                        <b>@pedidosSeleccionados.Count</b>
+                        <span>pedido(s) seleccionado(s) para un solo documento</span>
+                    </div>
+                    <div class="gp-btn-group">
+                        <button type="button" class="gp-btn gp-btn-outline gp-btn-sm" title="Elegir columnas del documento" @onclick="AbrirColumnasSeleccion">
+                            <i class="bi bi-layout-three-columns"></i> Columnas
+                        </button>
+                        <button type="button" class="gp-btn gp-btn-ok gp-btn-sm" disabled="@exportando" @onclick="() => ExportarSeleccionadosAsync(true)">
+                            <i class="bi bi-file-earmark-word"></i> Word
+                        </button>
+                        <button type="button" class="gp-btn gp-btn-primary gp-btn-sm" disabled="@exportando" @onclick="() => ExportarSeleccionadosAsync(false)">
+                            <i class="bi bi-file-earmark-pdf"></i> PDF
+                        </button>
+                        <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm" @onclick="LimpiarSeleccion">Limpiar</button>
+                    </div>
+                </div>
+            }
+        </section>
+    }
+</div>
+
+@if (mostrarModalColumnas)
+{
+    <div class="gp-scope gp-modal-backdrop" @onclick="CerrarModalColumnas">
+        <div class="gp-modal" role="dialog" aria-modal="true" aria-labelledby="gpColsTitulo" @onclick:stopPropagation="true">
+            <div class="gp-modal-head">
+                <span class="gp-bubble gp-bubble-sm"><i class="bi bi-layout-three-columns"></i></span>
+                <div>
+                    <h3 id="gpColsTitulo">Columnas del documento</h3>
+                    <p>Tildá las columnas que querés ver y ordenalas con las flechas. Cada proveedor tiene las suyas.</p>
+                </div>
+                <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm gp-btn-icon gp-modal-x" aria-label="Cerrar" @onclick="CerrarModalColumnas"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="gp-modal-body">
+                @foreach (var par in edicionColumnas)
+                {
+                    var listaCols = par.Value;
+                    <div class="gp-colgroup">
+                        <div class="gp-colgroup-title"><i class="bi bi-truck"></i> @obtenerNombreProveedor(par.Key)</div>
+                        <ul class="gp-collist">
+                            @for (int i = 0; i < listaCols.Count; i++)
+                            {
+                                var idx = i;
+                                var col = listaCols[i];
+                                var orden = listaCols.Take(i + 1).Count(c => c.Activa);
+                                <li class="gp-colitem @(col.Activa ? "" : "is-off")">
+                                    <label>
+                                        <input class="gp-check" type="checkbox" @bind="col.Activa" />
+                                        <span>@col.Etiqueta</span>
+                                    </label>
+                                    @if (col.Activa)
+                                    {
+                                        <span class="gp-ord" title="Posición en el documento">@orden</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="gp-ord is-empty"></span>
+                                    }
+                                    <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm gp-btn-icon" aria-label="Subir" disabled="@(idx == 0)"
+                                            @onclick="() => MoverColumna(listaCols, idx, -1)">
+                                        <i class="bi bi-arrow-up"></i>
+                                    </button>
+                                    <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm gp-btn-icon" aria-label="Bajar" disabled="@(idx == listaCols.Count - 1)"
+                                            @onclick="() => MoverColumna(listaCols, idx, 1)">
+                                        <i class="bi bi-arrow-down"></i>
+                                    </button>
+                                </li>
+                            }
+                        </ul>
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(errorColumnas))
+                {
+                    <div class="gp-banner is-danger" role="alert"><i class="bi bi-exclamation-triangle-fill"></i><p>@errorColumnas</p></div>
+                }
+            </div>
+            <div class="gp-modal-foot">
+                <button type="button" class="gp-btn gp-btn-ghost" @onclick="CerrarModalColumnas">Cancelar</button>
+                <button type="button" class="gp-btn gp-btn-outline" title="Vale hasta que salgas de esta pantalla" @onclick="AplicarColumnasSoloEstaVez">Usar solo esta vez</button>
+                <button type="button" class="gp-btn gp-btn-primary" @onclick="GuardarColumnasEnProveedorAsync">Guardar para el proveedor</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private AvisosPagina avisos = default!;
+    private string busquedaHistorial = "";
+
+    /// <summary>Ruta de la página de compras al mayorista (el pedido se abre con ?pedido=ID). Ajustala a tu ruta real.</summary>
+    [Parameter] public string RutaRecibir { get; set; } = "/compras-mayorista";
+
+    private string pestanaActiva = "armar";
+    private string filtroEstado = "Pendiente";
+
+    private List<ListaPedido> pedidos = new();
+    private List<ListaPedido> pedidosFiltrados = new();
+    private List<Proveedor> proveedores = new();
+
+    // Pedidos tildados para agrupar en un solo documento
+    private HashSet<long> pedidosSeleccionados = new();
+    private bool exportando = false;
+    private string? errorGeneral;
+
+    // Vista de detalle de un pedido
+    private ListaPedido? pedidoDetalle;
+    private List<ListaPedidoDetalle> detalleItems = new();
+    private bool cargandoDetalle = false;
+    private string? errorDetalle;
+
+    private IJSObjectReference? jsModulo;
+
+    // ---------- Columnas del documento (por proveedor) ----------
+    private sealed record DefColumna(string Key, string Etiqueta, string Titulo, bool Numerica);
+
+    private static readonly List<DefColumna> ColumnasDisponibles = new()
+    {
+        new("codigo_proveedor", "Código del proveedor", "Código", false),
+        new("producto",         "Producto",             "Producto", false),
+        new("cantidad",         "Cantidad",             "Cantidad", true),
+        new("costo",            "Costo estimado",       "Costo est.", true),
+        new("subtotal",         "Subtotal estimado",    "Subtotal est.", true),
+    };
+
+    // Si el proveedor no tiene nada guardado se usan estas
+    private static readonly string[] ColumnasPorDefecto = { "codigo_proveedor", "producto", "cantidad" };
+
+    private sealed class ColumnaEditable
+    {
+        public string Key { get; set; } = "";
+        public string Etiqueta { get; set; } = "";
+        public bool Activa { get; set; }
+    }
+
+    private bool mostrarModalColumnas = false;
+    private string? errorColumnas;
+    private Dictionary<long, List<ColumnaEditable>> edicionColumnas = new();
+
+    // Columnas elegidas con "Usar solo esta vez" (no se guardan en la base)
+    private Dictionary<long, List<string>> columnasTemporales = new();
+
+    private int pedidosPendientesCount => pedidos.Count(p => p.Estado == "Pendiente");
+
+    // Solo se puede modificar un pedido que todavía no se envió
+    private bool puedeEditar => pedidoDetalle?.Estado == "Pendiente";
+
+    private bool TodosSeleccionados =>
+        pedidosFiltrados.Any() && pedidosFiltrados.All(p => pedidosSeleccionados.Contains(p.Id));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarProveedoresYPedidosAsync();
+    }
+
+    private async Task CargarProveedoresYPedidosAsync()
+    {
+        try
+        {
+            errorGeneral = null;
+
+            var resProv = await SupaClient.From<Proveedor>()
+                .Where(p => p.KioscoId == State.KioscoId)
+                .Get();
+            proveedores = resProv.Models.ToList();
+
+            var resPedidos = await SupaClient.From<ListaPedido>()
+                .Where(p => p.KioscoId == State.KioscoId)
+                .Order("fecha", Supabase.Postgrest.Constants.Ordering.Descending)
+                .Get();
+
+            pedidos = resPedidos.Models.ToList();
+            FiltrarPorEstado(filtroEstado);
+        }
+        catch (Exception ex)
+        {
+            errorGeneral = "No se pudieron cargar los pedidos: " + ex.Message;
+        }
+    }
+
+    // Lo llama el componente de armado cuando se guardó un pedido: solo refresca el historial
+    private async Task OnPedidoGuardado()
+    {
+        await CargarProveedoresYPedidosAsync();
+    }
+
+    private void CambiarPestana(string pestana)
+    {
+        pestanaActiva = pestana;
+    }
+
+    private static string ClasePill(string? estado) => estado switch
+    {
+        "Pendiente" => "is-pend",
+        "Recibido" => "is-rec",
+        _ => "is-env"
+    };
+
+    private void RecibirPedido(ListaPedido pedido)
+    {
+        Nav.NavigateTo($"{RutaRecibir}?pedido={pedido.Id}");
+    }
+
+    private void FiltrarPorEstado(string estado)
+    {
+        filtroEstado = estado;
+        var baseLista = estado == "Todos" ? pedidos : pedidos.Where(p => p.Estado == estado).ToList();
+
+        var texto = Normalizar(busquedaHistorial);
+        pedidosFiltrados = string.IsNullOrWhiteSpace(texto)
+            ? baseLista.ToList()
+            : baseLista.Where(p => Normalizar($"{p.NombreListado} {obtenerNombreProveedor(p.ProveedorId)} {p.Fecha:dd/MM/yyyy}").Contains(texto)).ToList();
+
+        // Si quedan tildados pedidos que ya no se ven, se destildan
+        pedidosSeleccionados.IntersectWith(pedidosFiltrados.Select(p => p.Id));
+    }
+
+    private void AplicarBusquedaHistorial() => FiltrarPorEstado(filtroEstado);
+
+    private void LimpiarBusquedaHistorial()
+    {
+        busquedaHistorial = "";
+        FiltrarPorEstado(filtroEstado);
+    }
+
+    private static string Normalizar(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return "";
+        var d = s.Normalize(NormalizationForm.FormD);
+        var sb = new StringBuilder(d.Length);
+        foreach (var c in d)
+            if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark) sb.Append(c);
+        return sb.ToString().ToLowerInvariant().Trim();
+    }
+
+    private string obtenerNombreProveedor(long provId)
+    {
+        return proveedores.FirstOrDefault(p => p.Id == provId)?.Nombre ?? "Proveedor N/D";
+    }
+
+    private static string TituloPedido(ListaPedido p) =>
+        string.IsNullOrWhiteSpace(p.NombreListado)
+            ? $"Pedido del {p.Fecha.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture)}"
+            : p.NombreListado!;
+
+    // ======================= SELECCIÓN PARA AGRUPAR =======================
+
+    private void TogglePedido(long id, ChangeEventArgs e)
+    {
+        if ((bool)(e.Value ?? false)) pedidosSeleccionados.Add(id);
+        else pedidosSeleccionados.Remove(id);
+    }
+
+    private void ToggleTodos(ChangeEventArgs e)
+    {
+        bool marcar = (bool)(e.Value ?? false);
+        foreach (var p in pedidosFiltrados)
+        {
+            if (marcar) pedidosSeleccionados.Add(p.Id);
+            else pedidosSeleccionados.Remove(p.Id);
+        }
+    }
+
+    private void LimpiarSeleccion() => pedidosSeleccionados.Clear();
+
+    private async Task ExportarSeleccionadosAsync(bool word)
+    {
+        var lista = pedidos
+            .Where(p => pedidosSeleccionados.Contains(p.Id))
+            .OrderBy(p => p.Fecha)
+            .ToList();
+
+        await ExportarAsync(lista, word);
+    }
+
+    // ======================= DETALLE DEL PEDIDO =======================
+
+    private async Task AbrirDetalleAsync(ListaPedido pedido)
+    {
+        errorDetalle = null;
+        pedidoDetalle = pedido;
+        detalleItems = new();
+        cargandoDetalle = true;
+
+        try
+        {
+            var idPedido = pedido.Id;
+            var res = await SupaClient.From<ListaPedidoDetalle>()
+                .Where(d => d.PedidoId == idPedido)
+                .Get();
+
+            detalleItems = res.Models.OrderBy(d => d.NombreProducto).ToList();
+        }
+        catch (Exception ex)
+        {
+            errorDetalle = "No se pudo cargar el detalle: " + ex.Message;
+        }
+        finally
+        {
+            cargandoDetalle = false;
+        }
+    }
+
+    private void CerrarDetalle()
+    {
+        pedidoDetalle = null;
+        detalleItems = new();
+        errorDetalle = null;
+    }
+
+    private async Task CambiarNombreAsync(ChangeEventArgs e)
+    {
+        if (pedidoDetalle == null) return;
+        errorDetalle = null;
+
+        var nuevo = e.Value?.ToString()?.Trim() ?? "";
+
+        try
+        {
+            var idPedido = pedidoDetalle.Id;
+            await SupaClient.From<ListaPedido>()
+                .Where(p => p.Id == idPedido)
+                .Set(p => p.NombreListado, nuevo)
+                .Update();
+
+            pedidoDetalle.NombreListado = nuevo;
+            avisos.Toast("Nombre actualizado", "exito", 2000);
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudo cambiar el nombre", ex.Message, "peligro");
+        }
+    }
+
+    private async Task CambiarCantidadAsync(ListaPedidoDetalle d, ChangeEventArgs e)
+    {
+        if (!puedeEditar) return;
+        errorDetalle = null;
+
+        if (!decimal.TryParse(e.Value?.ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out decimal nueva) || nueva <= 0)
+        {
+            await avisos.InformarAsync("Cantidad incorrecta", "La cantidad tiene que ser un número mayor a 0.", "aviso");
+            StateHasChanged();
+            return;
+        }
+
+        // El subtotal se recalcula en proporción, así respeta la misma fórmula con la que se guardó (unidades o gramos)
+        decimal nuevoSubtotal = d.CantidadComprar > 0
+            ? Math.Round(d.SubtotalEstimado / d.CantidadComprar * nueva, 2)
+            : Math.Round(nueva * d.PrecioCosto, 2);
+
+        try
+        {
+            var idDetalle = d.Id;
+            await SupaClient.From<ListaPedidoDetalle>()
+                .Where(x => x.Id == idDetalle)
+                .Set(x => x.CantidadComprar, nueva)
+                .Set(x => x.SubtotalEstimado, nuevoSubtotal)
+                .Update();
+
+            d.CantidadComprar = nueva;
+            d.SubtotalEstimado = nuevoSubtotal;
+
+            await ActualizarMontoPedidoAsync();
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudo cambiar la cantidad", ex.Message, "peligro");
+        }
+    }
+
+    private async Task EliminarProductoAsync(ListaPedidoDetalle d)
+    {
+        if (!puedeEditar || pedidoDetalle == null) return;
+        errorDetalle = null;
+
+        bool esUltimo = detalleItems.Count == 1;
+        var titulo = esUltimo ? "Es el último producto" : "¿Quitar del pedido?";
+        var mensaje = esUltimo
+            ? $"'{d.NombreProducto}' es el último producto: se va a eliminar todo el pedido."
+            : $"Se va a quitar '{d.NombreProducto}' de este pedido.";
+
+        if (!await avisos.ConfirmarAsync(titulo, mensaje, esUltimo ? "Eliminar pedido" : "Quitar")) return;
+
+        try
+        {
+            if (esUltimo)
+            {
+                await BorrarPedidoAsync(pedidoDetalle);
+                avisos.Toast("Pedido eliminado", "exito", 2500);
+                return;
+            }
+
+            var idDetalle = d.Id;
+            await SupaClient.From<ListaPedidoDetalle>()
+                .Where(x => x.Id == idDetalle)
+                .Delete();
+
+            detalleItems.Remove(d);
+            await ActualizarMontoPedidoAsync();
+            avisos.Toast("Producto quitado del pedido", "exito", 2500);
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudo quitar el producto", ex.Message, "peligro");
+        }
+    }
+
+    private async Task ActualizarMontoPedidoAsync()
+    {
+        if (pedidoDetalle == null) return;
+
+        var total = detalleItems.Sum(x => x.SubtotalEstimado);
+        var idPedido = pedidoDetalle.Id;
+
+        await SupaClient.From<ListaPedido>()
+            .Where(p => p.Id == idPedido)
+            .Set(p => p.MontoEstimado, total)
+            .Update();
+
+        pedidoDetalle.MontoEstimado = total;
+    }
+
+    // ======================= COLUMNAS DEL DOCUMENTO =======================
+
+    private static List<string> ParsearColumnas(string? csv) =>
+        (csv ?? "")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(k => ColumnasDisponibles.Any(c => c.Key == k))
+            .Distinct()
+            .ToList();
+
+    /// <summary>Columnas a usar para un proveedor: la de "solo esta vez", si no la guardada, si no la de por defecto.</summary>
+    private List<string> ObtenerColumnas(long provId)
+    {
+        if (columnasTemporales.TryGetValue(provId, out var temporal)) return temporal;
+
+        var guardadas = ParsearColumnas(proveedores.FirstOrDefault(p => p.Id == provId)?.ColumnasPedido);
+        return guardadas.Any() ? guardadas : ColumnasPorDefecto.ToList();
+    }
+
+    private void AbrirColumnasSeleccion()
+    {
+        var provIds = pedidos
+            .Where(p => pedidosSeleccionados.Contains(p.Id))
+            .Select(p => p.ProveedorId);
+
+        AbrirColumnas(provIds);
+    }
+
+    private void AbrirColumnas(IEnumerable<long> provIds)
+    {
+        errorColumnas = null;
+        edicionColumnas = new();
+
+        foreach (var id in provIds.Distinct())
+        {
+            var activas = ObtenerColumnas(id);
+            var lista = new List<ColumnaEditable>();
+
+            // Primero las activas, en su orden; después el resto (destildadas)
+            foreach (var key in activas)
+            {
+                var def = ColumnasDisponibles.First(c => c.Key == key);
+                lista.Add(new ColumnaEditable { Key = def.Key, Etiqueta = def.Etiqueta, Activa = true });
+            }
+            foreach (var def in ColumnasDisponibles.Where(c => !activas.Contains(c.Key)))
+            {
+                lista.Add(new ColumnaEditable { Key = def.Key, Etiqueta = def.Etiqueta, Activa = false });
+            }
+
+            edicionColumnas[id] = lista;
+        }
+
+        mostrarModalColumnas = edicionColumnas.Any();
+    }
+
+    private void CerrarModalColumnas()
+    {
+        mostrarModalColumnas = false;
+        errorColumnas = null;
+    }
+
+    private void MoverColumna(List<ColumnaEditable> lista, int indice, int direccion)
+    {
+        int destino = indice + direccion;
+        if (destino < 0 || destino >= lista.Count) return;
+
+        (lista[indice], lista[destino]) = (lista[destino], lista[indice]);
+    }
+
+    private bool TryLeerEdicion(out Dictionary<long, List<string>> resultado)
+    {
+        resultado = new();
+        errorColumnas = null;
+
+        foreach (var par in edicionColumnas)
+        {
+            var keys = par.Value.Where(c => c.Activa).Select(c => c.Key).ToList();
+            if (!keys.Any())
+            {
+                errorColumnas = $"Elegí al menos una columna para {obtenerNombreProveedor(par.Key)}.";
+                return false;
+            }
+            resultado[par.Key] = keys;
+        }
+        return true;
+    }
+
+    private void AplicarColumnasSoloEstaVez()
+    {
+        if (!TryLeerEdicion(out var elegidas)) return;
+
+        foreach (var par in elegidas)
+            columnasTemporales[par.Key] = par.Value;
+
+        mostrarModalColumnas = false;
+    }
+
+    private async Task GuardarColumnasEnProveedorAsync()
+    {
+        if (!TryLeerEdicion(out var elegidas)) return;
+
+        try
+        {
+            foreach (var par in elegidas)
+            {
+                var idProv = par.Key;
+                var csv = string.Join(",", par.Value);
+
+                await SupaClient.From<Proveedor>()
+                    .Where(p => p.Id == idProv)
+                    .Set(p => p.ColumnasPedido, csv)
+                    .Update();
+
+                var prov = proveedores.FirstOrDefault(p => p.Id == idProv);
+                if (prov != null) prov.ColumnasPedido = csv;
+
+                columnasTemporales.Remove(idProv);
+            }
+
+            mostrarModalColumnas = false;
+            _ = avisos.GuardadoAsync("Columnas guardadas para el proveedor");
+        }
+        catch (Exception ex)
+        {
+            errorColumnas = "No se pudieron guardar las columnas: " + ex.Message;
+        }
+    }
+
+    // ======================= EXPORTAR A WORD / PDF =======================
+
+    private async Task<IJSObjectReference> ObtenerModuloAsync()
+    {
+        // El archivo vive en el proyecto compartido (RCL), por eso se pide con la ruta _content/<NombreDelProyecto>/
+        // El "?v=2" obliga al navegador a bajar la versión nueva; subir el número cada vez que se cambie descargas.js
+        jsModulo ??= await JSRuntime.InvokeAsync<IJSObjectReference>("import", "./_content/BlazorKioscoCompartido/js/descargas.js?v=2");
+        return jsModulo;
+    }
+
+    private async Task ExportarAsync(List<ListaPedido> lista, bool word)
+    {
+        if (!lista.Any()) return;
+
+        exportando = true;
+        errorGeneral = null;
+        errorDetalle = null;
+
+        try
+        {
+            var detalles = await CargarDetallesAsync(lista);
+            var js = await ObtenerModuloAsync();
+            var archivo = NombreArchivo(lista);
+
+            if (word)
+            {
+                var html = ConstruirDocumentoHtml(lista, detalles, true);
+                await js.InvokeVoidAsync("descargarArchivo", archivo + ".doc", "application/msword", html);
+            }
+            else
+            {
+                // El PDF se arma y se descarga directo (sin cuadro de impresión)
+                var datos = ConstruirDatosPdf(lista, detalles, archivo + ".pdf");
+                await js.InvokeVoidAsync("generarPdf", datos);
+            }
+
+            avisos.Toast(word ? "Word descargado" : "PDF descargado", "exito");
+        }
+        catch (Exception ex)
+        {
+            await MostrarError("No se pudo generar el documento", ex.Message);
+        }
+        finally
+        {
+            exportando = false;
+        }
+    }
+
+    private string NombreArchivo(List<ListaPedido> lista)
+    {
+        var provs = lista.Select(p => p.ProveedorId).Distinct().ToList();
+        var nombre = provs.Count == 1 && !EsSinProveedor(obtenerNombreProveedor(provs[0]))
+            ? $"Pedido {obtenerNombreProveedor(provs[0])}"
+            : "Pedido";
+
+        nombre += " " + DateTime.Now.ToString("yyyy-MM-dd");
+
+        foreach (var c in System.IO.Path.GetInvalidFileNameChars())
+            nombre = nombre.Replace(c, '_');
+
+        return nombre;
+    }
+
+    private static string ClaseColumna(DefColumna c) =>
+        c.Numerica ? "num" : c.Key == "codigo_proveedor" ? "cod" : "";
+
+    private static bool EsSinProveedor(string nombre) =>
+        string.Equals(nombre?.Trim(), "SIN PROVEEDOR", StringComparison.OrdinalIgnoreCase);
+
+    private static string H(string? texto) => WebUtility.HtmlEncode(texto ?? "");
+
+    /// <summary>
+    /// Arma un solo documento con todos los pedidos recibidos: un título por proveedor
+    /// y, debajo, un bloque por cada listado (Lácteos, Galletitas, etc.) con su tabla de productos.
+    /// El mismo HTML sirve para Word (.doc) y para imprimir / guardar como PDF.
+    /// </summary>
+    private string ConstruirDocumentoHtml(List<ListaPedido> lista, Dictionary<long, List<ListaPedidoDetalle>> detalles, bool paraWord)
+    {
+        var cult = CultureInfo.GetCultureInfo("es-AR");
+        var sb = new StringBuilder();
+
+        sb.Append("<html");
+        if (paraWord)
+            sb.Append(" xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'");
+        sb.Append("><head><meta charset='utf-8'><title>Pedido</title>");
+        if (paraWord)
+            sb.Append("<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]-->");
+
+        sb.Append("<style>");
+        sb.Append("body{font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#000;}");
+        sb.Append("h1{font-size:18pt;margin:0 0 6pt 0;}");
+        sb.Append("h2{font-size:13pt;margin:16pt 0 2pt 0;background:#e9ecef;padding:3pt 6pt;}");
+        sb.Append(".meta{color:#555;font-size:9pt;margin:0 0 4pt 0;}");
+        sb.Append("table{border-collapse:collapse;width:100%;}");
+        sb.Append("th,td{border:1px solid #999;padding:3pt 6pt;font-size:10.5pt;}");
+        sb.Append("th{background:#f1f3f5;text-align:left;}");
+        sb.Append(".num{text-align:right;width:70pt;}");
+        sb.Append(".cod{width:110pt;}");
+        sb.Append("tr{page-break-inside:avoid;}");
+        sb.Append("@page{margin:1.5cm;}");
+        sb.Append("</style></head><body>");
+
+        bool primero = true;
+        foreach (var grupo in lista.GroupBy(p => p.ProveedorId))
+        {
+            var nombreProv = obtenerNombreProveedor(grupo.Key);
+            var estilo = primero ? "" : " style='page-break-before:always'";
+            primero = false;
+
+            var titulo = EsSinProveedor(nombreProv) ? "Listado de pedido" : $"Pedido a {nombreProv}";
+            sb.Append($"<h1{estilo}>{H(titulo)}</h1>");
+
+            // Columnas de este proveedor (en el orden elegido)
+            var cols = ObtenerColumnas(grupo.Key)
+                .Select(k => ColumnasDisponibles.First(c => c.Key == k))
+                .ToList();
+
+            foreach (var p in grupo.OrderBy(x => x.Fecha))
+            {
+                sb.Append($"<h2>{H(TituloPedido(p))}</h2>");
+                sb.Append($"<p class='meta'>Fecha del pedido: {p.Fecha.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture)}</p>");
+                sb.Append("<table><thead><tr>");
+                foreach (var c in cols)
+                {
+                    sb.Append($"<th class='{ClaseColumna(c)}'>{H(c.Titulo)}</th>");
+                }
+                sb.Append("</tr></thead><tbody>");
+
+                var filas = detalles.TryGetValue(p.Id, out var f) ? f : new List<ListaPedidoDetalle>();
+                if (!filas.Any())
+                {
+                    sb.Append($"<tr><td colspan='{cols.Count}'>Sin productos</td></tr>");
+                }
+
+                foreach (var d in filas)
+                {
+                    sb.Append("<tr>");
+                    foreach (var c in cols)
+                    {
+                        string valor = ValorColumna(c.Key, d, cult);
+                        sb.Append($"<td class='{ClaseColumna(c)}'>").Append(H(valor)).Append("</td>");
+                    }
+                    sb.Append("</tr>");
+                }
+
+                sb.Append("</tbody></table>");
+            }
+        }
+
+        sb.Append("</body></html>");
+        return sb.ToString();
+    }
+
+    // ======================= DATOS PARA LOS DOCUMENTOS =======================
+
+    private async Task<Dictionary<long, List<ListaPedidoDetalle>>> CargarDetallesAsync(List<ListaPedido> lista)
+    {
+        // Una consulta por pedido para no chocar con el límite de filas
+        var detalles = new Dictionary<long, List<ListaPedidoDetalle>>();
+        foreach (var p in lista)
+        {
+            var idPedido = p.Id;
+            var res = await SupaClient.From<ListaPedidoDetalle>()
+                .Where(d => d.PedidoId == idPedido)
+                .Get();
+
+            detalles[p.Id] = res.Models.OrderBy(d => d.NombreProducto).ToList();
+        }
+        return detalles;
+    }
+
+    private static string ValorColumna(string key, ListaPedidoDetalle d, CultureInfo cult) => key switch
+    {
+        "codigo_proveedor" => string.IsNullOrWhiteSpace(d.CodigoBarrasProveedor) ? "-" : d.CodigoBarrasProveedor!,
+        "producto" => d.NombreProducto ?? "",
+        "cantidad" => d.UnidadesPorBulto > 1
+            ? $"{d.CantidadComprar.ToString("0.##", cult)} {BlazorKioscoCompartido.Constants.TiposBulto.Texto(d.TipoBulto, d.UnidadesPorBulto, d.CantidadComprar)}"   // al proveedor no se le dice cuántas unidades (es un dato interno)
+            : !BlazorKioscoCompartido.Constants.TiposBulto.EsSuelto(d.TipoBulto, d.UnidadesPorBulto)
+            ? $"{d.CantidadComprar.ToString("0.##", cult)} {BlazorKioscoCompartido.Constants.TiposBulto.Texto(d.TipoBulto, d.UnidadesPorBulto, d.CantidadComprar)}"
+            : d.CantidadComprar.ToString("0.##", cult),
+        "costo" => d.PrecioCosto.ToString("N2", cult),
+        "subtotal" => d.SubtotalEstimado.ToString("N2", cult),
+        _ => ""
+    };
+
+    // Ancho de cada columna en el PDF (0 = ocupa el resto)
+    private static int AnchoPdf(string key) => key switch
+    {
+        "codigo_proveedor" => 100,
+        "cantidad" => 90,
+        "costo" or "subtotal" => 85,
+        _ => 0
+    };
+
+    /// <summary>Mismos datos que el Word (columnas por proveedor, un bloque por listado), pero para armar el PDF en el navegador.</summary>
+    private object ConstruirDatosPdf(List<ListaPedido> lista, Dictionary<long, List<ListaPedidoDetalle>> detalles, string archivo)
+    {
+        var cult = CultureInfo.GetCultureInfo("es-AR");
+
+        var grupos = lista.GroupBy(p => p.ProveedorId).Select(grupo =>
+        {
+            var nombreProv = obtenerNombreProveedor(grupo.Key);
+            var cols = ObtenerColumnas(grupo.Key)
+                .Select(k => ColumnasDisponibles.First(c => c.Key == k))
+                .ToList();
+
+            return new
+            {
+                titulo = EsSinProveedor(nombreProv) ? "Listado de pedido" : $"Pedido a {nombreProv}",
+                columnas = cols.Select(c => new { titulo = c.Titulo, numerica = c.Numerica, ancho = AnchoPdf(c.Key) }).ToList(),
+                pedidos = grupo.OrderBy(x => x.Fecha).Select(p => new
+                {
+                    titulo = TituloPedido(p),
+                    fecha = p.Fecha.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture),
+                    filas = (detalles.TryGetValue(p.Id, out var f) ? f : new List<ListaPedidoDetalle>())
+                        .Select(d => cols.Select(c => ValorColumna(c.Key, d, cult)).ToList())
+                        .ToList()
+                }).ToList()
+            };
+        }).ToList();
+
+        return new { archivo, grupos };
+    }
+
+    // ======================= CERRAR / ELIMINAR PEDIDO =======================
+
+    private Task MostrarError(string titulo, string detalle) =>
+        avisos.InformarAsync(titulo, detalle, "peligro");
+
+    /// <summary>Marca el pedido como "Enviado": desde ese momento queda solo para consulta.</summary>
+    private async Task CerrarPedidoAsync(ListaPedido pedido)
+    {
+        if (pedido.Estado != "Pendiente") return;
+        errorGeneral = null;
+        errorDetalle = null;
+
+        var mensaje = $"'{TituloPedido(pedido)}' pasa a \"Enviado\" y ya no se van a poder modificar sus productos.";
+        if (!await avisos.ConfirmarAsync("¿Cerrar el pedido?", mensaje, "Cerrar pedido", "exito")) return;
+
+        try
+        {
+            var idPedido = pedido.Id;
+            await SupaClient.From<ListaPedido>()
+                .Where(x => x.Id == idPedido)
+                .Set(x => x.Estado, "Enviado")
+                .Update();
+
+            pedido.Estado = "Enviado";
+            FiltrarPorEstado(filtroEstado);   // si se está viendo "Pendientes", sale de la lista
+            _ = avisos.GuardadoAsync("Pedido cerrado: marcado como enviado");
+        }
+        catch (Exception ex)
+        {
+            await MostrarError("No se pudo cerrar el pedido", ex.Message);
+        }
+    }
+
+    /// <summary>Elimina el listado completo (con confirmación).</summary>
+    private async Task EliminarListadoAsync(ListaPedido pedido)
+    {
+        errorGeneral = null;
+        errorDetalle = null;
+
+        var aviso = pedido.Estado == "Enviado" ? "Este pedido ya fue enviado.\n" : "";
+        var mensaje = $"{aviso}Se va a eliminar '{TituloPedido(pedido)}' con todos sus productos. No se puede deshacer.";
+        if (!await avisos.ConfirmarAsync("¿Eliminar el listado?", mensaje, "Eliminar")) return;
+
+        try
+        {
+            await BorrarPedidoAsync(pedido);
+            avisos.Toast("Listado eliminado", "exito");
+        }
+        catch (Exception ex)
+        {
+            await MostrarError("No se pudo eliminar el listado", ex.Message);
+        }
+    }
+
+    /// <summary>Borra el pedido y sus renglones, sin preguntar.</summary>
+    private async Task BorrarPedidoAsync(ListaPedido pedido)
+    {
+        var idPedido = pedido.Id;
+
+        await SupaClient.From<ListaPedidoDetalle>().Where(x => x.PedidoId == idPedido).Delete();
+        await SupaClient.From<ListaPedido>().Where(p => p.Id == idPedido).Delete();
+
+        pedidos.RemoveAll(p => p.Id == idPedido);
+        pedidosSeleccionados.Remove(idPedido);
+
+        if (pedidoDetalle?.Id == idPedido) CerrarDetalle();
+        FiltrarPorEstado(filtroEstado);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (jsModulo != null)
+        {
+            try { await jsModulo.DisposeAsync(); } catch { /* el circuito ya pudo haberse cerrado */ }
+        }
+    }
+}

@@ -1,0 +1,97 @@
+﻿@implements IDisposable
+@inject AppState State
+@inject IJSRuntime JS
+
+@* Pinta la app con el color que eligió el dueño (barra de arriba, login, botones, menú).
+   Se pone UNA vez en cada MainLayout (celular y escritorio). *@
+@((MarkupString)$"<style>{Css}</style>")
+
+<style>
+    /* Íconos que Bootstrap Icons no trae (golosinas y helados): se dibujan con una máscara SVG
+       y toman el color del texto, igual que el resto de los íconos "bi". */
+    .bi-candy::before, .bi-ice-cream::before {
+        content: "" !important; display: inline-block; width: 1em; height: 1em; vertical-align: -.125em;
+        background-color: currentColor;
+        -webkit-mask: var(--bi-svg) no-repeat center / contain; mask: var(--bi-svg) no-repeat center / contain;
+    }
+    .bi-candy { --bi-svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='3.4'/%3E%3Cpath d='M4.9 8 .8 4.8v6.4zM11.1 8l4.1-3.2v6.4z'/%3E%3C/svg%3E"); }
+    .bi-ice-cream { --bi-svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a4 4 0 0 1 4 4c0 1.2-.5 2.2-1.3 2.9H5.3A3.9 3.9 0 0 1 4 5a4 4 0 0 1 4-4z'/%3E%3Cpath d='M4.6 8.9h6.8L8 15.6z'/%3E%3C/svg%3E"); }
+</style>
+
+@code {
+    private const string ClaveLocal = "mrv_color_tema";
+    private string? ultimoGuardado;
+
+    private string Css
+    {
+        get
+        {
+            var t = TemasColor.Buscar(State.ColorTema);
+            string p = t.Principal, d = t.Oscuro, s = t.Suave, rgb = TemasColor.Rgb(t.Principal);
+            return $@"
+:root {{
+  --tema-principal: {p}; --tema-oscuro: {d}; --tema-suave: {s};
+  --bs-primary: {p}; --bs-primary-rgb: {rgb};
+  --bs-link-color: {p}; --bs-link-color-rgb: {rgb}; --bs-link-hover-color: {d};
+  --bs-primary-text-emphasis: {d}; --bs-primary-bg-subtle: {s}; --bs-primary-border-subtle: {s};
+}}
+a, .btn-link {{ color: {p}; }}
+.btn-primary {{
+  --bs-btn-bg: {p}; --bs-btn-border-color: {p};
+  --bs-btn-hover-bg: {d}; --bs-btn-hover-border-color: {d};
+  --bs-btn-active-bg: {d}; --bs-btn-active-border-color: {d};
+  --bs-btn-disabled-bg: {p}; --bs-btn-disabled-border-color: {p};
+  background-color: {p}; border-color: {p};
+}}
+.btn-outline-primary {{
+  --bs-btn-color: {p}; --bs-btn-border-color: {p};
+  --bs-btn-hover-bg: {p}; --bs-btn-hover-border-color: {p};
+  --bs-btn-active-bg: {d}; --bs-btn-active-border-color: {d};
+  --bs-btn-disabled-color: {p}; --bs-btn-disabled-border-color: {p};
+}}
+.bg-primary-subtle {{ background-color: {s} !important; }}
+.form-control:focus, .form-select:focus {{ border-color: {p}; }}
+.footer-nav .nav-item.active {{ color: {p} !important; }}
+.vender-circle {{ background-color: {p} !important; }}
+.page > .sidebar {{ background-image: linear-gradient(180deg, {d} 0%, {p} 100%) !important; }}
+.login-container {{ background: linear-gradient(135deg, #f5f7fa 0%, {s} 100%) !important; }}
+.loading-progress circle:last-child {{ stroke: {p}; }}
+";
+        }
+    }
+
+    protected override void OnInitialized() => State.OnChange += Refrescar;
+
+    private void Refrescar() => InvokeAsync(StateHasChanged);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        try
+        {
+            if (firstRender && State.KioscoId == 0)
+            {
+                // Antes de loguearse no sabemos de qué negocio es: usamos el último color de este equipo
+                var guardado = await JS.InvokeAsync<string?>("localStorage.getItem", ClaveLocal);
+                if (!string.IsNullOrWhiteSpace(guardado) && guardado != State.ColorTema)
+                {
+                    State.ColorTema = guardado;
+                    ultimoGuardado = guardado;
+                    StateHasChanged();
+                    return;
+                }
+            }
+
+            if (State.KioscoId != 0 && State.ColorTema != ultimoGuardado)
+            {
+                ultimoGuardado = State.ColorTema;
+                await JS.InvokeVoidAsync("localStorage.setItem", ClaveLocal, State.ColorTema ?? TemasColor.PorDefecto);
+            }
+        }
+        catch
+        {
+            // sin localStorage (o durante el arranque) se usa el color por defecto
+        }
+    }
+
+    public void Dispose() => State.OnChange -= Refrescar;
+}

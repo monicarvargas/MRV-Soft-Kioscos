@@ -1,0 +1,317 @@
+﻿@page "/asistencia"
+@using BlazorKioscoCompartido.Models
+@using BlazorKioscoCompartido.Models.Vistas
+@using BlazorKioscoCompartido.Components
+@using System.Globalization
+@inject AppState State
+@inject AsistenciaService Asistencia
+@inject NavigationManager Nav
+
+<PedidosEstilos />
+<ConfigEstilos />
+<VentasEstilos />
+<AvisosPagina @ref="avisos" />
+
+<div class="container-fluid px-3 py-2 min-vh-100 style-notebook gp-scope gp-page">
+    <EncabezadoPagina Titulo="Asistencia del personal"
+                      Subtitulo="Entradas, salidas y horas trabajadas de cada empleado"
+                      IconoClass="bi-person-check-fill"
+                      ColorBorde="primary"
+                      ColorIcono="primary"
+                      MostrarBotonAyuda="false"
+                      RutaVolver="/productos" />
+
+    <div class="vt-wrap" style="display:flex; flex-direction:column; gap:1rem">
+
+        @* ================= PERÍODO ================= *@
+        <section class="gp-card gp-card-pad">
+            <div class="as-periodo">
+                <div class="gp-seg" role="group">
+                    <button type="button" class="@(periodo == "hoy" ? "is-active" : "")" @onclick='() => ElegirPeriodo("hoy")'>Hoy</button>
+                    <button type="button" class="@(periodo == "semana" ? "is-active" : "")" @onclick='() => ElegirPeriodo("semana")'>Esta semana</button>
+                    <button type="button" class="@(periodo == "mes" ? "is-active" : "")" @onclick='() => ElegirPeriodo("mes")'>Este mes</button>
+                    <button type="button" class="@(periodo == "mesant" ? "is-active" : "")" @onclick='() => ElegirPeriodo("mesant")'>Mes pasado</button>
+                </div>
+                <div class="as-fechas">
+                    <input type="date" class="gp-control" @bind="desde" @bind:after="ElegirManual" />
+                    <span>a</span>
+                    <input type="date" class="gp-control" @bind="hasta" @bind:after="ElegirManual" />
+                </div>
+            </div>
+        </section>
+
+        @if (cargando)
+        {
+            <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>Cargando...</p></div>
+        }
+        else if (!string.IsNullOrEmpty(error))
+        {
+            <div class="gp-banner is-danger"><i class="bi bi-exclamation-octagon-fill"></i><p>@error</p></div>
+        }
+        else
+        {
+            @* ================= TRABAJANDO AHORA ================= *@
+            @if (Abiertas.Any())
+            {
+                <section class="gp-card gp-card-pad">
+                    <div class="gp-card-head" style="margin-bottom:.6rem">
+                        <span class="gp-bubble gp-bubble-sm" style="background:var(--gp-ok-soft); color:var(--gp-ok)"><i class="bi bi-broadcast"></i></span>
+                        <div class="vt-head-text"><h2 style="font-size:1.05rem">Trabajando ahora</h2></div>
+                    </div>
+                    <div class="as-ahora">
+                        @foreach (var a in Abiertas)
+                        {
+                            <span class="as-ahora-item"><span class="as-dot"></span> <b>@a.Username</b> desde las @a.HoraEntrada (@Duracion(a.Minutos))</span>
+                        }
+                    </div>
+                </section>
+            }
+
+            @* ================= POR EMPLEADO ================= *@
+            @if (!registros.Any())
+            {
+                <section class="gp-card gp-card-pad">
+                    <div class="gp-empty">
+                        <span class="gp-bubble"><i class="bi bi-person-check"></i></span>
+                        <strong>No hay entradas en estas fechas</strong>
+                        <span>Cada vez que un empleado entra al sistema queda registrada su entrada. Los administradores no fichan.</span>
+                    </div>
+                </section>
+            }
+            @foreach (var emp in PorEmpleado)
+            {
+                <section class="gp-card gp-card-pad">
+                    <div class="gp-card-head" style="margin-bottom:.6rem">
+                        <span class="as-avatar">@Inicial(emp.Key)</span>
+                        <div class="vt-head-text">
+                            <h2 style="font-size:1.05rem">@emp.Key</h2>
+                            <p>@Roles.Legible(emp.First().Rol) · @(DiasTrabajados(emp) == 1 ? "1 día" : $"{DiasTrabajados(emp)} días")</p>
+                        </div>
+                        <div class="as-total vt-head-right">
+                            <span>Horas</span>
+                            <b>@Duracion(emp.Sum(x => x.Minutos))</b>
+                        </div>
+                    </div>
+
+                    <ul class="as-lista">
+                        @foreach (var a in emp.OrderByDescending(x => x.EntradaLocal))
+                        {
+                            <li class="@(a.Abierta ? "is-abierta" : "")">
+                                <span class="as-dia">@NombreDia(a.Dia)</span>
+                                <span class="as-horas">
+                                    <i class="bi bi-box-arrow-in-right"></i> @a.HoraEntrada
+                                    <i class="bi bi-arrow-right" style="opacity:.5"></i>
+                                    @if (a.Abierta)
+                                    {
+                                        <span class="as-tag is-ok">trabajando</span>
+                                    }
+                                    else
+                                    {
+                                        <span><i class="bi bi-box-arrow-right"></i> @(a.SalioOtroDia ? a.HoraSalida + " (+1)" : a.HoraSalida)</span>
+                                    }
+                                </span>
+                                <b class="as-dur">@Duracion(a.Minutos)</b>
+                                <span class="as-tag @ClaseCierre(a.Cierre)">@TextoCierre(a)</span>
+                                <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm gp-btn-icon" title="Corregir horas" @onclick="() => AbrirEdicion(a)"><i class="bi bi-pencil-fill"></i></button>
+                            </li>
+                        }
+                    </ul>
+                </section>
+            }
+        }
+    </div>
+</div>
+
+@* ===================== MODAL: CORREGIR HORAS ===================== *@
+@if (editando != null)
+{
+    <div class="gp-scope gp-modal-backdrop" @onclick="() => editando = null">
+        <div class="gp-modal" role="dialog" aria-modal="true" @onclick:stopPropagation="true">
+            <div class="gp-modal-head">
+                <span class="gp-bubble gp-bubble-sm"><i class="bi bi-pencil-square"></i></span>
+                <div>
+                    <h3>Corregir horas</h3>
+                    <p>@editando.Username · @NombreDia(editando.Dia)</p>
+                </div>
+                <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm gp-btn-icon gp-modal-x" aria-label="Cerrar" @onclick="() => editando = null"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="gp-modal-body">
+                <label class="cf-lbl">Entrada</label>
+                <div class="as-edit">
+                    <input type="date" class="gp-control" @bind="edEntradaDia" />
+                    <input type="time" class="gp-control" @bind="edEntradaHora" />
+                </div>
+                <label class="cf-lbl" style="margin-top:.8rem">Salida</label>
+                <div class="as-edit">
+                    <input type="date" class="gp-control" @bind="edSalidaDia" />
+                    <input type="time" class="gp-control" @bind="edSalidaHora" />
+                </div>
+                <div class="gp-hint" style="margin-top:.5rem"><i class="bi bi-info-circle" style="color:var(--gp-primary)"></i> Dejá la hora de salida vacía si todavía está trabajando.</div>
+            </div>
+            <div class="gp-modal-foot">
+                <button type="button" class="gp-btn gp-btn-ghost" @onclick="() => editando = null">Cancelar</button>
+                <button type="button" class="gp-btn gp-btn-ok" disabled="@guardando" @onclick="GuardarEdicion"><i class="bi bi-check-lg"></i> Guardar</button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .as-periodo { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .7rem; }
+    .as-fechas { display: flex; align-items: center; gap: .4rem; color: var(--gp-muted); font-weight: 700; }
+    .as-fechas .gp-control { width: auto; }
+    .as-ahora { display: flex; flex-wrap: wrap; gap: .45rem; }
+    .as-ahora-item { display: inline-flex; align-items: center; gap: .35rem; padding: .3rem .7rem; border-radius: 999px; background: var(--gp-ok-soft); color: var(--gp-ok); font-size: .84rem; font-weight: 600; }
+    .as-dot { width: .55rem; height: .55rem; border-radius: 50%; background: var(--gp-ok); animation: as-pulso 1.6s infinite; }
+    @@keyframes as-pulso { 50% { opacity: .3; } }
+    .as-avatar { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 2.6rem; height: 2.6rem; border-radius: 50%; background: var(--gp-primary-soft); color: var(--gp-primary); font-weight: 900; }
+    .as-total { display: flex; flex-direction: column; align-items: flex-end; }
+    .as-total span { color: var(--gp-muted); font-size: .72rem; font-weight: 700; }
+    .as-total b { font-size: 1.3rem; font-weight: 900; color: var(--gp-primary); white-space: nowrap; }
+    .as-lista { display: flex; flex-direction: column; gap: .35rem; margin: 0; padding: 0; list-style: none; }
+    .as-lista li { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr) 8.5rem auto auto; align-items: center; gap: .5rem; padding: .45rem .6rem; border: 1px solid var(--gp-line); border-radius: 12px; font-size: .86rem; }
+    .as-lista li.is-abierta { border-color: var(--gp-ok-line); background: #f6fdf9; }
+    .as-dia { font-weight: 800; text-transform: capitalize; }
+    .as-horas { display: inline-flex; flex-wrap: wrap; align-items: center; gap: .35rem; font-weight: 700; }
+    .as-horas i { color: var(--gp-muted); }
+    .as-dur { text-align: right; font-weight: 900; white-space: nowrap; }
+    .as-tag { padding: .05rem .5rem; border-radius: 999px; background: #f0f2f9; color: var(--gp-muted); font-size: .7rem; font-weight: 800; white-space: nowrap; }
+    .as-tag.is-ok { background: var(--gp-ok-soft); color: var(--gp-ok); }
+    .as-tag.is-auto { background: var(--gp-warn-soft); color: var(--gp-warn); }
+    .as-tag.is-manual { background: var(--gp-primary-soft); color: var(--gp-primary); }
+    .as-edit { display: grid; grid-template-columns: 1fr 8rem; gap: .5rem; }
+
+    @@media (max-width: 575.98px) {
+        .as-lista li { grid-template-columns: minmax(0, 1fr) auto auto; }
+        .as-horas { grid-column: 1 / -1; grid-row: 2; }
+        .as-tag { display: none; }
+    }
+</style>
+
+@code {
+    private AvisosPagina avisos = default!;
+    private List<AsistenciaVista> registros = new();
+    private bool cargando = true, guardando;
+    private string error = "";
+    private string periodo = "semana";
+    private DateTime desde = DateTime.Today, hasta = DateTime.Today;
+    private static readonly CultureInfo Ar = CultureInfo.GetCultureInfo("es-AR");
+
+    private bool EsAdmin => Roles.Puede(State.UsuarioRol, Roles.PPersonal);   // dueño (y los perfiles con permiso de personal)
+
+    private IEnumerable<AsistenciaVista> Abiertas => registros.Where(r => r.Abierta);
+    private IEnumerable<IGrouping<string, AsistenciaVista>> PorEmpleado => registros
+        .GroupBy(r => r.Username ?? "Usuario borrado")
+        .OrderByDescending(g => g.Sum(x => x.Minutos));
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!EsAdmin) { Nav.NavigateTo("/productos"); return; }   // los empleados no ven esto
+        ElegirPeriodoFechas("semana");
+        await Cargar();
+    }
+
+    // ===================== PERÍODO =====================
+    private void ElegirPeriodoFechas(string p)
+    {
+        periodo = p;
+        var hoy = DateTime.Today;
+        int dow = ((int)hoy.DayOfWeek + 6) % 7;   // lunes = 0
+        (desde, hasta) = p switch
+        {
+            "hoy" => (hoy, hoy),
+            "mes" => (new DateTime(hoy.Year, hoy.Month, 1), hoy),
+            "mesant" => (new DateTime(hoy.Year, hoy.Month, 1).AddMonths(-1), new DateTime(hoy.Year, hoy.Month, 1).AddDays(-1)),
+            _ => (hoy.AddDays(-dow), hoy)
+        };
+    }
+
+    private async Task ElegirPeriodo(string p) { ElegirPeriodoFechas(p); await Cargar(); }
+
+    private async Task ElegirManual()
+    {
+        periodo = "";
+        if (hasta < desde) hasta = desde;
+        await Cargar();
+    }
+
+    private async Task Cargar()
+    {
+        cargando = true;
+        error = "";
+        try { registros = await Asistencia.ObtenerAsync(State.KioscoId, desde, hasta); }
+        catch (Exception ex)
+        {
+            registros = new();
+            error = ex.Message.Contains("vw_asistencias") || ex.Message.Contains("asistencias")
+                ? "Falta correr el SQL de turnos y asistencia (turnos_asistencia.sql)."
+                : "No se pudo cargar la asistencia: " + ex.Message;
+        }
+        finally { cargando = false; }
+    }
+
+    // ===================== MOSTRAR =====================
+    /// <summary>Tiempo trabajado: 8 → "0 horas. 8 min"; 345 → "5 horas. 45 min"; 60 → "1 hora. 0 min".</summary>
+    private static string Duracion(int minutos)
+    {
+        if (minutos < 0) minutos = 0;   // control: una salida anterior a la entrada no resta horas
+        int h = minutos / 60, m = minutos % 60;
+        return $"{h} {(h == 1 ? "hora" : "horas")}. {m} min";
+    }
+
+    private static int DiasTrabajados(IEnumerable<AsistenciaVista> e) => e.Select(x => x.Dia).Distinct().Count();
+
+    private static string NombreDia(string dia) =>
+        DateTime.TryParse(dia, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d)
+            ? d.ToString("ddd d/M", Ar) : dia;
+
+    private static string TextoCierre(AsistenciaVista a) => a.Abierta ? "" : a.Cierre switch
+    {
+        "salio" => "salió",
+        "otro_usuario" => "entró otro",
+        "fin_turno" => "cerrado al fin del turno",
+        "manual" => "corregido",
+        _ => ""
+    };
+
+    private static string ClaseCierre(string? c) => c switch { "fin_turno" => "is-auto", "manual" => "is-manual", _ => "" };
+
+    private static string Inicial(string n) => string.IsNullOrWhiteSpace(n) ? "?" : n.Trim()[..1].ToUpper();
+
+    // ===================== CORREGIR =====================
+    private AsistenciaVista? editando;
+    private DateTime edEntradaDia, edSalidaDia;
+    private TimeOnly? edEntradaHora, edSalidaHora;
+
+    private void AbrirEdicion(AsistenciaVista a)
+    {
+        editando = a;
+        var ent = Parse(a.EntradaLocal) ?? DateTime.Today;
+        edEntradaDia = ent.Date; edEntradaHora = TimeOnly.FromDateTime(ent);
+        var sal = Parse(a.SalidaLocal);
+        edSalidaDia = (sal ?? ent).Date; edSalidaHora = sal.HasValue ? TimeOnly.FromDateTime(sal.Value) : null;
+    }
+
+    private static DateTime? Parse(string? s) =>
+        DateTime.TryParseExact(s, "yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ? d : null;
+
+    private async Task GuardarEdicion()
+    {
+        if (editando == null || edEntradaHora == null) { avisos.Toast("Poné la hora de entrada.", "peligro"); return; }
+        var entrada = edEntradaDia.Date + edEntradaHora.Value.ToTimeSpan();
+        DateTime? salida = edSalidaHora.HasValue ? edSalidaDia.Date + edSalidaHora.Value.ToTimeSpan() : null;
+        if (salida.HasValue && salida <= entrada) { avisos.Toast("La salida tiene que ser después de la entrada.", "peligro"); return; }
+
+        guardando = true;
+        try
+        {
+            await Asistencia.EditarAsync(editando.Id, entrada.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
+                                         salida?.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture));
+            editando = null;
+            _ = avisos.GuardadoAsync("Horas corregidas");
+            await Cargar();
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo guardar", ex.Message, "peligro"); }
+        finally { guardando = false; }
+    }
+}

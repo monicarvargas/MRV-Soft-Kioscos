@@ -1,0 +1,123 @@
+﻿@using BlazorKioscoCompartido.Constants
+@inject AppState State
+@inject Supabase.Client Db
+
+@* Unidades en que vende el negocio (Configuración → Unidades). Solo cambia lo que se ofrece en
+   "Se vende por" al cargar o editar un producto. Columna kioscos.unidades (_sql\24.unidades_negocio.sql). *@
+
+<AvisosPagina @ref="avisos" />
+
+<section class="gp-card gp-card-pad">
+    <div class="gp-card-head">
+        <span class="gp-bubble"><i class="bi bi-rulers"></i></span>
+        <div class="cf-head-text">
+            <h2>Unidades de venta</h2>
+            <p>Elegí cómo vende este negocio. Son las opciones de “Se vende por” al cargar un producto.</p>
+        </div>
+    </div>
+
+    @if (cargando)
+    {
+        <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>Cargando...</p></div>
+    }
+    else
+    {
+        <ul class="un-lista">
+            @foreach (var u in Unidades.Lista)
+            {
+                var fija = u == Unidades.Unidad;
+                var on = fija || elegidas.Contains(u);
+                <li class="@(on ? "is-on" : "") @(fija ? "is-fija" : "")" @onclick="() => Alternar(u)">
+                    <i class="bi @(on ? "bi-check-square-fill" : "bi-square") un-check"></i>
+                    <i class="bi @Unidades.Icono(u) un-ico"></i>
+                    <span class="un-txt">
+                        <b>@Unidades.Nombre(u)</b>
+                        <small>@Unidades.Ejemplo(u)</small>
+                    </span>
+                    @if (fija) { <span class="cf-tag">siempre</span> }
+                </li>
+            }
+        </ul>
+
+        <div class="gp-hint" style="margin-top:.8rem">
+            <i class="bi bi-info-circle-fill" style="color:var(--gp-primary)"></i>
+            Si sacás una unidad, los productos que ya la usan la conservan; solo deja de aparecer para los nuevos.
+        </div>
+
+        <div class="cf-form-actions" style="margin-top:1rem">
+            <button type="button" class="gp-btn gp-btn-ok" disabled="@(guardando || !HayCambios)" @onclick="Guardar">
+                <i class="bi bi-check-lg"></i> @(guardando ? "Guardando..." : "Guardar")
+            </button>
+        </div>
+    }
+</section>
+
+<style>
+    .un-lista { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); gap: .5rem; }
+    .un-lista li { display: flex; align-items: center; gap: .65rem; padding: .65rem .8rem; border: 2px solid var(--gp-line); border-radius: 14px; background: #fff; cursor: pointer; }
+    .un-lista li.is-on { border-color: var(--gp-primary); background: var(--gp-primary-soft); }
+    .un-lista li.is-fija { cursor: default; }
+    .un-check { font-size: 1.15rem; color: var(--gp-primary); }
+    .un-ico { font-size: 1.3rem; color: var(--gp-primary); }
+    .un-txt { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+    .un-txt b { font-weight: 900; }
+    .un-txt small { color: var(--gp-muted); font-weight: 600; font-size: .78rem; line-height: 1.25; }
+</style>
+
+@code {
+    [Parameter] public long KioscoId { get; set; }
+
+    private AvisosPagina avisos = default!;
+    private bool cargando = true, guardando;
+    private HashSet<string> elegidas = new();
+    private HashSet<string> guardadas = new();
+
+    private bool EsMiNegocio => KioscoId == State.KioscoId;
+    private bool HayCambios => !elegidas.SetEquals(guardadas);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        cargando = true;
+        try
+        {
+            long id = KioscoId;
+            var k = await Db.From<Kiosco>().Select("id, unidades").Where(x => x.Id == id).Single();
+            guardadas = Unidades.Habilitadas(k?.Unidades).ToHashSet();
+        }
+        catch
+        {
+            guardadas = Unidades.Habilitadas(EsMiNegocio ? State.UnidadesNegocio : null).ToHashSet();
+        }
+        elegidas = guardadas.ToHashSet();
+        cargando = false;
+    }
+
+    private void Alternar(string u)
+    {
+        if (u == Unidades.Unidad) return;   // "Unidad" no se puede sacar
+        if (!elegidas.Remove(u)) elegidas.Add(u);
+    }
+
+    private async Task Guardar()
+    {
+        guardando = true;
+        try
+        {
+            elegidas.Add(Unidades.Unidad);
+            var lista = Unidades.Lista.Where(elegidas.Contains).ToList();   // en el orden de siempre
+            long id = KioscoId;
+            await Db.From<Kiosco>().Where(x => x.Id == id).Set(x => x.Unidades!, lista).Update();
+            guardadas = elegidas.ToHashSet();
+            if (EsMiNegocio) { State.UnidadesNegocio = lista; State.NotifyStateChanged(); }
+            _ = avisos.GuardadoAsync("Unidades guardadas");
+        }
+        catch (Exception ex)
+        {
+            var msg = ex.Message ?? "";
+            await avisos.InformarAsync("No se pudieron guardar las unidades",
+                msg.Contains("unidades") ? "Falta preparar la base: hay que correr el script 24.unidades_negocio.sql en Supabase." : ConfiguracionService.MensajeError(ex),
+                "peligro");
+        }
+        finally { guardando = false; }
+    }
+}

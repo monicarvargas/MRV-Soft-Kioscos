@@ -1,0 +1,1081 @@
+﻿@using BlazorKioscoCompartido.Models
+@using BlazorKioscoCompartido.Models.DTO
+@inject BlazorKioscoCompartido.Services.AppState State
+@using Supabase.Postgrest
+@inject PrecioService PrecioServ
+@inject Supabase.Client SupaClient
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Nav
+
+<PedidosEstilos />
+<AvisosPagina @ref="avisos" />
+
+@if (modalAgregar)
+{
+    <div class="ap-m-fondo" @onclick="CerrarModalAgregar">
+        <div class="ap-m gp-scope" role="dialog" aria-modal="true" @onclick:stopPropagation="true">
+            <div class="ap-m-head">
+                <i class="bi bi-cart-plus-fill"></i>
+                <div>
+                    <h3>Agregar productos al pedido</h3>
+                    <p>@(proveedorSeleccionadoId > 0 ? $"Productos de {NombreProveedorElegido}" : "Sin proveedor: elegí una familia o buscá productos")</p>
+                </div>
+                <button type="button" class="ap-m-x" title="Cerrar" @onclick="CerrarModalAgregar"><i class="bi bi-x-lg"></i></button>
+            </div>
+
+            <div class="ap-m-body">
+                <!-- FILTROS -->
+                <div class="ap-m-filtros">
+                    <div class="gp-field">
+                        <label class="gp-field-label" for="apFam"><i class="bi bi-tags"></i> Familia</label>
+                        <select id="apFam" class="gp-control" value="@familiaSeleccionadaId" @onchange="OnFamiliaChanged">
+                            <option value="0">@(proveedorSeleccionadoId > 0 ? "-- Todas --" : "-- Elegí una --")</option>
+                            @foreach (var f in familiasVisibles.OrderBy(x => x.Nombre))
+                            {
+                                <option value="@f.Id">@f.Nombre</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="gp-field">
+                        <label class="gp-field-label" for="apSub"><i class="bi bi-diagram-3"></i> Subfamilia</label>
+                        <select id="apSub" class="gp-control" value="@subfamiliaSeleccionadaId" @onchange="OnSubfamiliaChanged" disabled="@(familiaSeleccionadaId == 0 || !SubfamiliasDeLaFamilia.Any())">
+                            <option value="0">-- Todas --</option>
+                            @foreach (var s in SubfamiliasDeLaFamilia)
+                            {
+                                <option value="@s.Id">@s.Nombre</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="gp-field">
+                        <label class="gp-field-label" for="apMax"><i class="bi bi-box"></i> Stock actual hasta</label>
+                        <input id="apMax" type="number" min="0" class="gp-control" disabled="@soloStockMinimo"
+                               @bind="filtroStockMax" @bind:event="oninput" @bind:after="FiltrarCandidatos" />
+                    </div>
+                </div>
+                <label class="gp-switch ap-m-switch">
+                    <input type="checkbox" @bind="soloStockMinimo" @bind:after="FiltrarCandidatos" />
+                    <span class="gp-switch-track"></span>
+                    <span class="gp-switch-text">Solo los que tienen stock mínimo <small>(y están por debajo)</small></span>
+                </label>
+                <p class="ap-m-ayuda"><i class="bi bi-info-circle"></i>
+                    @if (soloStockMinimo)
+                    {
+                        <span>Se muestran solo los que tienen menos stock que su mínimo (no se usa "Stock actual hasta").</span>
+                    }
+                    else
+                    {
+                        <span>Se muestran los que tienen hasta @filtroStockMax de stock, y también los que tienen menos stock que su mínimo.</span>
+                    }
+                </p>
+
+                <!-- RESULTADO -->
+                @if (cargandoCandidatos)
+                {
+                    <div class="ap-m-vacio"><span class="gp-spinner"></span> Buscando productos...</div>
+                }
+                else if (proveedorSeleccionadoId == 0 && familiaSeleccionadaId == 0)
+                {
+                    <div class="ap-m-vacio"><i class="bi bi-funnel"></i> Elegí una familia (o un proveedor en Datos del pedido) para ver los productos.</div>
+                }
+                else if (!candidatosFiltrados.Any())
+                {
+                    <div class="ap-m-vacio"><i class="bi bi-emoji-smile"></i> No hay productos que cumplan los filtros.</div>
+                }
+                else
+                {
+                    <div class="ap-m-listhead">
+                        <label><input class="gp-check" type="checkbox" checked="@TodosCandidatosMarcados" @onchange="MarcarTodosCandidatos" /> Todos</label>
+                        <span><b>@CandidatosParaAgregar.Count</b> marcados de @candidatosFiltrados.Count</span>
+                    </div>
+                    <div class="ap-m-lista">
+                        @foreach (var c in candidatosFiltrados)
+                        {
+                            bool ya = YaEnPedido(c.Producto.Id);
+                            var ideal = c.Producto.StockIdeal ?? 0;
+                            var minimo = c.Producto.StockMinimo ?? 0;
+                            <label class="ap-m-item @(ya ? "is-ya" : "")">
+                                <input class="gp-check" type="checkbox" disabled="@ya" checked="@(ya || marcadosModal.Contains(c.Producto.Id))" @onchange="() => AlternarCandidato(c.Producto.Id)" />
+                                <span class="ap-m-nom">@NombreParaProveedor(c)
+                                    @if (ya) { <small class="ap-m-ya">ya está en el pedido</small> }
+                                </span>
+                                <span class="ap-m-stk" title="Stock actual / mínimo / ideal">
+                                    <b class="@(minimo > 0 && c.StockActualLocal < minimo ? "is-low" : "")">@c.StockActualLocal.ToString("0.##")</b>
+                                    <small>mín @minimo@(ideal > 0 ? $" · ideal {ideal}" : "")</small>
+                                </span>
+                            </label>
+                        }
+                    </div>
+                }
+
+                <!-- BUSCAR UNO EN PARTICULAR -->
+                <details class="ap-m-buscar">
+                    <summary><i class="bi bi-search"></i> ¿Buscás uno en particular? Buscalo y tildalo (se agrega directo)</summary>
+                    <BuscadorMultiple EstaElegido="@(id => todosLosItems.Any(i => i.Producto.Id == id && i.IncluirEnPedido))"
+                                      OnAlternar="AlternarDesdeBuscador"
+                                      OnAgregarTodos="AgregarVariosAlListado"
+                                      Placeholder="Nombre, marca o código..." />
+                </details>
+            </div>
+
+            <div class="ap-m-acc">
+                <button type="button" class="ap-m-btn is-cancelar" @onclick="CerrarModalAgregar">Cerrar</button>
+                <button type="button" class="ap-m-btn is-ok" disabled="@(!CandidatosParaAgregar.Any())" @onclick="ConfirmarAgregarAsync">
+                    <i class="bi bi-check-lg"></i> Agregar @(CandidatosParaAgregar.Any() ? CandidatosParaAgregar.Count.ToString() : "") al pedido
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .ap-agregar { margin-top: 1rem; }
+    .ap-agregar-btn { width: 100%; display: flex; align-items: center; gap: .8rem; padding: .85rem 1rem; text-align: left; cursor: pointer;
+        border: 2px dashed #a5b4fc; border-radius: 14px; background: linear-gradient(135deg, #eef2ff, #f5f3ff); color: #3730a3; }
+    .ap-agregar-btn:hover { border-style: solid; filter: brightness(1.02); }
+    .ap-agregar-btn > i { font-size: 1.8rem; color: #4f46e5; }
+    .ap-agregar-btn span { display: flex; flex-direction: column; }
+    .ap-agregar-btn b { font-size: 1.05rem; font-weight: 900; }
+    .ap-agregar-btn small { color: #6366f1; font-weight: 600; }
+
+    .ap-m-fondo { position: fixed; inset: 0; z-index: 3000; background: rgba(15, 23, 42, .45); display: flex; align-items: center; justify-content: center; padding: .75rem; }
+    .ap-m { width: min(760px, 100%); max-height: calc(100dvh - 1.5rem); display: flex; flex-direction: column; overflow: hidden; background: #fff; border-radius: 18px; box-shadow: 0 20px 50px rgba(0,0,0,.25); }
+    .ap-m-head { flex: none; display: flex; gap: .7rem; align-items: center; padding: .8rem 1rem; color: #fff; background: linear-gradient(135deg, #4f46e5, #7c3aed); }
+    .ap-m-head > i { font-size: 1.5rem; }
+    .ap-m-head h3 { margin: 0; font-size: 1.05rem; font-weight: 900; }
+    .ap-m-head p { margin: .1rem 0 0; font-size: .8rem; opacity: .9; }
+    .ap-m-x { margin-left: auto; border: 0; background: rgba(255,255,255,.2); color: #fff; width: 2rem; height: 2rem; border-radius: 10px; flex: none; }
+    .ap-m-body { flex: 1 1 auto; overflow-y: auto; padding: .9rem 1rem; background: linear-gradient(180deg, #f5f3ff, #fff 30%); }
+    .ap-m-filtros { display: grid; grid-template-columns: 1fr 1fr 9rem; gap: .6rem; }
+    .ap-m-switch { margin-top: .7rem; }
+    .ap-m-switch small { color: var(--gp-muted, #64748b); font-weight: 600; }
+    .ap-m-ayuda { display: flex; gap: .4rem; margin: .4rem 0 .7rem; color: #64748b; font-size: .8rem; }
+    .ap-m-vacio { display: flex; align-items: center; justify-content: center; gap: .5rem; padding: 1.4rem .5rem; color: #64748b; font-weight: 700; border: 1px dashed #d6dbe8; border-radius: 12px; background: #fff; }
+    .ap-m-listhead { display: flex; justify-content: space-between; align-items: center; padding: .3rem .2rem; font-size: .85rem; color: #475569; }
+    .ap-m-listhead label { display: inline-flex; align-items: center; gap: .4rem; font-weight: 800; cursor: pointer; }
+    .ap-m-lista { display: grid; gap: .3rem; }
+    .ap-m-item { display: flex; align-items: center; gap: .6rem; padding: .45rem .6rem; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; cursor: pointer; }
+    .ap-m-item.is-ya { opacity: .55; cursor: default; }
+    .ap-m-nom { flex: 1; font-weight: 700; display: flex; flex-direction: column; line-height: 1.2; }
+    .ap-m-ya { color: #16a34a; font-weight: 700; font-size: .75rem; }
+    .ap-m-stk { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.15; white-space: nowrap; }
+    .ap-m-stk b { font-size: 1rem; }
+    .ap-m-stk b.is-low { color: #dc2626; }
+    .ap-m-stk small { color: #94a3b8; font-size: .72rem; }
+    .ap-m-buscar { margin-top: .9rem; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; padding: .5rem .7rem; }
+    .ap-m-buscar summary { cursor: pointer; font-weight: 800; color: #4f46e5; }
+    .ap-m-buscar[open] summary { margin-bottom: .6rem; }
+    .ap-m-acc { flex: none; display: flex; gap: .6rem; padding: .8rem 1rem .9rem; background: #f7f8fc; border-top: 1px solid #e8ebf3; }
+    .ap-m-btn { flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: .4rem; height: 2.9rem; border-radius: 12px; font-size: 1rem; font-weight: 800; cursor: pointer; }
+    .ap-m-btn.is-cancelar { border: 2px solid #d6dbe8; background: #fff; color: #1b2540; }
+    .ap-m-btn.is-ok { border: 0; color: #fff; background: linear-gradient(135deg, #4f46e5, #7c3aed); box-shadow: 0 6px 16px rgba(79, 70, 229, .35); }
+    .ap-m-btn.is-ok:disabled { opacity: .5; box-shadow: none; cursor: default; }
+    @@media (max-width: 575.98px) { .ap-m-filtros { grid-template-columns: 1fr 1fr; } .ap-m-filtros > :last-child { grid-column: 1 / -1; } }
+</style>
+
+<div class="gp-scope">
+
+    <!-- DATOS DEL PEDIDO -->
+    <section class="gp-card gp-card-pad mb-3">
+        <div class="gp-card-head">
+            <span class="gp-bubble"><i class="bi bi-clipboard2-data"></i></span>
+            <h2>Datos del pedido</h2>
+        </div>
+
+        <div class="gp-grid-3">
+            <div class="gp-field">
+                <label class="gp-field-label" for="gpProveedor"><i class="bi bi-truck"></i> Proveedor</label>
+                <select id="gpProveedor" class="gp-control" value="@proveedorSeleccionadoId" @onchange="OnProveedorChanged">
+                    <option value="0">-- Sin proveedor --</option>
+                    @foreach (var p in proveedoresVisibles)
+                    {
+                        <option value="@p.Id">@p.Nombre</option>
+                    }
+                </select>
+            </div>
+            <div class="gp-field">
+                <label class="gp-field-label" for="gpNombre"><i class="bi bi-pencil-square"></i> Nombre del listado <small>(opcional)</small></label>
+                <input id="gpNombre" type="text" class="gp-control" maxlength="80" placeholder="Ej: Lácteos"
+                       @bind="nombreListado" @bind:event="oninput" />
+            </div>
+        </div>
+
+        <div class="ap-agregar">
+            <button type="button" class="ap-agregar-btn" @onclick="AbrirModalAgregar">
+                <i class="bi bi-plus-circle-fill"></i>
+                <span><b>Agregar productos al pedido</b>
+                    <small>Por familia, por stock o buscando uno en particular@(proveedorSeleccionadoId > 0 ? " (de este proveedor)" : "")</small></span>
+            </button>
+        </div>
+    </section>
+
+    @if (!string.IsNullOrEmpty(mensajeError))
+    {
+        <div class="gp-banner is-danger" role="alert">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            <p>@mensajeError</p>
+            <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm gp-btn-icon" aria-label="Cerrar" @onclick="() => mensajeError = null"><i class="bi bi-x-lg"></i></button>
+        </div>
+    }
+
+    <!-- CARTEL INFORMATIVO Y TOTAL -->
+    <div class="gp-banner">
+        <i class="bi bi-info-circle-fill"></i>
+        <p>Los valores de costo y totales son estimativos, basados en la última compra cargada. Pueden variar al recibir la mercadería.</p>
+        <div class="gp-total">
+            <span>Total estimado</span>
+            <strong>$@MontoTotalEstimado.ToString("N2")</strong>
+        </div>
+    </div>
+
+    <!-- LISTA -->
+    <section class="gp-card gp-card-pad">
+        <div class="gp-toolbar">
+            <div class="gp-search">
+                <i class="bi bi-funnel"></i>
+                <input type="text" class="gp-control" placeholder="Filtrar la lista por nombre o código..."
+                       @bind="textoBusqueda" @bind:event="oninput" @bind:after="AplicarFiltros" />
+                @if (!string.IsNullOrEmpty(textoBusqueda))
+                {
+                    <button type="button" class="gp-search-clear" title="Borrar filtro" @onclick="LimpiarBusqueda"><i class="bi bi-x-lg"></i></button>
+                }
+            </div>
+            <div class="gp-summary">
+                @if (itemsVisibles.Count != itemsFiltrados.Count)
+                {
+                    <span>Mostrando <strong>@itemsVisibles.Count</strong> de <strong>@itemsFiltrados.Count</strong> · los ocultos igual entran si están tildados</span>
+                }
+                else
+                {
+                    <span><strong>@itemsFiltrados.Count(i => i.IncluirEnPedido)</strong> de <strong>@itemsFiltrados.Count</strong> productos en el pedido</span>
+                }
+            </div>
+        </div>
+
+        <div class="gp-table-wrap gp-stack-wrap">
+            <table class="gp-table gp-stack">
+                <thead>
+                    <tr>
+                        <th class="gp-th-check"><input class="gp-check" type="checkbox" checked="@TodosMarcados" @onchange="ToggleSeleccionarTodos" aria-label="Seleccionar todos" /></th>
+                        <th>Código</th>
+                        <th>Producto</th>
+                        <th class="t-center">Stock actual</th>
+                        <th class="t-center">Stock mín.</th>
+                        <th class="t-center">Stock ideal</th>
+                        <th class="t-right">Costo est.</th>
+                        <th class="t-center">Comprar</th>
+                        <th class="t-right">Subtotal est.</th>
+                        <th class="t-center">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (!itemsVisibles.Any())
+                    {
+                        <tr class="gp-empty-row">
+                            <td colspan="10">
+                                <div class="gp-empty">
+                                    <span class="gp-bubble"><i class="bi bi-box-seam"></i></span>
+                                    <strong>@(itemsFiltrados.Any() ? "Sin coincidencias" : "Todavía no hay productos")</strong>
+                                    <span>
+                                        @(itemsFiltrados.Any()
+                                            ? "Ningún producto coincide con el filtro de búsqueda."
+                                            : "Elegí el proveedor y tocá Agregar productos al pedido para elegir qué pedir.")
+                                    </span>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var item in itemsVisibles)
+                        {
+                            var bajoMinimo = item.StockActualLocal <= (decimal)(item.Producto.StockMinimo ?? 0);
+                            <tr class="@(item.IncluirEnPedido ? "" : "is-off")">
+                                <td class="gp-td-check" data-label=""><input class="gp-check" type="checkbox" @bind="item.IncluirEnPedido" /></td>
+                                <td class="gp-td-code" data-label="Código">@(string.IsNullOrEmpty(item.Producto.CodigoBarras) ? "-" : item.Producto.CodigoBarras)</td>
+                                <td class="gp-td-main" data-label="Producto">
+                                    <div class="gp-product">@NombreParaProveedor(item)</div>
+                                    @if (!string.IsNullOrWhiteSpace(item.DescripcionProveedor) && !string.Equals(item.DescripcionProveedor.Trim(), item.Producto.Nombre?.Trim(), StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        <div class="gp-sub"><i class="bi bi-arrow-return-right"></i> En tu sistema: @item.Producto.Nombre</div>
+                                    }
+                                    @{ var codProv = ObtenerCodigoProveedor(item.Producto); }
+                                    @if (codProv != null)
+                                    {
+                                        <div class="gp-sub"><i class="bi bi-upc-scan"></i> @codProv</div>
+                                    }
+                                    @if (item.TieneTipo)
+                                    {
+                                        <div class="gp-sub" style="color:var(--gp-primary)"><i class="bi bi-box-seam"></i> Viene por @TipoTxt(item, 1)@(item.PorBulto ? $" de {item.UnidadesPorBulto} u." : "")
+                                            @if (item.BultoDeOtroLado) { <span style="color:var(--gp-muted)"> (último cargado)</span> }</div>
+                                    }
+                                </td>
+                                <td class="t-center" data-label="Stock actual">
+                                    <input type="number" class="gp-input-sm @(bajoMinimo ? "is-low" : "")"
+                                           @bind="item.StockActualLocal" @bind:event="oninput" @onchange="() => RecalcularSugerencia(item)" />
+                                </td>
+                                <td class="t-center gp-num" data-label="Stock mín.">@(item.Producto.StockMinimo ?? 0)</td>
+                                <td class="t-center gp-num" data-label="Stock ideal">@(item.Producto.StockIdeal ?? 0)</td>
+                                <td class="t-right gp-num" data-label="Costo est.">
+                                    $@item.PrecioCostoLocal.ToString("N2")
+                                    @if (item.PorBulto || item.CostoDelBulto)
+                                    {
+                                        <div class="gp-sub">x @TipoTxt(item, 1)</div>
+                                    }
+                                </td>
+                                <td class="t-center" data-label="Comprar">
+                                    <input type="number" class="gp-input-sm gp-input-buy" @bind="item.CantidadAComprar" min="1" />
+                                    @if (item.PorBulto)
+                                    {
+                                        <div class="gp-sub">@TipoTxt(item, item.CantidadAComprar) = @((item.CantidadAComprar * item.UnidadesPorBulto).ToString("0.##")) u.</div>
+                                    }
+                                    else if (item.TieneTipo)
+                                    {
+                                        <div class="gp-sub">@TipoTxt(item, item.CantidadAComprar)</div>
+                                    }
+                                </td>
+                                <td class="t-right gp-money" data-label="Subtotal est.">$@item.SubtotalEstimado.ToString("N2")</td>
+                                <td class="t-center gp-td-actions" data-label="">
+                                    <div class="gp-cell-actions">
+                                        <button type="button" class="gp-btn gp-btn-soft gp-btn-sm" @onclick="() => CorregirStockEnBD(item)">
+                                            <i class="bi bi-arrow-repeat"></i> Actualizar stock
+                                        </button>
+                                        <button type="button" class="gp-btn gp-btn-danger-soft gp-btn-sm gp-btn-icon" title="Sacar de la lista" @onclick="() => QuitarDeLaLista(item)">
+                                            <i class="bi bi-x-lg"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        @if (!string.IsNullOrEmpty(mensajeOk))
+        {
+            <div class="gp-banner is-ok" role="status">
+                <i class="bi bi-check-circle-fill"></i>
+                <p>@mensajeOk</p>
+                <button type="button" class="gp-btn gp-btn-outline-ok gp-btn-sm" @onclick="NuevoPedido"><i class="bi bi-plus-circle"></i> Nuevo pedido</button>
+            </div>
+        }
+
+        <div class="gp-actions">
+            <button type="button" class="gp-btn gp-btn-outline-ok" @onclick="CopiarListaParaWhatsapp"
+                    disabled="@(!itemsFiltrados.Any(i => i.IncluirEnPedido))">
+                <i class="bi bi-clipboard-check"></i> Copiar para WhatsApp
+            </button>
+            <button type="button" class="gp-btn gp-btn-primary" @onclick="GuardarListaPedidoAsync"
+                    disabled="@(guardando || !itemsFiltrados.Any(i => i.IncluirEnPedido))">
+                @if (guardando)
+                {
+                    <span class="gp-spinner" style="width:1rem;height:1rem;border-width:2px;border-color:rgba(255,255,255,.4);border-top-color:#fff"></span> <span>Guardando...</span>
+                }
+                else
+                {
+                    <i class="bi bi-floppy-fill"></i> <span>Guardar lista de pedido</span>
+                }
+            </button>
+        </div>
+    </section>
+</div>
+
+@code {
+    private AvisosPagina avisos = default!;
+
+    private List<Proveedor> proveedores = new();
+    private List<Familia> familia = new();
+    private List<ItemPedidoViewModelDTO> todosLosItems = new();
+    private List<ItemPedidoViewModelDTO> itemsFiltrados = new();   // lo que entra en el pedido (filtros de stock)
+    private List<ItemPedidoViewModelDTO> itemsVisibles = new();    // lo que se ve en la grilla (además, filtrado por el texto)
+
+    private long proveedorSeleccionadoId = 0;
+    private long familiaSeleccionadaId = 0;
+    private long subfamiliaSeleccionadaId = 0;
+    private List<Subfamilia> subfamilias = new();
+    private List<Subfamilia> SubfamiliasDeLaFamilia => subfamilias.Where(s => s.FamiliaId == familiaSeleccionadaId).OrderBy(s => s.Nombre).ToList();
+
+    // Nombre del listado (Lácteos, Galletitas...) para poder identificarlo y agrupar varios en un solo documento
+    private string nombreListado = "";
+    private string nombreListadoAuto = "";   // último nombre puesto automáticamente a partir de la familia
+
+    /// <summary>Se dispara cuando el pedido se guardó correctamente (para que la página refresque el historial).</summary>
+    [Parameter] public EventCallback OnPedidoGuardado { get; set; }
+    private int filtroStockMax = 5;
+    private bool soloStockMinimo = false;
+    private string textoBusqueda = string.Empty;
+
+    // Productos agregados a mano desde el buscador (se muestran siempre, sin importar proveedor ni filtros de stock)
+    private HashSet<long> idsAgregadosManualmente = new();
+    private HashSet<long> idsQuitados = new();   // los que se sacaron con la X: no vuelven al cambiar los filtros
+    // último proveedor cargado de cada producto (para los que no son del proveedor elegido)
+    private Dictionary<long, ProductoProveedor?> ultimaRelacion = new();
+
+    private void QuitarDeLaLista(ItemPedidoViewModelDTO item)
+    {
+        todosLosItems.Remove(item);
+        idsAgregadosManualmente.Remove(item.Producto.Id);
+        idsQuitados.Add(item.Producto.Id);
+        AplicarFiltros();
+        avisos.Toast($"{item.Producto.Nombre} salió de la lista", "info", 1800);
+    }
+
+    /// <summary>
+    /// Productos que no son del proveedor elegido (o no hay proveedor): se busca el último proveedor que se le cargó
+    /// y se toman de ahí "viene por" (bolsa, caja...) y las unidades.
+    /// </summary>
+    private async Task CompletarConUltimoProveedorAsync(IEnumerable<ItemPedidoViewModelDTO> items)
+    {
+        var faltan = items.Where(i => !TieneRelacionConElegido(i.Producto.Id) && !ultimaRelacion.ContainsKey(i.Producto.Id))
+                          .Select(i => (object)i.Producto.Id).Distinct().ToList();
+        if (faltan.Any())
+        {
+            try
+            {
+                foreach (var t in faltan.Chunk(100))
+                {
+                    var r = await SupaClient.From<ProductoProveedor>()
+                        .Select("id, id_producto, id_proveedor, id_kiosco, habilitado, es_principal, unidades_por_bulto, tipo_bulto")
+                        .Where(x => x.IdKiosco == State.KioscoId)
+                        .Filter("id_producto", Supabase.Postgrest.Constants.Operator.In, t.ToList())
+                        .Get();
+                    foreach (var g in (r.Models ?? new()).GroupBy(x => x.IdProducto))
+                        ultimaRelacion[g.Key] = g.OrderByDescending(x => x.Id).First();
+                }
+            }
+            catch { /* sin script 34 o sin conexión: queda como suelto */ }
+            foreach (var id in faltan.Cast<long>()) ultimaRelacion.TryAdd(id, null);
+        }
+        foreach (var i in items.Where(i => !TieneRelacionConElegido(i.Producto.Id))) AplicarDatosProveedor(i);
+        StateHasChanged();
+    }
+
+    private bool TieneRelacionConElegido(long productoId) => proveedorSeleccionadoId > 0 && bultosProveedor.ContainsKey(productoId);
+
+    // Código de barras que usa el proveedor seleccionado: id de producto -> código
+    private Dictionary<long, string?> codigosProveedor = new();
+    // Bulto y nombre que usa el proveedor seleccionado para cada producto
+    private Dictionary<long, int> bultosProveedor = new();
+    private Dictionary<long, string?> tiposBultoProveedor = new();   // CAJA, PACK, BULTO... (script 34)
+
+    private static string TipoTxt(ItemPedidoViewModelDTO i, decimal cantidad) =>
+        BlazorKioscoCompartido.Constants.TiposBulto.Texto(i.TipoBulto, i.UnidadesPorBulto, cantidad);
+    private Dictionary<long, string?> descripcionesProveedor = new();
+
+    /// <summary>Al proveedor se le pide con SU nombre (ej: "ABRAZADERA 16MM X 100 UNID"); si no lo tiene cargado, con el del sistema.</summary>
+    private static string NombreParaProveedor(ItemPedidoViewModelDTO i) =>
+        !string.IsNullOrWhiteSpace(i.DescripcionProveedor) ? i.DescripcionProveedor.Trim() : (i.Producto.Nombre ?? "");
+
+    private const string NombreSinProveedor = "SIN PROVEEDOR";
+    private const string NombreSinFamilia = "SIN FAMILIA";
+
+    private IEnumerable<Proveedor> proveedoresVisibles => proveedores.Where(p => !EsSinProveedor(p) && p.EstaActivo());   // sin los dados de baja
+    private IEnumerable<Familia> familiasVisibles => familia.Where(p => !EsSinFamilia(p));
+
+    private static bool EsSinProveedor(Proveedor p) =>
+        string.Equals(p.Nombre?.Trim(), NombreSinProveedor, StringComparison.OrdinalIgnoreCase);
+        private static bool EsSinFamilia(Familia p) =>
+        string.Equals(p.Nombre?.Trim(), NombreSinFamilia, StringComparison.OrdinalIgnoreCase);
+
+    private string? ObtenerCodigoProveedor(Producto p) =>
+        codigosProveedor.TryGetValue(p.Id, out var cod) && !string.IsNullOrWhiteSpace(cod) ? cod : null;
+
+    private bool guardando = false;
+    private string? mensajeOk;
+    private string? mensajeError;
+
+    private bool TodosMarcados => itemsVisibles.Count > 0 && itemsVisibles.All(i => i.IncluirEnPedido);
+
+    private decimal MontoTotalEstimado => itemsFiltrados
+        .Where(i => i.IncluirEnPedido)
+        .Sum(i => i.SubtotalEstimado);
+
+    protected override async Task OnInitializedAsync()
+    {
+        // al apretar F5 se pierde la sesión de la pantalla: se vuelve a entrar (antes daba "permission denied")
+        if (State.KioscoId == 0) { Nav.NavigateTo("/login"); return; }
+
+        var res = await SupaClient.From<Proveedor>().Where(p => p.KioscoId == State.KioscoId).Get();
+        proveedores = res.Models ?? new List<Proveedor>();
+
+        var resfamilia = await SupaClient.From<Familia>().Where(p => p.KioscoId == State.KioscoId).Get();
+        familia = resfamilia.Models ?? new List<Familia>();
+
+        try
+        {
+            long k = State.KioscoId;
+            subfamilias = (await SupaClient.From<Subfamilia>().Where(s => s.KioscoId == k).Get()).Models ?? new();
+        }
+        catch { subfamilias = new(); }   // falta el script 26
+    }
+
+    // ===================== MODAL "AGREGAR PRODUCTOS" =====================
+    private bool modalAgregar;
+    private bool cargandoCandidatos;
+    private List<ItemPedidoViewModelDTO> candidatos = new();          // productos del proveedor / familia elegidos en el modal
+    private List<ItemPedidoViewModelDTO> candidatosFiltrados = new(); // los que cumplen los filtros de stock
+    private HashSet<long> marcadosModal = new();
+
+    private string NombreProveedorElegido => proveedores.FirstOrDefault(p => p.Id == proveedorSeleccionadoId)?.Nombre ?? "";
+    private bool YaEnPedido(long id) => todosLosItems.Any(i => i.Producto.Id == id);
+    private List<ItemPedidoViewModelDTO> CandidatosParaAgregar =>
+        candidatosFiltrados.Where(c => marcadosModal.Contains(c.Producto.Id) && !YaEnPedido(c.Producto.Id)).ToList();
+    private bool TodosCandidatosMarcados => candidatosFiltrados.Any(c => !YaEnPedido(c.Producto.Id))
+        && candidatosFiltrados.Where(c => !YaEnPedido(c.Producto.Id)).All(c => marcadosModal.Contains(c.Producto.Id));
+
+    private async Task AbrirModalAgregar()
+    {
+        modalAgregar = true;
+        await BuscarCandidatosAsync();
+    }
+
+    private void CerrarModalAgregar() => modalAgregar = false;
+
+    private void AlternarCandidato(long id)
+    {
+        if (!marcadosModal.Remove(id)) marcadosModal.Add(id);
+    }
+
+    private void MarcarTodosCandidatos(ChangeEventArgs e)
+    {
+        bool marcar = e.Value is bool b && b;
+        foreach (var c in candidatosFiltrados.Where(c => !YaEnPedido(c.Producto.Id)))
+        {
+            if (marcar) marcadosModal.Add(c.Producto.Id); else marcadosModal.Remove(c.Producto.Id);
+        }
+    }
+
+    /// <summary>Trae los productos del proveedor (y/o de la familia / subfamilia) elegidos.</summary>
+    private async Task BuscarCandidatosAsync()
+    {
+        candidatos = new();
+        candidatosFiltrados = new();
+        if (proveedorSeleccionadoId == 0 && familiaSeleccionadaId == 0) return;
+
+        cargandoCandidatos = true;
+        StateHasChanged();
+        try
+        {
+            var productos = await ObtenerProductosAsync(proveedorSeleccionadoId, familiaSeleccionadaId);
+            candidatos = productos.OrderBy(p => p.Nombre).Select(CrearItem).ToList();
+        }
+        catch (Exception ex)
+        {
+            avisos.Toast("No se pudieron cargar los productos: " + ex.Message, "peligro");
+        }
+        finally { cargandoCandidatos = false; }
+        FiltrarCandidatos();
+    }
+
+    /// <summary>
+    /// Filtros de stock del modal:
+    ///  - "Solo los que tienen stock mínimo": los que tienen menos stock que su mínimo (no usa "Stock actual hasta").
+    ///  - si no: los que tienen hasta "Stock actual hasta", y además los que tienen menos stock que su mínimo.
+    ///  El stock ideal no se usa para elegir: solo para sugerir cuánto comprar.
+    /// Vienen todos marcados.
+    /// </summary>
+    private void FiltrarCandidatos()
+    {
+        candidatosFiltrados = candidatos.Where(CumpleFiltroStock).ToList();
+        marcadosModal = candidatosFiltrados.Select(c => c.Producto.Id).ToHashSet();
+    }
+
+    private bool CumpleFiltroStock(ItemPedidoViewModelDTO item)
+    {
+        decimal minimo = (decimal)(item.Producto.StockMinimo ?? 0);
+        decimal actual = item.StockActualLocal;
+
+        bool bajoMinimo = minimo > 0 && actual < minimo;
+        if (soloStockMinimo) return bajoMinimo;
+        return bajoMinimo || actual <= filtroStockMax;
+    }
+
+    private async Task ConfirmarAgregarAsync()
+    {
+        var nuevos = CandidatosParaAgregar;
+        if (!nuevos.Any()) return;
+        foreach (var c in nuevos)
+        {
+            c.IncluirEnPedido = true;
+            idsQuitados.Remove(c.Producto.Id);
+            todosLosItems.Add(c);
+        }
+        modalAgregar = false;
+        AplicarFiltros();
+        avisos.Toast(nuevos.Count == 1 ? "Se agregó 1 producto al pedido" : $"Se agregaron {nuevos.Count} productos al pedido", "exito", 2000);
+        await CompletarConUltimoProveedorAsync(nuevos);
+    }
+
+    private async Task OnSubfamiliaChanged(ChangeEventArgs e)
+    {
+        subfamiliaSeleccionadaId = long.TryParse(e.Value?.ToString(), out long sId) ? sId : 0;
+        var nombre = subfamiliaSeleccionadaId > 0
+            ? subfamilias.FirstOrDefault(s => s.Id == subfamiliaSeleccionadaId)?.Nombre ?? ""
+            : familia.FirstOrDefault(f => f.Id == familiaSeleccionadaId)?.Nombre ?? "";
+        if (string.IsNullOrWhiteSpace(nombreListado) || nombreListado == nombreListadoAuto)
+        {
+            nombreListado = nombre;
+            nombreListadoAuto = nombre;
+        }
+        await BuscarCandidatosAsync();
+    }
+
+    /// <summary>Tildar / destildar desde el buscador.</summary>
+    private void AlternarDesdeBuscador(Producto p)
+    {
+        var item = todosLosItems.FirstOrDefault(i => i.Producto.Id == p.Id);
+        if (item != null && item.IncluirEnPedido)
+        {
+            todosLosItems.Remove(item);   // destildado en el buscador: sale del pedido
+            idsAgregadosManualmente.Remove(p.Id);
+            AplicarFiltros();
+            return;
+        }
+        AgregarAlListado(p);
+    }
+
+    private void AgregarVariosAlListado(List<Producto> productos)
+    {
+        foreach (var p in productos) AgregarAlListado(p);
+        if (productos.Any()) avisos.Toast(productos.Count == 1 ? "Se agregó 1 producto" : $"Se agregaron {productos.Count} productos", "exito", 1800);
+    }
+
+    /// <summary>
+    /// Cambió el proveedor: los productos que ya están en el pedido toman su bulto, código y nombre.
+    /// Si el pedido está vacío, se abre el modal para elegir productos.
+    /// </summary>
+    private async Task OnProveedorChanged(ChangeEventArgs e)
+    {
+        proveedorSeleccionadoId = long.TryParse(e.Value?.ToString(), out long provId) ? provId : 0;
+        mensajeError = null;
+        try { await CargarRelacionesProveedorAsync(proveedorSeleccionadoId); }
+        catch (Exception ex) { mensajeError = "No se pudieron cargar los datos del proveedor: " + ex.Message; }
+        foreach (var i in todosLosItems) AplicarDatosProveedor(i);
+        AplicarFiltros();
+        await CompletarConUltimoProveedorAsync(todosLosItems.ToList());
+        if (proveedorSeleccionadoId > 0 && !todosLosItems.Any()) await AbrirModalAgregar();
+    }
+
+    private async Task OnFamiliaChanged(ChangeEventArgs e)
+    {
+        familiaSeleccionadaId = long.TryParse(e.Value?.ToString(), out long famId) ? famId : 0;
+        subfamiliaSeleccionadaId = 0;
+
+        // Se sugiere el nombre de la familia, siempre que el usuario no haya escrito otro nombre
+        var nombreFamilia = familia.FirstOrDefault(f => f.Id == familiaSeleccionadaId)?.Nombre ?? "";
+        if (string.IsNullOrWhiteSpace(nombreListado) || nombreListado == nombreListadoAuto)
+        {
+            nombreListado = nombreFamilia;
+            nombreListadoAuto = nombreFamilia;
+        }
+
+        await BuscarCandidatosAsync();
+    }
+
+    /// <summary>Código, bulto, "viene por" y nombre que usa el proveedor para cada producto (tabla productos_proveedores).</summary>
+    private async Task CargarRelacionesProveedorAsync(long proveedorId)
+    {
+        codigosProveedor = new();
+        bultosProveedor = new();
+        tiposBultoProveedor = new();
+        descripcionesProveedor = new();
+        if (proveedorId <= 0) return;
+
+        var resRel = await SupaClient.From<ProductoProveedor>()
+            .Where(r => r.IdProveedor == proveedorId)
+            .Where(r => r.IdKiosco == State.KioscoId)
+            .Where(r => r.Habilitado == true)
+            .Get();
+        var rel = resRel.Models ?? new();
+        codigosProveedor = rel.GroupBy(r => r.IdProducto).ToDictionary(g => g.Key, g => g.First().CodigoBarrasProveedor);
+        bultosProveedor = rel.GroupBy(r => r.IdProducto).ToDictionary(g => g.Key, g => Math.Max(1, g.First().UnidadesPorBulto));
+        tiposBultoProveedor = rel.GroupBy(r => r.IdProducto).ToDictionary(g => g.Key, g => g.First().TipoBulto);
+        descripcionesProveedor = rel.GroupBy(r => r.IdProducto).ToDictionary(g => g.Key, g => g.First().DescripcionProveedor);
+    }
+
+    private async Task<List<Producto>> ObtenerProductosAsync(long proveedorId, long familiaId)
+    {
+        var productos = new List<Producto>();
+
+        if (proveedorId > 0)
+        {
+            // 1. Relaciones habilitadas de este proveedor (tabla productos_proveedores)
+            var resRel = await SupaClient.From<ProductoProveedor>()
+                .Where(r => r.IdProveedor == proveedorId)
+                .Where(r => r.IdKiosco == State.KioscoId)
+                .Where(r => r.Habilitado == true)
+                .Get();
+
+            // Guardamos el código de barras que usa el proveedor para cada producto
+            codigosProveedor = resRel.Models
+                .GroupBy(r => r.IdProducto)
+                .ToDictionary(g => g.Key, g => g.First().CodigoBarrasProveedor);
+            bultosProveedor = resRel.Models
+                .GroupBy(r => r.IdProducto)
+                .ToDictionary(g => g.Key, g => Math.Max(1, g.First().UnidadesPorBulto));
+            tiposBultoProveedor = resRel.Models
+                .GroupBy(r => r.IdProducto)
+                .ToDictionary(g => g.Key, g => g.First().TipoBulto);
+            descripcionesProveedor = resRel.Models
+                .GroupBy(r => r.IdProducto)
+                .ToDictionary(g => g.Key, g => g.First().DescripcionProveedor);
+
+            var idsProductos = resRel.Models.Select(r => r.IdProducto).Distinct().ToList();
+
+            // 2. Traer los productos de a tandas (para no armar una URL demasiado larga)
+            foreach (var tanda in idsProductos.Chunk(100))
+            {
+                var criterio = tanda.Cast<object>().ToList();
+
+                // Consulta nueva en cada vuelta (los filtros se acumulan en el mismo objeto)
+                var q = SupaClient.From<Producto>()
+                    .Where(p => p.KioscoId == State.KioscoId)
+                    .Where(p => p.Activo == true);
+
+                if (familiaId > 0)
+                    q = q.Where(p => p.FamiliaId == familiaId);
+                if (familiaId > 0 && subfamiliaSeleccionadaId > 0)
+                {
+                    long sub = subfamiliaSeleccionadaId;
+                    q = q.Where(p => p.SubfamiliaId == sub);
+                }
+
+                var res = await q.Filter(p => p.Id, Constants.Operator.In, criterio).Get();
+                productos.AddRange(res.Models);
+            }
+        }
+        else
+        {
+            // Solo familia (y subfamilia): productos de esa familia, de cualquier proveedor
+            var qf = SupaClient.From<Producto>()
+                .Where(p => p.KioscoId == State.KioscoId)
+                .Where(p => p.Activo == true)
+                .Where(p => p.FamiliaId == familiaId);
+            if (subfamiliaSeleccionadaId > 0)
+            {
+                long sub = subfamiliaSeleccionadaId;
+                qf = qf.Where(p => p.SubfamiliaId == sub);
+            }
+            var res = await qf.Get();
+
+            productos.AddRange(res.Models);
+        }
+
+        return productos;
+    }
+
+    private ItemPedidoViewModelDTO CrearItem(Producto p)
+    {
+        var item = new ItemPedidoViewModelDTO
+        {
+            Producto = p,
+            StockActualLocal = (decimal)(p.StockActual ?? 0),
+            IncluirEnPedido = true
+        };
+        AplicarDatosProveedor(item);
+        return item;
+    }
+
+    /// <summary>
+    /// Toma del proveedor elegido el bulto y el nombre. Si vende por bulto, la cantidad sugerida se redondea
+    /// hacia arriba a bultos completos y el costo estimado pasa a ser el del bulto (costo por unidad × unidades del bulto).
+    /// </summary>
+    private void AplicarDatosProveedor(ItemPedidoViewModelDTO item)
+    {
+        var p = item.Producto;
+        item.UnidadesPorBulto = !p.EsVentaPorPeso() && bultosProveedor.TryGetValue(p.Id, out var n) && n > 1 ? n : 1;
+        item.TipoBulto = !p.EsVentaPorPeso() && tiposBultoProveedor.TryGetValue(p.Id, out var tb) ? tb : null;
+        item.DescripcionProveedor = descripcionesProveedor.TryGetValue(p.Id, out var d) && !string.IsNullOrWhiteSpace(d) ? d : null;
+        item.BultoDeOtroLado = false;
+
+        // no es del proveedor elegido: "viene por" del último proveedor cargado; si no tiene, el bulto del producto
+        if (!p.EsVentaPorPeso() && !TieneRelacionConElegido(p.Id))
+        {
+            if (ultimaRelacion.TryGetValue(p.Id, out var ult) && ult != null
+                && !BlazorKioscoCompartido.Constants.TiposBulto.EsSuelto(ult.TipoBulto, ult.UnidadesPorBulto))
+            {
+                item.UnidadesPorBulto = Math.Max(1, ult.UnidadesPorBulto);
+                item.TipoBulto = ult.TipoBulto;
+                item.BultoDeOtroLado = true;
+            }
+            else if ((p.BultoUnidades ?? 0) > 1 && (p.BultoPrecio ?? 0) > 0)
+            {
+                item.UnidadesPorBulto = p.BultoUnidades!.Value;
+                item.TipoBulto = "BULTO";
+                item.BultoDeOtroLado = true;
+            }
+        }
+
+        // viene por bolsa / caja... sin decir cuántas trae: se toman las unidades del bulto cargado en el producto
+        if (item.TieneTipo && item.UnidadesPorBulto <= 1 && (p.BultoUnidades ?? 0) > 1) item.UnidadesPorBulto = p.BultoUnidades!.Value;
+
+        // costo: si viene por bulto/caja/bolsa, el PRECIO DEL BULTO que se cargó en el producto ("Lo compro por bulto")
+        item.CostoDelBulto = item.TieneTipo && (p.BultoPrecio ?? 0) > 0 && item.UnidadesPorBulto > 1;
+        item.PrecioCostoLocal = item.CostoDelBulto
+            ? p.BultoPrecio!.Value
+            : (p.PrecioCosto ?? 0) * item.UnidadesPorBulto;
+        RecalcularSugerencia(item);
+    }
+
+    /// <summary>La grilla muestra todo lo que se agregó al pedido (los filtros de stock están en el modal); solo se filtra por el texto.</summary>
+    private void AplicarFiltros()
+    {
+        itemsFiltrados = todosLosItems.ToList();
+        itemsVisibles = FiltrarPorTexto(itemsFiltrados);
+    }
+
+    // Busca por nombre, código de barras propio y código del proveedor (sin importar tildes ni mayúsculas).
+    // Se pueden escribir varias palabras: tienen que estar todas.
+    private List<ItemPedidoViewModelDTO> FiltrarPorTexto(List<ItemPedidoViewModelDTO> items)
+    {
+        var terminos = Normalizar(textoBusqueda)
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        if (terminos.Length == 0) return items.ToList();
+
+        return items.Where(item =>
+        {
+            var texto = Normalizar($"{item.Producto.Nombre} {item.Producto.CodigoBarras} {ObtenerCodigoProveedor(item.Producto)}");
+            return terminos.All(t => texto.Contains(t));
+        }).ToList();
+    }
+
+    private static string Normalizar(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return "";
+
+        var descompuesto = s.Normalize(System.Text.NormalizationForm.FormD);
+        var sb = new System.Text.StringBuilder(descompuesto.Length);
+        foreach (var c in descompuesto)
+        {
+            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark)
+                sb.Append(c);
+        }
+        return sb.ToString().ToLowerInvariant();
+    }
+
+    private void LimpiarBusqueda()
+    {
+        textoBusqueda = string.Empty;
+        AplicarFiltros();
+    }
+
+    private void RecalcularSugerencia(ItemPedidoViewModelDTO item)
+    {
+        // cuánto falta para llegar al stock ideal (sin ideal cargado: hasta el doble del mínimo; sin ninguno: 1)
+        decimal stkIdeal = (decimal)(item.Producto.StockIdeal ?? 0);
+        if (stkIdeal <= 0) stkIdeal = (decimal)(item.Producto.StockMinimo ?? 0) * 2;
+        decimal faltan = stkIdeal > item.StockActualLocal ? stkIdeal - item.StockActualLocal : 1;   // en unidades
+        decimal sugerido = item.PorBulto ? Math.Ceiling(faltan / item.UnidadesPorBulto)    // en bultos si corresponde
+                         : item.TieneTipo ? 1                                              // caja sin saber cuántas trae: 1, y lo corrige
+                         : faltan;
+        item.CantidadAComprar = sugerido < 1 ? 1 : sugerido;
+    }
+
+    private async Task CorregirStockEnBD(ItemPedidoViewModelDTO item)
+    {
+        try
+        {
+            item.Producto.StockActual = (int)item.StockActualLocal;
+            await SupaClient.From<Producto>()
+                .Where(p => p.Id == item.Producto.Id)
+                .Set(p => p.StockActual, item.Producto.StockActual)
+                .Update();
+
+            avisos.Toast($"Stock actualizado: '{item.Producto.Nombre}' ahora tiene {item.StockActualLocal} un.", "exito");
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudo actualizar el stock", ex.Message, "peligro");
+        }
+    }
+
+    private void ToggleSeleccionarTodos(ChangeEventArgs e)
+    {
+        bool checkedValue = (bool)(e.Value ?? false);
+        foreach (var item in itemsVisibles)
+        {
+            item.IncluirEnPedido = checkedValue;
+        }
+    }
+
+    private async Task GuardarListaPedidoAsync()
+    {
+        mensajeOk = null;
+        mensajeError = null;
+        string? errorGuardado = null;
+
+        var seleccionados = itemsFiltrados.Where(i => i.IncluirEnPedido).ToList();
+        if (!seleccionados.Any()) return;
+
+        // Si no se eligió proveedor se usa el registro especial "SIN PROVEEDOR"
+        long proveedorIdPedido = proveedorSeleccionadoId;
+        if (proveedorIdPedido <= 0)
+        {
+            var sinProveedor = proveedores.FirstOrDefault(EsSinProveedor);
+            if (sinProveedor == null)
+            {
+                await avisos.InformarAsync("Falta el proveedor 'SIN PROVEEDOR'",
+                    $"No existe el proveedor '{NombreSinProveedor}'. Crealo en la tabla de proveedores para poder guardar pedidos sin proveedor.", "aviso");
+                return;
+            }
+            proveedorIdPedido = sinProveedor.Id;
+        }
+
+        if (seleccionados.Any(i => i.CantidadAComprar <= 0))
+        {
+            await avisos.InformarAsync("Cantidad incorrecta", "Hay productos con cantidad a comprar en 0. Corregilos o destildalos.", "aviso");
+            return;
+        }
+
+        guardando = true;
+        ListaPedido? pedidoCreado = null;
+        bool guardadoOk = false;
+
+        try
+        {
+            // 1. Cabecera del pedido
+            var pedido = new ListaPedido
+            {
+                KioscoId = State.KioscoId,
+                ProveedorId = proveedorIdPedido,
+                Fecha = DateTime.UtcNow,
+                MontoEstimado = MontoTotalEstimado,
+                Estado = "Pendiente",
+                NombreListado = nombreListado.Trim()
+            };
+
+            var resPedido = await SupaClient.From<ListaPedido>().Insert(pedido);
+            pedidoCreado = resPedido.Models.First();
+
+            // 2. Detalle (un renglón por producto tildado)
+            var detalles = seleccionados.Select(i => new ListaPedidoDetalle
+            {
+                PedidoId = pedidoCreado.Id,
+                ProductoId = i.Producto.Id,
+                // CodigoBarras = i.Producto.CodigoBarras,
+                CodigoBarrasProveedor = ObtenerCodigoProveedor(i.Producto),
+                NombreProducto = NombreParaProveedor(i),
+                StockActual = i.StockActualLocal,
+                PrecioCosto = i.PrecioCostoLocal,          // por bulto si viene por bulto
+                CantidadComprar = i.CantidadAComprar,      // en bultos si viene por bulto
+                SubtotalEstimado = i.SubtotalEstimado,
+                UnidadesPorBulto = i.UnidadesPorBulto,
+                // siempre con valor ("UNIDAD" si es suelto): en una carga de varias filas todas tienen que traer las mismas columnas
+                TipoBulto = BlazorKioscoCompartido.Constants.TiposBulto.Nombre(i.TipoBulto, i.UnidadesPorBulto)
+            }).ToList();
+
+            await SupaClient.From<ListaPedidoDetalle>().Insert(detalles);
+
+            mensajeOk = $"Pedido guardado correctamente: {seleccionados.Count} productos, total estimado ${MontoTotalEstimado.ToString("N2")}.";
+            guardadoOk = true;
+        }
+        catch (Exception ex)
+        {
+            // Si falló el detalle, borramos la cabecera para no dejar un pedido vacío
+            if (pedidoCreado != null)
+            {
+                try
+                {
+                    var idPedido = pedidoCreado.Id;
+                    await SupaClient.From<ListaPedido>().Where(p => p.Id == idPedido).Delete();
+                }
+                catch { /* si tampoco se pudo borrar, el error original es el importante */ }
+            }
+
+            errorGuardado = ex.Message;
+        }
+        finally
+        {
+            guardando = false;
+        }
+
+        if (errorGuardado != null)
+        {
+            await avisos.InformarAsync("No se pudo guardar el pedido", errorGuardado, "peligro");
+            return;
+        }
+
+        // Fuera del try: si el refresco del historial fallara, no debe parecer que el pedido no se guardó
+        if (guardadoOk)
+        {
+            _ = avisos.GuardadoAsync("Pedido guardado correctamente");
+            await OnPedidoGuardado.InvokeAsync();
+        }
+    }
+
+    private void NuevoPedido()
+    {
+        todosLosItems.Clear();
+        itemsFiltrados.Clear();
+        itemsVisibles.Clear();
+        textoBusqueda = string.Empty;
+        idsAgregadosManualmente.Clear();
+        idsQuitados.Clear();
+        codigosProveedor = new();
+        bultosProveedor = new();
+        descripcionesProveedor = new();
+        proveedorSeleccionadoId = 0;
+        familiaSeleccionadaId = 0;
+        subfamiliaSeleccionadaId = 0;
+        tiposBultoProveedor = new();
+        candidatos = new();
+        candidatosFiltrados = new();
+        marcadosModal = new();
+        modalAgregar = false;
+        nombreListado = "";
+        nombreListadoAuto = "";
+        mensajeOk = null;
+        mensajeError = null;
+    }
+
+    private void AgregarAlListado(Producto prod)
+    {
+        // Se marca como "agregado a mano" para que los filtros de stock no lo oculten
+        idsAgregadosManualmente.Add(prod.Id);
+
+        idsQuitados.Remove(prod.Id);
+
+        var existente = todosLosItems.FirstOrDefault(i => i.Producto.Id == prod.Id);
+        if (existente == null)
+        {
+            existente = CrearItem(prod);
+            todosLosItems.Insert(0, existente);   // arriba de todo para verlo enseguida
+        }
+
+        existente.IncluirEnPedido = true;
+        textoBusqueda = string.Empty;
+        AplicarFiltros();
+        if (!TieneRelacionConElegido(prod.Id)) _ = CompletarConUltimoProveedorAsync(new[] { existente });
+    }
+
+    private async Task CopiarListaParaWhatsapp()
+    {
+        var seleccionados = itemsFiltrados.Where(i => i.IncluirEnPedido).ToList();
+        if (!seleccionados.Any()) return;
+
+        var texto = $"*PEDIDO DE REPOSICIÓN*\n\n";
+        foreach (var item in seleccionados)
+        {
+            var codProv = ObtenerCodigoProveedor(item.Producto);
+            var codTxt = codProv != null ? $" (cód. {codProv})" : "";
+            var cantTxt = item.PorBulto
+                ? $"{item.CantidadAComprar:0.##} {TipoTxt(item, item.CantidadAComprar)}"   // sin las unidades: es un dato interno del negocio
+                : item.TieneTipo
+                ? $"{item.CantidadAComprar:0.##} {TipoTxt(item, item.CantidadAComprar)}"
+                : $"{item.CantidadAComprar:0.##} un.";
+            texto += $"• {NombreParaProveedor(item)}{codTxt}: {cantTxt}\n";
+        }
+        texto += $"\n*Total Estimado:* ${MontoTotalEstimado.ToString("N2")}";
+
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", texto);
+            avisos.Toast("Lista copiada. Ya podés pegarla en WhatsApp.", "exito");
+        }
+        catch
+        {
+            await avisos.InformarAsync("No se pudo copiar", "Tu navegador no permitió copiar al portapapeles.", "aviso");
+        }
+    }
+}

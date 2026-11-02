@@ -1,0 +1,383 @@
+﻿@page "/tareas"
+@using BlazorKioscoCompartido.Models
+@using BlazorKioscoCompartido.Components
+@using System.Globalization
+@using static Supabase.Postgrest.Constants
+@inject Supabase.Client SupaClient
+@inject AppState State
+@inject NavigationManager Nav
+
+@* Tareas del personal (etapa 1): cada empleado carga, renglón por renglón, lo que hizo en el día.
+   El dueño y el encargado ven las de todos. Datos: tabla "tareas" (_sql\23.tareas.sql). *@
+
+<PedidosEstilos />
+<ConfigEstilos />
+<VentasEstilos />
+<AvisosPagina @ref="avisos" />
+
+<div class="container-fluid px-3 py-2 min-vh-100 style-notebook gp-scope gp-page">
+    <EncabezadoPagina Titulo="Tareas del día"
+                      Subtitulo="@(VeTodos ? "Lo que hizo cada uno" : "Anotá lo que vas haciendo")"
+                      IconoClass="bi-list-check"
+                      ColorBorde="primary"
+                      ColorIcono="primary"
+                      MostrarBotonAyuda="false"
+                      RutaVolver="/productos" />
+
+    <div class="vt-wrap" style="display:flex; flex-direction:column; gap:1rem">
+
+        @* ================= CARGAR ================= *@
+        @if (EsHoy)
+        {
+            <section class="gp-card gp-card-pad">
+                <div class="gp-card-head">
+                    <span class="gp-bubble"><i class="bi bi-plus-lg"></i></span>
+                    <div class="vt-head-text">
+                        <h2>¿Qué hiciste?</h2>
+                        <p>Una tarea por renglón. Escribila y apretá Enter.</p>
+                    </div>
+                </div>
+
+                <div class="tr-carga">
+                    <input class="gp-control tr-desc" maxlength="300" placeholder="Ej: Repuse la heladera de bebidas"
+                           @bind="nuevaDesc" @bind:event="oninput" @onkeyup="AlTeclear" />
+                    <div class="vt-addon tr-min" title="Cuánto tiempo te llevó (opcional)">
+                        <input type="number" min="0" inputmode="numeric" class="gp-control" placeholder="min" @bind="nuevosMin" @onkeyup="AlTeclear" />
+                        <span>min</span>
+                    </div>
+                    <button type="button" class="gp-btn gp-btn-primary" disabled="@(guardando || string.IsNullOrWhiteSpace(nuevaDesc))" @onclick="Agregar">
+                        <i class="bi bi-plus-lg"></i> Agregar
+                    </button>
+                </div>
+
+                @if (frecuentes.Any())
+                {
+                    <div class="tr-frec">
+                        <span class="gp-muted">Las que más cargás:</span>
+                        @foreach (var f in frecuentes)
+                        {
+                            <button type="button" class="tr-chip" title="Agregar esta tarea" disabled="@guardando" @onclick="() => AgregarFrecuente(f)">
+                                <i class="bi bi-plus"></i> @f
+                            </button>
+                        }
+                    </div>
+                }
+            </section>
+        }
+
+        @* ================= LISTA DEL DÍA ================= *@
+        <section class="gp-card gp-card-pad">
+            <div class="tr-cab">
+                <div class="tr-dia">
+                    <button type="button" class="gp-btn gp-btn-outline gp-btn-sm gp-btn-icon" title="Día anterior" @onclick="() => CambiarDia(-1)"><i class="bi bi-chevron-left"></i></button>
+                    <b>@TextoDia</b>
+                    <button type="button" class="gp-btn gp-btn-outline gp-btn-sm gp-btn-icon" title="Día siguiente" disabled="@EsHoy" @onclick="() => CambiarDia(1)"><i class="bi bi-chevron-right"></i></button>
+                    @if (!EsHoy)
+                    {
+                        <button type="button" class="gp-btn gp-btn-soft gp-btn-sm" @onclick="IrAHoy">Hoy</button>
+                    }
+                </div>
+
+                @if (VeTodos && Empleados.Count > 1)
+                {
+                    <select class="gp-control tr-emp" @bind="empleadoFiltro">
+                        <option value="">Todos (@lista.Count)</option>
+                        @foreach (var e in Empleados)
+                        {
+                            <option value="@e">@e (@lista.Count(t => Nombre(t) == e))</option>
+                        }
+                    </select>
+                }
+
+                <span class="gp-summary">
+                    <strong>@Filtradas.Count</strong> tarea(s)@(MinutosTotal > 0 ? $" · {TextoMinutos(MinutosTotal)}" : "")
+                </span>
+            </div>
+
+            @if (!string.IsNullOrEmpty(error))
+            {
+                <div class="gp-banner is-danger"><i class="bi bi-exclamation-octagon-fill"></i><p>@error</p></div>
+            }
+            else if (cargando)
+            {
+                <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>Cargando...</p></div>
+            }
+            else if (!Filtradas.Any())
+            {
+                <div class="gp-empty">
+                    <span class="gp-bubble"><i class="bi bi-list-check"></i></span>
+                    <strong>@(EsHoy ? "Todavía no hay tareas cargadas hoy" : "No hay tareas cargadas ese día")</strong>
+                    @if (EsHoy) { <span>Escribí arriba lo que hiciste.</span> }
+                </div>
+            }
+            else
+            {
+                <ul class="tr-lista">
+                    @foreach (var t in Filtradas)
+                    {
+                        <li class="tr-item">
+                            <span class="tr-hora">@(t.Hora ?? "--:--")</span>
+                            @if (editandoId == t.Id)
+                            {
+                                <div class="tr-edit">
+                                    <input class="gp-control" maxlength="300" @bind="editDesc" @bind:event="oninput" @onkeyup="AlTeclearEdicion" />
+                                    <div class="vt-addon tr-min">
+                                        <input type="number" min="0" inputmode="numeric" class="gp-control" placeholder="min" @bind="editMin" />
+                                        <span>min</span>
+                                    </div>
+                                    <button type="button" class="gp-btn gp-btn-ok gp-btn-sm gp-btn-icon" title="Guardar" disabled="@guardando" @onclick="GuardarEdicion"><i class="bi bi-check-lg"></i></button>
+                                    <button type="button" class="gp-btn gp-btn-outline gp-btn-sm gp-btn-icon" title="Cancelar" @onclick="() => editandoId = 0"><i class="bi bi-x-lg"></i></button>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="tr-txt">
+                                    <span>@t.Descripcion</span>
+                                    <small>
+                                        @if (VeTodos) { <span class="tr-quien"><i class="bi bi-person-fill"></i> @Nombre(t)</span> }
+                                        @if (t.Minutos > 0) { <span><i class="bi bi-clock"></i> @TextoMinutos(t.Minutos.Value)</span> }
+                                    </small>
+                                </div>
+                                @if (PuedeCambiar(t))
+                                {
+                                    <div class="gp-cell-actions">
+                                        <button type="button" class="gp-btn gp-btn-soft gp-btn-sm gp-btn-icon" title="Corregir" @onclick="() => Editar(t)"><i class="bi bi-pencil-fill"></i></button>
+                                        <button type="button" class="gp-btn gp-btn-danger-soft gp-btn-sm gp-btn-icon" title="Borrar" @onclick="() => Borrar(t)"><i class="bi bi-trash3-fill"></i></button>
+                                    </div>
+                                }
+                            }
+                        </li>
+                    }
+                </ul>
+            }
+        </section>
+    </div>
+</div>
+
+<style>
+    .tr-carga { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+    .tr-desc { flex: 1 1 16rem; min-width: 0; }
+    .tr-min { flex: 0 0 11rem; }
+    .tr-min input { min-width: 5.5rem; font-size: 1.05rem; font-weight: 800; text-align: center; }
+    @@media (max-width: 575.98px) { .tr-min { flex: 1 1 9rem; } }
+    .tr-frec { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; margin-top: .8rem; }
+    .tr-chip { display: inline-flex; align-items: center; gap: .2rem; padding: .3rem .7rem; border: 1px solid var(--gp-line); border-radius: 999px; background: #fff; font: inherit; font-size: .85rem; font-weight: 700; color: var(--gp-text); cursor: pointer; }
+    .tr-chip:hover:not(:disabled) { border-color: var(--gp-primary); background: var(--gp-primary-soft); color: var(--gp-primary); }
+    .tr-cab { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; margin-bottom: .8rem; }
+    .tr-dia { display: flex; align-items: center; gap: .4rem; }
+    .tr-dia b { min-width: 9.5rem; text-align: center; text-transform: capitalize; }
+    .tr-emp { width: auto; min-width: 11rem; }
+    .tr-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .4rem; }
+    .tr-item { display: flex; align-items: center; gap: .7rem; padding: .55rem .7rem; border: 1px solid var(--gp-line); border-radius: 12px; background: #fff; }
+    .tr-hora { flex: none; font-weight: 800; color: var(--gp-muted); font-variant-numeric: tabular-nums; }
+    .tr-txt { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+    .tr-txt > span { font-weight: 700; color: var(--gp-text); overflow-wrap: anywhere; }
+    .tr-txt small { display: flex; flex-wrap: wrap; gap: .2rem .8rem; color: var(--gp-muted); font-weight: 600; }
+    .tr-quien { color: var(--gp-primary); }
+    .tr-edit { flex: 1 1 auto; display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+    .tr-edit > input { flex: 1 1 12rem; min-width: 0; }
+</style>
+
+@code {
+    private AvisosPagina avisos = default!;
+    private static readonly CultureInfo Ar = new("es-AR");
+
+    private DateTime dia = DateTime.Today;
+    private List<Tarea> lista = new();
+    private List<string> frecuentes = new();
+    private string empleadoFiltro = "";
+    private bool cargando, guardando;
+    private string error = "";
+
+    private string nuevaDesc = "";
+    private int? nuevosMin;
+
+    private long editandoId;
+    private string editDesc = "";
+    private int? editMin;
+
+    private bool EsHoy => dia.Date == DateTime.Today;
+    /// <summary>El dueño y el encargado ven las tareas de todos; el resto, solo las suyas.</summary>
+    private bool VeTodos => Roles.Puede(State.UsuarioRol, Roles.PPersonal);
+    private string MiNombre => State.UsuarioNombre ?? "Usuario";
+
+    private string TextoDia => EsHoy ? "Hoy" : dia == DateTime.Today.AddDays(-1) ? "Ayer" : dia.ToString("ddd dd/MM/yyyy", Ar);
+    private static string Nombre(Tarea t) => string.IsNullOrWhiteSpace(t.UsuarioNombre) ? "Sin nombre" : t.UsuarioNombre!;
+    private List<string> Empleados => lista.Select(Nombre).Distinct().OrderBy(x => x).ToList();
+
+    private List<Tarea> Filtradas => lista
+        .Where(t => string.IsNullOrEmpty(empleadoFiltro) || Nombre(t) == empleadoFiltro)
+        .OrderBy(t => t.Hora).ThenBy(t => t.Id)
+        .ToList();
+    private int MinutosTotal => Filtradas.Sum(t => t.Minutos ?? 0);
+
+    /// <summary>Cada uno corrige o borra lo suyo del día; el dueño y el encargado, cualquiera.</summary>
+    private bool PuedeCambiar(Tarea t) => VeTodos || (EsHoy && t.UsuarioId == State.UsuarioId);
+
+    private static string TextoMinutos(int m) => m < 60 ? $"{m} min" : m % 60 == 0 ? $"{m / 60} h" : $"{m / 60} h {m % 60} min";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (State.KioscoId == 0) { Nav.NavigateTo("/login"); return; }
+        await Cargar();
+        await CargarFrecuentes();
+    }
+
+    private async Task CambiarDia(int d)
+    {
+        var nuevo = dia.AddDays(d);
+        if (nuevo > DateTime.Today) return;
+        dia = nuevo; editandoId = 0;
+        await Cargar();
+    }
+
+    private async Task IrAHoy() { dia = DateTime.Today; editandoId = 0; await Cargar(); }
+
+    private async Task Cargar()
+    {
+        cargando = true; error = "";
+        try
+        {
+            long k = State.KioscoId;
+            var q = SupaClient.From<Tarea>()
+                .Where(t => t.KioscoId == k)
+                .Filter("fecha", Operator.Equals, dia.ToString("yyyy-MM-dd"));
+            // el empleado ve solo lo suyo
+            if (!VeTodos && State.UsuarioId is Guid yo) q = q.Filter("usuario_id", Operator.Equals, yo.ToString());
+            var res = await q.Order("id", Ordering.Ascending).Get();
+            lista = res.Models ?? new();
+            if (!string.IsNullOrEmpty(empleadoFiltro) && !Empleados.Contains(empleadoFiltro)) empleadoFiltro = "";
+        }
+        catch (Exception ex)
+        {
+            lista = new();
+            var msg = ex.Message ?? "";
+            error = msg.Contains("tareas") && (msg.Contains("PGRST205") || msg.Contains("does not exist") || msg.Contains("42P01"))
+                ? "Falta preparar la base: hay que correr el script 23.tareas.sql en Supabase."
+                : "No se pudieron cargar las tareas: " + msg;
+        }
+        finally { cargando = false; }
+    }
+
+    /// <summary>Las tareas que más repite este usuario (últimos 60 días), para cargarlas con un toque.</summary>
+    private async Task CargarFrecuentes()
+    {
+        if (State.UsuarioId is not Guid yo) return;
+        try
+        {
+            long k = State.KioscoId;
+            var res = await SupaClient.From<Tarea>()
+                .Select("id, descripcion, fecha")
+                .Where(t => t.KioscoId == k)
+                .Filter("usuario_id", Operator.Equals, yo.ToString())
+                .Filter("fecha", Operator.GreaterThanOrEqual, DateTime.Today.AddDays(-60).ToString("yyyy-MM-dd"))
+                .Order("id", Ordering.Descending)
+                .Limit(500)
+                .Get();
+            frecuentes = (res.Models ?? new())
+                .Select(t => (t.Descripcion ?? "").Trim())
+                .Where(d => d.Length > 0 && d.Length <= 60)
+                .GroupBy(d => d.ToLowerInvariant())
+                .Where(g => g.Count() >= 2)
+                .OrderByDescending(g => g.Count())
+                .Take(8)
+                .Select(g => g.First())
+                .ToList();
+        }
+        catch { frecuentes = new(); }
+    }
+
+    private async Task AlTeclear(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await Agregar();
+    }
+
+    private Task AgregarFrecuente(string desc) => Insertar(desc, null);
+
+    private async Task Agregar()
+    {
+        if (string.IsNullOrWhiteSpace(nuevaDesc)) return;
+        if (await Insertar(nuevaDesc, nuevosMin)) { nuevaDesc = ""; nuevosMin = null; }
+    }
+
+    private async Task<bool> Insertar(string desc, int? minutos)
+    {
+        if (guardando) return false;
+        desc = desc.Trim();
+        if (desc.Length == 0) return false;
+        guardando = true;
+        try
+        {
+            var t = new Tarea
+            {
+                KioscoId = State.KioscoId,
+                UsuarioId = State.UsuarioId,
+                UsuarioNombre = MiNombre,
+                Fecha = DateTime.Today.ToString("yyyy-MM-dd"),
+                Hora = DateTime.Now.ToString("HH:mm"),
+                Descripcion = desc,
+                Minutos = minutos is > 0 ? minutos : null
+            };
+            var res = await SupaClient.From<Tarea>().Insert(t);
+            var nueva = res.Models.FirstOrDefault() ?? t;
+            if (EsHoy) lista.Add(nueva);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudo guardar la tarea", ex.Message, "peligro");
+            return false;
+        }
+        finally { guardando = false; }
+    }
+
+    private void Editar(Tarea t)
+    {
+        editandoId = t.Id;
+        editDesc = t.Descripcion;
+        editMin = t.Minutos;
+    }
+
+    private async Task AlTeclearEdicion(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await GuardarEdicion();
+        else if (e.Key == "Escape") editandoId = 0;
+    }
+
+    private async Task GuardarEdicion()
+    {
+        var t = lista.FirstOrDefault(x => x.Id == editandoId);
+        if (t == null) { editandoId = 0; return; }
+        var desc = (editDesc ?? "").Trim();
+        if (desc.Length == 0) { avisos.Toast("Escribí la tarea (o borrala con el tachito).", "peligro"); return; }
+        int? min = editMin is > 0 ? editMin : null;
+
+        guardando = true;
+        try
+        {
+            long id = t.Id;
+            await SupaClient.From<Tarea>()
+                .Where(x => x.Id == id)
+                .Set(x => x.Descripcion, desc)
+                .Set(x => x.Minutos!, min!)
+                .Update();
+            t.Descripcion = desc; t.Minutos = min;
+            editandoId = 0;
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo corregir la tarea", ex.Message, "peligro"); }
+        finally { guardando = false; }
+    }
+
+    private async Task Borrar(Tarea t)
+    {
+        if (!await avisos.ConfirmarAsync("¿Borrar esta tarea?", t.Descripcion, "Borrar")) return;
+        try
+        {
+            long id = t.Id;
+            await SupaClient.From<Tarea>().Where(x => x.Id == id).Delete();
+            lista.Remove(t);
+            avisos.Toast("Tarea borrada", "exito");
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo borrar", ex.Message, "peligro"); }
+    }
+}

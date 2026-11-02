@@ -1,10 +1,16 @@
 ﻿@page "/"
 @inject NavigationManager Nav
+@inject BlazorKioscoCompartido.Services.AppState State
 
 @code {
     protected override void OnInitialized()
     {
         // Apenas arranca la app de escritorio, la mandamos al Login compartido
-        Nav.NavigateTo("/login");
+        if (State.KioscoId == 0) Nav.NavigateTo("/login");
+        else if (BlazorKioscoCompartido.Services.SinInternet.VentaSinInternet.Actual?.ModoLimitado == true)
+            Nav.NavigateTo(BlazorKioscoCompartido.Services.RutasApp.Escritorio.Vender);   // sin internet: solo vender
+        else Nav.NavigateTo(BlazorKioscoCompartido.Services.Roles.EsSuperAdmin(State.UsuarioRol)
+            ? BlazorKioscoCompartido.Services.RutasApp.Escritorio.AdminNegocios
+            : BlazorKioscoCompartido.Services.RutasApp.Escritorio.Productos);
     }
 }

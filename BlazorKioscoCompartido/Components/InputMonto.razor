@@ -1,0 +1,54 @@
+﻿@* =====================================================================
+   InputMonto: campo para escribir plata con punto de miles (3.000 · 20.000 · 1.500,50).
+   Se usa como un input con @bind:   <InputMonto @bind-Value="precio" class="gp-control" />
+   El punto se pone solo mientras se escribe (clase js-monto + script de index.html).
+   Inmediato = true (por defecto): avisa el valor en cada tecla, como @bind:event="oninput".
+   ===================================================================== *@
+
+<input type="text" inputmode="decimal" class="js-monto @Class" placeholder="@Placeholder" disabled="@Disabled"
+       value="@texto" @oninput="AlEscribir" @onchange="AlCambiar" onfocus="this.select()" @attributes="Otros" />
+
+@code {
+    [Parameter] public decimal? Value { get; set; }
+    [Parameter] public EventCallback<decimal?> ValueChanged { get; set; }
+    /// <summary>true = avisa en cada tecla; false = recién al salir del campo.</summary>
+    [Parameter] public bool Inmediato { get; set; } = true;
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public string? Placeholder { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    /// <summary>Cualquier otro atributo (id, title, style...).</summary>
+    [Parameter(CaptureUnmatchedValues = true)] public Dictionary<string, object>? Otros { get; set; }
+
+    private string texto = "";
+    private decimal? ultimo;
+    private bool primera = true;
+
+    protected override void OnParametersSet()
+    {
+        // solo se reescribe el texto si el valor cambió desde afuera (así no se pisa lo que está escribiendo)
+        if (primera || Value != ultimo)
+        {
+            texto = Plata.Texto(Value);
+            ultimo = Value;
+            primera = false;
+        }
+    }
+
+    private static decimal? Leer(object? v) =>
+        string.IsNullOrWhiteSpace(v?.ToString()) ? null : Plata.TryLeer(v, out var d) ? d : null;
+
+    private async Task AlEscribir(ChangeEventArgs e)
+    {
+        texto = e.Value?.ToString() ?? "";
+        if (!Inmediato) return;
+        ultimo = Leer(e.Value);
+        await ValueChanged.InvokeAsync(ultimo);
+    }
+
+    private async Task AlCambiar(ChangeEventArgs e)
+    {
+        texto = e.Value?.ToString() ?? "";
+        ultimo = Leer(e.Value);
+        await ValueChanged.InvokeAsync(ultimo);
+    }
+}

@@ -1,0 +1,352 @@
+﻿@using BlazorKioscoCompartido.Models
+@using BlazorKioscoCompartido.Services
+@using System.Globalization
+@inject Supabase.Client SupaClient
+@inject AppState State
+@inject IJSRuntime JS
+
+@* =====================================================================
+   Historial de la cuenta de fiado de un cliente: todo lo que sacó (pagado, a medias o pendiente)
+   y todas las entregas que hizo, con el saldo. Se puede bajar un comprobante en PDF para darle al cliente.
+   Usa ventas + fiado_aplicaciones (script 22).
+   ===================================================================== *@
+
+<AvisosPagina @ref="avisos" />
+
+<section class="gp-card gp-card-pad">
+    <div class="gp-card-head" style="flex-wrap:wrap">
+        <span class="gp-bubble"><i class="bi bi-journal-text"></i></span>
+        <div class="vt-head-text">
+            <h2>Historial de un cliente</h2>
+            <p>Todo lo que sacó fiado, lo que ya pagó y cada entrega. Bajá el comprobante para mostrárselo o mandárselo.</p>
+        </div>
+    </div>
+
+    <div class="hf-filtros">
+        <select class="gp-control" value="@personaId" @onchange="ElegirPersona">
+            <option value="0">-- Elegí un cliente --</option>
+            @foreach (var p in personas)
+            {
+                <option value="@p.Id">@p.Nombre</option>
+            }
+        </select>
+        <div class="gp-seg" role="group">
+            <button type="button" class="@(ver == "todo" ? "is-active" : "")" @onclick='() => ver = "todo"'>Todo</button>
+            <button type="button" class="@(ver == "pagadas" ? "is-active" : "")" @onclick='() => ver = "pagadas"'>Deudas pagadas</button>
+            <button type="button" class="@(ver == "entregas" ? "is-active" : "")" @onclick='() => ver = "entregas"'>Entregas</button>
+        </div>
+        @if (personaId > 0 && !cargando && movimientos.Any())
+        {
+            <button type="button" class="gp-btn gp-btn-primary gp-btn-sm hf-pdf" disabled="@generando" @onclick="BajarComprobante">
+                <i class="bi bi-file-earmark-pdf-fill"></i> @(generando ? "Armando..." : "Comprobante PDF")
+            </button>
+        }
+    </div>
+
+    @if (personaId == 0)
+    {
+        <div class="gp-empty" style="margin-top:1rem">
+            <span class="gp-bubble"><i class="bi bi-person-lines-fill"></i></span>
+            <strong>Elegí un cliente</strong>
+            <span>Vas a ver su cuenta completa: lo que sacó, lo que pagó y cuándo.</span>
+        </div>
+    }
+    else if (cargando)
+    {
+        <div class="gp-banner is-neutral" style="margin-top:1rem"><span class="gp-spinner"></span><p>Cargando la cuenta...</p></div>
+    }
+    else if (!movimientos.Any())
+    {
+        <div class="gp-hint" style="margin-top:1rem"><i class="bi bi-info-circle"></i> No tiene nada fiado ni entregas.</div>
+    }
+    else
+    {
+        <div class="hf-resumen">
+            <div><span>Sacó fiado</span><b>$ @TotalSacado.ToString("N2")</b></div>
+            <div><span>Entregó</span><b class="ok">$ @TotalEntregado.ToString("N2")</b></div>
+            <div><span>Saldo</span><b class="@(Saldo > 0 ? "debe" : "ok")">$ @Saldo.ToString("N2")</b></div>
+        </div>
+
+        <ul class="hf-lista">
+            @foreach (var m in MovimientosVisibles)
+            {
+                bool abierto = abiertoMov == m.Mov && m.EsDeuda;
+                <li class="hf-mov @(m.EsDeuda ? "is-deuda" : "is-pago") @(m.EsDeuda ? "" : "")" @onclick="() => Alternar(m)">
+                    <span class="hf-ico"><i class="bi @(m.EsDeuda ? "bi-bag-fill" : "bi-cash-coin")"></i></span>
+                    <div class="hf-info">
+                        <b>@m.Titulo</b>
+                        <small>@m.Fecha.ToString("dd/MM/yyyy")@(m.EsDeuda ? " · " + m.EstadoTexto : "")</small>
+                    </div>
+                    <span class="hf-monto @(m.EsDeuda ? "" : "ok")">@(m.EsDeuda ? "" : "− ")$ @m.Monto.ToString("N2")</span>
+                    @if (m.EsDeuda)
+                    {
+                        <span class="hf-estado @m.EstadoClase">@m.EstadoCorto</span>
+                    }
+                </li>
+                @if (abierto)
+                {
+                    <li class="hf-det">
+                        @if (!m.Renglones.Any())
+                        {
+                            <small class="gp-muted">@(m.EsAjuste ? "Ajuste por aumento de precios." : "Sin detalle de productos.")</small>
+                        }
+                        @foreach (var r in m.Renglones)
+                        {
+                            <div class="hf-renglon"><span>@r.Cantidad x @r.Nombre</span><b>$ @r.Subtotal.ToString("N2")</b></div>
+                        }
+                        @if (m.Aplicado > 0 && m.Aplicado < m.Monto)
+                        {
+                            <div class="hf-renglon" style="color:var(--gp-warn)"><span>Pagado hasta ahora</span><b>$ @m.Aplicado.ToString("N2")</b></div>
+                        }
+                    </li>
+                }
+            }
+        </ul>
+    }
+</section>
+
+<style>
+    .hf-filtros { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; }
+    .hf-filtros select { width: auto; min-width: 16rem; }
+    .hf-pdf { margin-left: auto; }
+    .hf-resumen { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; margin: 1rem 0 .8rem; }
+    .hf-resumen div { display: flex; flex-direction: column; padding: .55rem .7rem; border-radius: 12px; background: #f6f7fb; }
+    .hf-resumen span { color: var(--gp-muted); font-size: .72rem; font-weight: 700; }
+    .hf-resumen b { font-size: 1.1rem; font-weight: 900; }
+    .hf-resumen b.ok { color: var(--gp-ok); }
+    .hf-resumen b.debe { color: var(--gp-danger); }
+    .hf-lista { display: flex; flex-direction: column; gap: .4rem; margin: 0; padding: 0; list-style: none; }
+    .hf-mov { display: flex; align-items: center; gap: .65rem; padding: .55rem .7rem; border: 1px solid var(--gp-line); border-radius: 12px; background: #fff; }
+    .hf-mov.is-deuda { cursor: pointer; }
+    .hf-mov.is-deuda:hover { border-color: var(--gp-primary-line); }
+    .hf-mov.is-pago { background: #f6fbf7; }
+    .hf-ico { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 2.1rem; height: 2.1rem; border-radius: 10px; background: var(--gp-danger-soft); color: var(--gp-danger); }
+    .is-pago .hf-ico { background: var(--gp-ok-soft); color: var(--gp-ok); }
+    .hf-info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+    .hf-info b { font-weight: 800; font-size: .9rem; }
+    .hf-info small { color: var(--gp-muted); font-weight: 600; font-size: .76rem; }
+    .hf-monto { flex: none; font-weight: 900; white-space: nowrap; }
+    .hf-monto.ok { color: var(--gp-ok); }
+    .hf-estado { flex: none; padding: .15rem .55rem; border-radius: 999px; font-size: .7rem; font-weight: 900; white-space: nowrap; }
+    .hf-estado.pagada { background: var(--gp-ok-soft); color: var(--gp-ok); }
+    .hf-estado.parcial { background: var(--gp-warn-soft); color: var(--gp-warn); }
+    .hf-estado.debe { background: var(--gp-danger-soft); color: var(--gp-danger); }
+    .hf-det { list-style: none; margin: -.15rem 0 .15rem; padding: .5rem .8rem; border: 1px dashed var(--gp-line); border-radius: 10px; background: #fafbfd; }
+    .hf-renglon { display: flex; justify-content: space-between; gap: .8rem; font-size: .86rem; padding: .12rem 0; }
+    .hf-renglon b { white-space: nowrap; }
+    @@media (max-width: 575.98px) {
+        .hf-filtros select { min-width: 0; width: 100%; }
+        .hf-pdf { margin-left: 0; width: 100%; justify-content: center; }
+        .hf-mov { flex-wrap: wrap; }
+        .hf-resumen b { font-size: .95rem; }
+    }
+</style>
+
+@code {
+    /// <summary>Cliente que se abre al entrar (ej: desde el botón "Historial" de un deudor).</summary>
+    [Parameter] public long PersonaInicial { get; set; }
+
+    private AvisosPagina avisos = default!;
+    private List<Persona> personas = new();
+    private long personaId;
+    private bool cargando, generando;
+    private string ver = "todo";
+    private long abiertoMov;
+
+    private sealed record Renglon(string Nombre, decimal Cantidad, decimal Subtotal);
+    private sealed class Movimiento
+    {
+        public long Mov { get; set; }
+        public DateTime Fecha { get; set; }
+        public bool EsDeuda { get; set; }
+        public bool EsAjuste { get; set; }
+        public string Titulo { get; set; } = "";
+        public decimal Monto { get; set; }
+        public decimal Aplicado { get; set; }
+        public DateTime? Saldada { get; set; }
+        public List<Renglon> Renglones { get; set; } = new();
+
+        public bool Pagada => Aplicado >= Monto - 0.009m;
+        public string EstadoCorto => Pagada ? "PAGADA" : Aplicado > 0 ? "A MEDIAS" : "DEBE";
+        public string EstadoClase => Pagada ? "pagada" : Aplicado > 0 ? "parcial" : "debe";
+        public string EstadoTexto => Pagada
+            ? (Saldada is DateTime s ? "pagada el " + s.ToString("dd/MM/yyyy") : "pagada")
+            : Aplicado > 0 ? $"pagó $ {Aplicado:N2}, falta $ {Monto - Aplicado:N2}" : "pendiente";
+    }
+    private List<Movimiento> movimientos = new();
+
+    private IEnumerable<Movimiento> MovimientosVisibles => ver switch
+    {
+        "pagadas" => movimientos.Where(m => m.EsDeuda && m.Pagada),
+        "entregas" => movimientos.Where(m => !m.EsDeuda),
+        _ => movimientos
+    };
+    private decimal TotalSacado => movimientos.Where(m => m.EsDeuda).Sum(m => m.Monto);
+    private decimal TotalEntregado => movimientos.Where(m => !m.EsDeuda).Sum(m => m.Monto);
+    private decimal Saldo => Math.Max(0, TotalSacado - TotalEntregado);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            long k = State.KioscoId;
+            personas = ((await SupaClient.From<Persona>().Where(p => p.KioscoId == k).Get()).Models ?? new())
+                .OrderBy(p => p.Nombre).ToList();
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudieron cargar los clientes", ex.Message, "peligro"); }
+        if (PersonaInicial > 0) { personaId = PersonaInicial; await CargarAsync(); }
+    }
+
+    private async Task ElegirPersona(ChangeEventArgs e)
+    {
+        personaId = long.TryParse(e.Value?.ToString(), out var id) ? id : 0;
+        await CargarAsync();
+    }
+
+    private void Alternar(Movimiento m)
+    {
+        if (!m.EsDeuda) return;
+        abiertoMov = abiertoMov == m.Mov ? 0 : m.Mov;
+    }
+
+    private async Task CargarAsync()
+    {
+        movimientos = new();
+        abiertoMov = 0;
+        if (personaId == 0) return;
+        cargando = true;
+        StateHasChanged();
+        try
+        {
+            long k = State.KioscoId, pid = personaId;
+            var ventas = (await SupaClient.From<Venta>().Where(v => v.KioscoId == k).Where(v => v.PersonaId == pid).Get()).Models ?? new();
+            var formas = ((await SupaClient.From<FormaPago>().Where(f => f.KioscoId == k).Get()).Models ?? new())
+                .ToDictionary(f => f.Id, f => f.Nombre ?? "");
+            bool EsFiado(long formaId) => string.Equals(formas.GetValueOrDefault(formaId)?.Trim(), "FIADO", StringComparison.OrdinalIgnoreCase);
+
+            var apl = new List<FiadoAplicacion>();
+            try { apl = (await SupaClient.From<FiadoAplicacion>().Where(a => a.PersonaId == pid).Get()).Models ?? new(); }
+            catch { /* sin script 22 */ }
+            var porId = ventas.ToDictionary(v => v.Id);
+
+            // deudas: lo que sacó fiado (y los ajustes por aumento)
+            var deudas = ventas.Where(v => v.Total > 0 && (EsFiado(v.FormaPagoId) || v.EsAjustePrecio == true)).ToList();
+            foreach (var d in deudas)
+            {
+                var mias = apl.Where(a => a.DeudaVentaId == d.Id).ToList();
+                movimientos.Add(new Movimiento
+                {
+                    Mov = d.NumeroUnicoIdentificatorioMovimiento,
+                    Fecha = d.Fecha,
+                    EsDeuda = true,
+                    EsAjuste = d.EsAjustePrecio == true,
+                    Titulo = d.EsAjustePrecio == true ? "Ajuste por aumento de precios" : "Sacó fiado",
+                    Monto = d.Total,
+                    Aplicado = d.Pagado == true ? d.Total : Math.Min(d.Total, mias.Sum(a => a.Monto)),
+                    Saldada = mias.Select(a => porId.TryGetValue(a.PagoVentaId, out var pv) ? (DateTime?)pv.Fecha : null).Where(f => f != null).Max()
+                });
+            }
+
+            // entregas: renglones negativos (efectivo, transferencia... o "descontado")
+            foreach (var g in ventas.Where(v => v.Total < 0).GroupBy(v => v.NumeroUnicoIdentificatorioMovimiento))
+            {
+                var nombres = g.Select(v => EsFiado(v.FormaPagoId) ? "Descontado" : formas.GetValueOrDefault(v.FormaPagoId, "Entrega")).Distinct();
+                movimientos.Add(new Movimiento
+                {
+                    Mov = g.Key,
+                    Fecha = g.Min(v => v.Fecha),
+                    EsDeuda = false,
+                    Titulo = "Entrega · " + string.Join(" + ", nombres),
+                    Monto = Math.Abs(g.Sum(v => v.Total))
+                });
+            }
+
+            // qué se llevó en cada fiado
+            var movs = movimientos.Where(m => m.EsDeuda && !m.EsAjuste).Select(m => (object)m.Mov).Distinct().ToList();
+            var dets = new List<VentaDetalle>();
+            var varios = new List<ProductoVarioVenta>();
+            foreach (var t in movs.Chunk(100))
+            {
+                dets.AddRange((await SupaClient.From<VentaDetalle>().Filter("numero_unico_identificatorio_movimiento", Supabase.Postgrest.Constants.Operator.In, t.ToList()).Get()).Models ?? new());
+                try { varios.AddRange((await SupaClient.From<ProductoVarioVenta>().Where(x => x.KioscoId == k).Filter("numero_unico_identificatorio_movimiento", Supabase.Postgrest.Constants.Operator.In, t.ToList()).Get()).Models ?? new()); }
+                catch { }
+            }
+            var nombresProd = new Dictionary<long, string>();
+            foreach (var t in dets.Select(d => (object)d.ProductoId).Distinct().Chunk(100))
+            {
+                var rp = await SupaClient.From<Producto>().Select("id, nombre").Where(x => x.KioscoId == k)
+                    .Filter("id", Supabase.Postgrest.Constants.Operator.In, t.ToList()).Get();
+                foreach (var p in rp.Models ?? new()) nombresProd[p.Id] = p.Nombre ?? "";
+            }
+            foreach (var m in movimientos.Where(m => m.EsDeuda && !m.EsAjuste))
+            {
+                m.Renglones = dets.Where(d => d.NumeroUnicoIdentificatorioMovimiento == m.Mov)
+                    .Select(d => new Renglon(nombresProd.GetValueOrDefault(d.ProductoId) ?? ("Producto #" + d.ProductoId), d.Cantidad, d.Subtotal))
+                    .Concat(varios.Where(v => v.NumeroUnicoIdentificatorioMovimiento == m.Mov)
+                        .Select(v => new Renglon(v.NombreProducto ?? "Varios", v.Cantidad, v.Subtotal)))
+                    .ToList();
+            }
+
+            movimientos = movimientos.OrderByDescending(m => m.Fecha).ThenByDescending(m => m.Mov).ToList();
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo cargar la cuenta", ex.Message, "peligro"); }
+        finally { cargando = false; }
+    }
+
+    // ---------------- Comprobante PDF ----------------
+    private async Task BajarComprobante()
+    {
+        generando = true;
+        try
+        {
+            var cult = CultureInfo.GetCultureInfo("es-AR");
+            string P(decimal v) => "$ " + v.ToString("N2", cult);
+            var nombre = personas.FirstOrDefault(p => p.Id == personaId)?.Nombre ?? "Cliente";
+            var orden = movimientos.OrderBy(m => m.Fecha).ThenBy(m => m.Mov).ToList();
+
+            var fiados = orden.Where(m => m.EsDeuda).Select(m => new object[]
+            {
+                m.Fecha.ToString("dd/MM/yyyy"),
+                m.EsAjuste ? "Ajuste por aumento de precios"
+                           : (m.Renglones.Any() ? string.Join("\n", m.Renglones.Select(r => $"{r.Cantidad:0.##} x {r.Nombre}")) : "Fiado"),
+                P(m.Monto),
+                m.Pagada ? "Pagada" + (m.Saldada is DateTime s ? " " + s.ToString("dd/MM/yyyy") : "") : m.Aplicado > 0 ? "Pagó " + P(m.Aplicado) : "Debe"
+            }).ToList();
+            var entregas = orden.Where(m => !m.EsDeuda).Select(m => new object[]
+            {
+                m.Fecha.ToString("dd/MM/yyyy"), m.Titulo.Replace("Entrega · ", ""), P(m.Monto)
+            }).ToList();
+
+            var archivo = $"Cuenta {nombre} {DateTime.Now:yyyy-MM-dd}.pdf";
+            foreach (var c in System.IO.Path.GetInvalidFileNameChars()) archivo = archivo.Replace(c, '_');
+
+            var datos = new
+            {
+                archivo,
+                grupos = new[]
+                {
+                    new
+                    {
+                        titulo = $"Cuenta de {nombre}",
+                        columnas = new object[] { new { titulo = "Fecha", numerica = false, ancho = 70 }, new { titulo = "Qué se llevó", numerica = false, ancho = 0 },
+                                                  new { titulo = "Importe", numerica = true, ancho = 80 }, new { titulo = "Estado", numerica = false, ancho = 100 } },
+                        pedidos = new object[]
+                        {
+                            new { titulo = "Lo que sacó fiado", fecha = "", subtitulo = $"{State.NombreNegocio} · comprobante del {DateTime.Now:dd/MM/yyyy HH:mm}", filas = fiados },
+                            new { titulo = "Entregas", fecha = "", subtitulo = "Pagos que hizo", filas = entregas.Select(e => new object[] { e[0], e[1], e[2], "" }).ToList() },
+                            new { titulo = "Resumen", fecha = "", subtitulo = "",
+                                  filas = new List<object[]> { new object[] { "", "Sacó fiado", P(TotalSacado), "" },
+                                                               new object[] { "", "Entregó", P(TotalEntregado), "" },
+                                                               new object[] { "", "SALDO", P(Saldo), Saldo > 0 ? "Debe" : "Al día" } } }
+                        }
+                    }
+                }
+            };
+            var js = await JS.InvokeAsync<IJSObjectReference>("import", "./_content/BlazorKioscoCompartido/js/descargas.js?v=4");
+            await js.InvokeVoidAsync("generarPdf", datos);
+            avisos.Toast("Comprobante descargado", "exito");
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo armar el comprobante", ex.Message, "peligro"); }
+        finally { generando = false; }
+    }
+}

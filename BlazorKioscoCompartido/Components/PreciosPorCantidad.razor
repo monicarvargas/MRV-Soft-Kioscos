@@ -1,0 +1,124 @@
+﻿@using BlazorKioscoCompartido.Models
+@inject Supabase.Client Db
+@inject AppState State
+
+@* =====================================================================
+   Precios por cantidad (packs) de un producto: ej. gomitas c/u $30 · 10 u x $250 · 23 u x $500.
+   Al vender, el carrito arma solo la combinación más barata para el cliente y el stock baja por unidades.
+   La página llama a GuardarAsync(idProducto) al guardar el producto. Script 27.
+   No aplica a productos por peso.
+   ===================================================================== *@
+
+@if (disponible && Producto != null && !Producto.EsVentaPorPeso())
+{
+    <section class="gp-card gp-card-pad">
+        <div class="gp-card-head">
+            <span class="gp-bubble"><i class="bi bi-stack"></i></span>
+            <div class="cf-head-text">
+                <h2>Precios por cantidad <small style="font-weight:600; color:var(--gp-muted); font-size:.8rem">(opcional)</small></h2>
+                <p>Ej: gomitas c/u $ 30 · 10 u x $ 250 · 23 u x $ 500. Al vender se arma solo el precio más barato.</p>
+            </div>
+        </div>
+
+        @if (filas.Any())
+        {
+            <ul class="pc-lista">
+                @foreach (var f in filas)
+                {
+                    <li>
+                        <span class="pc-txt">Llevando</span>
+                        <input type="number" min="2" inputmode="numeric" class="gp-control pc-cant" onfocus="this.select()" @bind="f.Cantidad" @bind:event="oninput" />
+                        <span class="pc-txt">u pagan $</span>
+                        <InputMonto Class="gp-control pc-precio" Placeholder="Ej: 250" @bind-Value="f.Precio" />
+                        <span class="pc-cu">@CadaUno(f)</span>
+                        <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm gp-btn-icon" title="Sacar" @onclick="() => filas.Remove(f)"><i class="bi bi-x-lg"></i></button>
+                    </li>
+                }
+            </ul>
+        }
+        @if (!string.IsNullOrEmpty(Problema))
+        {
+            <div class="gp-hint" style="margin-top:.5rem; color:var(--gp-warn)"><i class="bi bi-exclamation-triangle-fill" style="color:var(--gp-warn)"></i> @Problema</div>
+        }
+        <button type="button" class="gp-link" style="margin-top:.6rem" @onclick="Agregar"><i class="bi bi-plus-circle"></i> Agregar precio por cantidad</button>
+    </section>
+}
+
+<style>
+    .pc-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .45rem; }
+    .pc-lista li { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem; padding: .45rem .6rem; border: 1px solid var(--gp-line); border-radius: 12px; }
+    .pc-txt { font-weight: 700; color: var(--gp-muted); }
+    .pc-cant { width: 5.5rem !important; text-align: center; font-weight: 800; }
+    .pc-precio { width: 8rem !important; font-weight: 800; }
+    .pc-cu { flex: 1 1 auto; color: var(--gp-ok); font-weight: 800; font-size: .85rem; }
+</style>
+
+@code {
+    [Parameter] public Producto? Producto { get; set; }
+    /// <summary>Copiar los precios por cantidad de otro producto (al crear una variante).</summary>
+    [Parameter] public long CopiarDeProductoId { get; set; }
+
+    public sealed class Fila
+    {
+        public int? Cantidad { get; set; }
+        public decimal? Precio { get; set; }
+    }
+
+    private List<Fila> filas = new();
+    private bool disponible = true;
+    private bool cargado;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (cargado || Producto == null) return;
+        cargado = true;
+        long id = Producto.Id > 0 ? Producto.Id : CopiarDeProductoId;
+        if (id <= 0) return;
+        try
+        {
+            var res = await Db.From<PrecioCantidad>().Where(x => x.ProductoId == id).Get();
+            filas = (res.Models ?? new()).OrderBy(x => x.Cantidad).Select(x => new Fila { Cantidad = x.Cantidad, Precio = x.Precio }).ToList();
+        }
+        catch { disponible = false; }   // falta el script 27
+    }
+
+    private void Agregar() => filas.Add(new Fila());
+
+    private decimal PrecioCu => Producto?.PrecioVenta ?? 0;
+
+    private string CadaUno(Fila f)
+    {
+        if ((f.Cantidad ?? 0) < 2 || (f.Precio ?? 0) <= 0) return "";
+        var cu = f.Precio!.Value / f.Cantidad!.Value;
+        var suelto = PrecioCu * f.Cantidad.Value;
+        return suelto > f.Precio
+            ? $"= $ {cu:N2} c/u (ahorra $ {suelto - f.Precio.Value:N0})"
+            : $"= $ {cu:N2} c/u";
+    }
+
+    /// <summary>Filas completas y sin repetir.</summary>
+    private List<Fila> Validas => filas.Where(f => (f.Cantidad ?? 0) >= 2 && (f.Precio ?? 0) > 0)
+                                       .GroupBy(f => f.Cantidad).Select(g => g.Last()).ToList();
+
+    private string? Problema
+    {
+        get
+        {
+            if (filas.Any(f => f.Cantidad is int c && c < 2)) return "La cantidad tiene que ser 2 o más.";
+            if (filas.Where(f => f.Cantidad >= 2).GroupBy(f => f.Cantidad).Any(g => g.Count() > 1)) return "Hay dos precios para la misma cantidad: queda el último.";
+            if (PrecioCu > 0 && Validas.Any(f => f.Precio >= PrecioCu * f.Cantidad)) return "Algún pack sale igual o más caro que comprar sueltas: no se va a usar.";
+            return null;
+        }
+    }
+
+    /// <summary>Guarda los precios por cantidad del producto (reemplaza los que tenía).</summary>
+    public async Task GuardarAsync(long productoId)
+    {
+        if (!disponible || productoId <= 0 || Producto == null) return;
+        long k = State.KioscoId;
+        await Db.From<PrecioCantidad>().Where(x => x.ProductoId == productoId).Delete();
+        if (Producto.EsVentaPorPeso()) return;
+        var nuevas = Validas.Select(f => new PrecioCantidad { KioscoId = k, ProductoId = productoId, Cantidad = f.Cantidad!.Value, Precio = f.Precio!.Value }).ToList();
+        if (nuevas.Any()) await Db.From<PrecioCantidad>().Insert(nuevas);
+    }
+}

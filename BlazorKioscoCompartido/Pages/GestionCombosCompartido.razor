@@ -1,0 +1,861 @@
+﻿@using BlazorKioscoCompartido.Models
+@using BlazorKioscoCompartido.Services
+@using BlazorKioscoCompartido.Components
+@using System.Globalization
+@using static Supabase.Postgrest.Constants
+@inject Supabase.Client SupaClient
+@inject AppState State
+@inject PrecioService PrecioServ
+@inject ConfiguracionService Config
+
+<PedidosEstilos />
+<ConfigEstilos />
+<VentasEstilos />
+<AvisosPagina @ref="avisos" />
+
+<div class="container-fluid px-3 py-2 min-vh-100 style-notebook gp-scope gp-page">
+    <EncabezadoPagina Titulo="Venta rápida y combos"
+                      Subtitulo="Armá promociones juntando productos de tu inventario"
+                      IconoClass="bi-gift-fill"
+                      ColorBorde="success"
+                      ColorIcono="success"
+                      MostrarBotonAyuda="false"
+                      RutaVolver="/productos" />
+
+    <div class="vt-wrap" style="display:flex; flex-direction:column; gap:1rem">
+        <PestanasPromos Activa="combos" RutaVentaRapida="@RutaVentaRapida" />
+
+        <section class="gp-card gp-card-pad">
+            <div class="gp-card-head">
+                <span class="gp-bubble"><i class="bi bi-gift-fill"></i></span>
+                <div class="vt-head-text">
+                    <h2>Combos y promociones</h2>
+                    <p>Al vender un combo se descuenta el stock de cada producto que lo compone.</p>
+                </div>
+                <button type="button" class="gp-btn gp-btn-primary gp-btn-sm vt-head-right" @onclick="AbrirModalNuevoCombo"><i class="bi bi-plus-lg"></i> Nuevo</button>
+            </div>
+
+            @* ---------- filtros ---------- *@
+            <div class="gp-toolbar">
+                <div class="gp-search">
+                    <i class="bi bi-search"></i>
+                    <input type="text" class="gp-control" placeholder="Buscar por nombre o código..." @bind="busqueda" @bind:event="oninput" />
+                    @if (!string.IsNullOrEmpty(busqueda))
+                    {
+                        <button type="button" class="gp-search-clear" aria-label="Limpiar" @onclick='() => busqueda = ""'><i class="bi bi-x-lg"></i></button>
+                    }
+                </div>
+                <div class="gp-seg" role="group">
+                    <button type="button" class="@(estadoFiltro == "todos" ? "is-active" : "")" @onclick='() => estadoFiltro = "todos"'>Todos</button>
+                    <button type="button" class="@(estadoFiltro == "activo" ? "is-active" : "")" @onclick='() => estadoFiltro = "activo"'>Activos</button>
+                    <button type="button" class="@(estadoFiltro == "inactivo" ? "is-active" : "")" @onclick='() => estadoFiltro = "inactivo"'>Inactivos</button>
+                </div>
+                @if (listaFamilia.Count > 1)
+                {
+                    <select class="gp-control" style="width:auto; min-width:11rem" @bind="categoriaFiltroId">
+                        <option value="0">Todas las familias</option>
+                        @foreach (var fam in listaFamilia)
+                        {
+                            <option value="@fam.Id">@fam.Nombre</option>
+                        }
+                    </select>
+                }
+                <span class="gp-summary"><strong>@CombosFiltrados.Count()</strong> combo(s)</span>
+            </div>
+
+            @if (combosConCostoDesactualizado > 0)
+            {
+                <div class="gp-banner" style="background:var(--gp-warn-soft); border-color:var(--gp-warn-line); margin-bottom:.9rem">
+                    <i class="bi bi-graph-up-arrow" style="color:var(--gp-warn)"></i>
+                    <p style="color:var(--gp-warn)">@combosConCostoDesactualizado combo(s) tienen productos que aumentaron de costo. Abrilos y tocá "Editar" para revisar el precio.</p>
+                </div>
+            }
+
+            @* ---------- listado ---------- *@
+            @if (cargando)
+            {
+                <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>Cargando combos...</p></div>
+            }
+            else if (!CombosFiltrados.Any())
+            {
+                <div class="gp-empty">
+                    <span class="gp-bubble"><i class="bi bi-gift"></i></span>
+                    <strong>@(listaCombos.Any() ? "No hay combos con ese filtro" : "Todavía no armaste combos")</strong>
+                    <span>@(listaCombos.Any() ? "Probá con otra búsqueda." : "Tocá \"Nuevo\" para armar el primero (ej: Coca 500 + alfajor).")</span>
+                </div>
+            }
+            else
+            {
+                <div class="cb-lista">
+                    @foreach (var combo in CombosFiltrados)
+                    {
+                        var abierto = comboAbiertoId == combo.Id;
+                        var dets = DetallesDe(combo.Id);
+                        var costoHoy = CostoActual(dets);
+                        var estado = EstadoVigencia(combo);
+                        <article class="cb-item @(abierto ? "is-open" : "") @(combo.Activo ? "" : "is-off")">
+                            <button type="button" class="cb-head" @onclick="() => Alternar(combo.Id)">
+                                <span class="cb-ico"><i class="bi @(combo.Activo ? "bi-gift-fill" : "bi-slash-circle")"></i></span>
+                                <span class="cb-info">
+                                    <b>@combo.Nombre</b>
+                                    <small>
+                                        @(string.IsNullOrWhiteSpace(combo.CodigoBarras) ? "Sin código" : combo.CodigoBarras) · @dets.Count producto(s)
+                                        @if (NombreFamilia(combo.FamiliaId) is string fam)
+                                        {
+                                            <span> · @fam</span>
+                                        }
+                                    </small>
+                                    <span class="cb-tags">
+                                        @if (!combo.Activo)
+                                        {
+                                            <span class="cb-tag is-off">Inactivo</span>
+                                        }
+                                        @if (estado == "vencido")
+                                        {
+                                            <span class="cb-tag is-danger"><i class="bi bi-calendar-x"></i> Venció el @(combo.FechaVigenciaHastaCombo!.Value.ToString("dd/MM"))</span>
+                                        }
+                                        else if (estado == "futuro")
+                                        {
+                                            <span class="cb-tag is-warn"><i class="bi bi-calendar-event"></i> Empieza el @(combo.FechaVigenciaDesdeCombo!.Value.ToString("dd/MM"))</span>
+                                        }
+                                        else if (combo.FechaVigenciaHastaCombo.HasValue)
+                                        {
+                                            <span class="cb-tag"><i class="bi bi-calendar-check"></i> Hasta el @combo.FechaVigenciaHastaCombo.Value.ToString("dd/MM")</span>
+                                        }
+                                        @if (combo.LimiteUnidadesCombo > 0)
+                                        {
+                                            <span class="cb-tag"><i class="bi bi-123"></i> Límite @combo.LimiteUnidadesCombo u.</span>
+                                        }
+                                        @if (CostoSubio(combo, costoHoy))
+                                        {
+                                            <span class="cb-tag is-warn"><i class="bi bi-graph-up-arrow"></i> Subió el costo</span>
+                                        }
+                                    </span>
+                                </span>
+                                <span class="cb-precio">
+                                    <b>$@combo.PrecioVenta.FormatearMonto(cultura)</b>
+                                    @if (!string.IsNullOrEmpty(nombreLista2) && combo.PrecioLista2 > 0)
+                                    {
+                                        <small>@nombreLista2: $@combo.PrecioLista2.FormatearMonto(cultura)</small>
+                                    }
+                                </span>
+                                <i class="bi bi-chevron-down cb-chev"></i>
+                            </button>
+
+                            @if (abierto)
+                            {
+                                <div class="cb-body">
+                                    <div class="cb-cifras">
+                                        <div><span>Costo hoy</span><b>$@costoHoy.FormatearMonto(cultura)</b></div>
+                                        <div><span>Precio venta</span><b class="ok">$@combo.PrecioVenta.FormatearMonto(cultura)</b></div>
+                                        <div><span>Ganancia</span><b class="@(Ganancia(combo, costoHoy) < 0 ? "mal" : "")">@GananciaTexto(combo, costoHoy)</b></div>
+                                    </div>
+
+                                    @if (CostoSubio(combo, costoHoy))
+                                    {
+                                        <div class="gp-hint" style="margin:.2rem 0 .7rem"><i class="bi bi-exclamation-triangle-fill"></i> Cuando lo guardaste costaba $@combo.PrecioCosto.FormatearMonto(cultura); hoy los productos suman $@costoHoy.FormatearMonto(cultura).</div>
+                                    }
+
+                                    <ul class="cb-comp">
+                                        @foreach (var det in dets)
+                                        {
+                                            <li class="@(det.ProductoHijo?.Activo == false ? "is-off" : "")">
+                                                <span class="cb-cant">@TextoCantidad(det)</span>
+                                                <span class="cb-comp-nom">@(det.ProductoHijo?.Nombre ?? "Producto no disponible")@(det.ProductoHijo?.Activo == false ? " (inactivo)" : "")</span>
+                                                <span class="cb-comp-costo">$@CalcularCostoComponente(det).FormatearMonto(cultura)</span>
+                                            </li>
+                                        }
+                                    </ul>
+
+                                    <div class="cb-acciones">
+                                        <button type="button" class="gp-btn gp-btn-soft gp-btn-sm" @onclick="() => CambiarActivoAsync(combo)">
+                                            <i class="bi @(combo.Activo ? "bi-pause-circle" : "bi-play-circle")"></i> @(combo.Activo ? "Desactivar" : "Activar")
+                                        </button>
+                                        <button type="button" class="gp-btn gp-btn-danger-soft gp-btn-sm" @onclick="() => EliminarComboAsync(combo)"><i class="bi bi-trash3-fill"></i> Eliminar</button>
+                                        <button type="button" class="gp-btn gp-btn-primary gp-btn-sm" @onclick="() => EditarCombo(combo)"><i class="bi bi-pencil-fill"></i> Editar</button>
+                                    </div>
+                                </div>
+                            }
+                        </article>
+                    }
+                </div>
+            }
+        </section>
+    </div>
+</div>
+
+@* ===================== MODAL: NUEVO / EDITAR COMBO ===================== *@
+@if (mostrarModal)
+{
+    <div class="gp-scope gp-modal-backdrop">
+        <div class="gp-modal vt-modal-grande" role="dialog" aria-modal="true">
+            <div class="gp-modal-head">
+                <span class="gp-bubble gp-bubble-sm"><i class="bi @(comboPadreEdicion.Id == 0 ? "bi-plus-lg" : "bi-pencil-square")"></i></span>
+                <div>
+                    <h3>@(comboPadreEdicion.Id == 0 ? "Nuevo combo" : "Editar combo")</h3>
+                    <p>Productos, precio y vigencia de la promo.</p>
+                </div>
+                <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm gp-btn-icon gp-modal-x" aria-label="Cerrar" @onclick="CerrarModal"><i class="bi bi-x-lg"></i></button>
+            </div>
+
+            <div class="gp-modal-body">
+                @* ---- 1. datos ---- *@
+                <div class="cf-section"><i class="bi bi-1-circle-fill"></i> Datos</div>
+                <div class="cf-grid">
+                    <div class="cf-col-full">
+                        <label class="cf-lbl">Nombre</label>
+                        <input type="text" class="gp-control" placeholder="Ej: COMBO MERIENDA" @bind="comboPadreEdicion.Nombre" />
+                    </div>
+                    <div>
+                        <label class="cf-lbl">Código</label>
+                        <div class="cf-input-btn">
+                            <input type="text" class="gp-control" placeholder="Escaneá o tocá la varita" @bind="comboPadreEdicion.CodigoBarras" />
+                            <button type="button" class="gp-btn gp-btn-soft gp-btn-sm" title="Crear un código numérico (como el de los productos)" disabled="@creandoCodigo" @onclick="GenerarCodigo"><i class="bi bi-magic"></i></button>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="cf-lbl">Familia</label>
+                        <select class="gp-control" @bind="comboPadreEdicion.FamiliaId">
+                            <option value="">Sin familia</option>
+                            @foreach (var fam in listaFamilia)
+                            {
+                                <option value="@fam.Id">@fam.Nombre</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="cf-col-full">
+                        <label class="gp-switch">
+                            <input type="checkbox" @bind="comboPadreEdicion.Activo" />
+                            <span class="gp-switch-track"></span>
+                            <span class="gp-switch-text">@(comboPadreEdicion.Activo ? "Activo: se puede vender" : "Inactivo: no aparece para vender")</span>
+                        </label>
+                    </div>
+                </div>
+
+                @* ---- 2. productos ---- *@
+                <div class="cf-section" style="margin-top:1.2rem"><i class="bi bi-2-circle-fill"></i> Qué lleva</div>
+                <div class="gp-buscador">
+                    <BuscadorProducto CargarAlInicio="false" MostrarPrimeraLista="false" MostrarSegundaLista="false" OnProductoEncontrado="AgregarProductoHijo" />
+                </div>
+
+                @if (!detallesEdicion.Any())
+                {
+                    <div class="gp-hint" style="margin-top:.6rem"><i class="bi bi-info-circle-fill" style="color:var(--gp-primary)"></i> Buscá y tocá los productos que forman el combo.</div>
+                }
+                else
+                {
+                    <ul class="cb-edit">
+                        @foreach (var det in detallesEdicion)
+                        {
+                            var esPeso = det.ProductoHijo.EsVentaPorPeso();
+                            <li>
+                                <div class="cb-edit-nom">
+                                    <b>@det.ProductoHijo?.Nombre</b>
+                                    <small>@(det.ProductoHijo?.CodigoBarras) · costo $@CalcularCostoComponente(det).FormatearMonto(cultura)</small>
+                                </div>
+                                <div class="cb-edit-cant">
+                                    <input type="number" min="1" step="any" inputmode="numeric" class="gp-control" value="@det.Cantidad" @onchange="e => ActualizarCantidadDetalle(det, e)" />
+                                    <span>@(esPeso ? "gr" : "u.")</span>
+                                </div>
+                                <button type="button" class="gp-btn gp-btn-danger-soft gp-btn-sm gp-btn-icon" title="Quitar" @onclick="() => EliminarDetalle(det)"><i class="bi bi-x-lg"></i></button>
+                            </li>
+                        }
+                    </ul>
+                    <div class="cb-costo"><span>Costo del combo</span><b>$@CostoCalculadoCombo.FormatearMonto(cultura)</b></div>
+                }
+
+                @* ---- 3. precio ---- *@
+                <div class="cf-section" style="margin-top:1.2rem"><i class="bi bi-3-circle-fill"></i> Precio</div>
+                <div class="cb-precios">
+                    <div>
+                        <label class="cf-lbl">Ganancia %</label>
+                        <input type="number" step="any" inputmode="decimal" class="gp-control" value="@NumInv(comboPadreEdicion.UtilidadPV)" @onchange="CalcularPrecioVentaMargen" />
+                    </div>
+                    <div>
+                        <label class="cf-lbl" style="color:var(--gp-ok)">Precio de venta $</label>
+                        <input type="text" inputmode="decimal" class="gp-control cb-pv js-monto" value="@(comboPadreEdicion.ObtenerPrecioVentaMostrar("Principal", State, cultura))" @onchange="OnCambioPrecioVenta" />
+                    </div>
+                    @if (!string.IsNullOrEmpty(nombreLista2))
+                    {
+                        <div>
+                            <label class="cf-lbl">Ganancia @nombreLista2 %</label>
+                            <input type="number" step="any" inputmode="decimal" class="gp-control" value="@NumInv(comboPadreEdicion.UtilidadLista2)" @onchange="CalcularPrecioVentaMargenLista2" />
+                        </div>
+                        <div>
+                            <label class="cf-lbl">Precio @nombreLista2 $</label>
+                            <input type="text" inputmode="decimal" class="gp-control js-monto" value="@(comboPadreEdicion.ObtenerPrecioVentaMostrar("Lista2", State, cultura))" @onchange='e => comboPadreEdicion.CalcularMargenDesdeVenta(e, "Lista2", cultura)' />
+                        </div>
+                    }
+                </div>
+                @if (CostoCalculadoCombo > 0 && (comboPadreEdicion.PrecioVenta ?? 0) > 0 && comboPadreEdicion.PrecioVenta < CostoCalculadoCombo)
+                {
+                    <div class="gp-hint" style="margin-top:.5rem; color:var(--gp-danger)"><i class="bi bi-exclamation-triangle-fill" style="color:var(--gp-danger)"></i> El precio es menor que el costo: perdés plata con cada combo.</div>
+                }
+
+                @* ---- 4. vigencia ---- *@
+                <div class="cf-section" style="margin-top:1.2rem"><i class="bi bi-4-circle-fill"></i> Vigencia <small style="font-weight:600; color:var(--gp-muted)">(opcional)</small></div>
+                <div class="cb-precios">
+                    <div>
+                        <label class="cf-lbl">Desde</label>
+                        <input type="date" class="gp-control" @bind="comboPadreEdicion.FechaVigenciaDesdeCombo" />
+                    </div>
+                    <div>
+                        <label class="cf-lbl">Hasta</label>
+                        <input type="date" class="gp-control" @bind="comboPadreEdicion.FechaVigenciaHastaCombo" />
+                    </div>
+                    <div>
+                        <label class="cf-lbl">Límite de unidades</label>
+                        <input type="number" min="0" inputmode="numeric" class="gp-control" placeholder="Sin límite" @bind="comboPadreEdicion.LimiteUnidadesCombo" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="gp-modal-foot">
+                <button type="button" class="gp-btn gp-btn-ghost" @onclick="CerrarModal">Cancelar</button>
+                <button type="button" class="gp-btn gp-btn-ok" disabled="@cargandoModal" @onclick="GuardarComboAsync">
+                    <i class="bi bi-check-lg"></i> @(cargandoModal ? "Guardando..." : "Guardar combo")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .cb-lista { display: flex; flex-direction: column; gap: .6rem; }
+    .cb-item { border: 1px solid var(--gp-line); border-radius: 16px; background: #fff; overflow: hidden; transition: border-color .15s, box-shadow .15s; }
+    .cb-item.is-open { border-color: var(--gp-primary-line); box-shadow: var(--gp-shadow); }
+    .cb-head { display: flex; align-items: center; gap: .75rem; width: 100%; padding: .75rem .85rem; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+    .cb-ico { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 2.7rem; height: 2.7rem; border-radius: 13px; background: var(--gp-primary-soft); color: var(--gp-primary); font-size: 1.25rem; }
+    .cb-item.is-off .cb-ico { background: #f0f2f7; color: #9aa3bd; }
+    .cb-info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: .15rem; }
+    .cb-info b { font-weight: 900; font-size: .92rem; text-transform: uppercase; line-height: 1.25; }
+    .cb-item.is-off .cb-info b { color: #8d96b0; }
+    .cb-info small { color: var(--gp-muted); font-weight: 600; font-size: .76rem; }
+    .cb-tags { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .15rem; }
+    .cb-tags:empty { display: none; }
+    .cb-tag { display: inline-flex; align-items: center; gap: .25rem; padding: .1rem .5rem; border-radius: 999px; background: #f0f2f9; color: var(--gp-muted); font-size: .7rem; font-weight: 800; }
+    .cb-tag.is-off { background: #eceef4; color: #7a839c; }
+    .cb-tag.is-warn { background: var(--gp-warn-soft); color: var(--gp-warn); }
+    .cb-tag.is-danger { background: var(--gp-danger-soft); color: var(--gp-danger); }
+    .cb-precio { flex: none; display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+    .cb-precio b { color: var(--gp-ok); font-weight: 900; font-size: 1.02rem; }
+    .cb-precio small { color: var(--gp-muted); font-weight: 700; font-size: .72rem; }
+    .cb-chev { flex: none; color: var(--gp-muted); transition: transform .15s; }
+    .cb-item.is-open .cb-chev { transform: rotate(180deg); }
+
+    .cb-body { padding: 0 .85rem .85rem; border-top: 1px dashed var(--gp-line); }
+    .cb-cifras { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; margin: .8rem 0; }
+    .cb-cifras div { display: flex; flex-direction: column; padding: .5rem .6rem; border-radius: 12px; background: #f6f7fb; }
+    .cb-cifras span { color: var(--gp-muted); font-size: .72rem; font-weight: 700; }
+    .cb-cifras b { font-weight: 900; font-size: .95rem; }
+    .cb-cifras b.ok { color: var(--gp-ok); }
+    .cb-cifras b.mal { color: var(--gp-danger); }
+    .cb-comp { display: flex; flex-direction: column; gap: .3rem; margin: 0 0 .8rem; padding: 0; list-style: none; }
+    .cb-comp li { display: flex; align-items: center; gap: .6rem; padding: .4rem .55rem; border: 1px solid var(--gp-line); border-radius: 10px; font-size: .84rem; }
+    .cb-comp li.is-off { background: var(--gp-danger-soft); border-color: var(--gp-danger-line); }
+    .cb-cant { flex: none; min-width: 3.2rem; padding: .1rem .4rem; border-radius: 8px; background: var(--gp-primary-soft); color: var(--gp-primary); font-weight: 900; text-align: center; font-size: .78rem; }
+    .cb-comp-nom { flex: 1 1 auto; min-width: 0; font-weight: 700; text-transform: uppercase; }
+    .cb-comp-costo { flex: none; color: var(--gp-muted); font-weight: 700; }
+    .cb-acciones { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .45rem; }
+
+    .cb-edit { display: flex; flex-direction: column; gap: .4rem; margin: .7rem 0 0; padding: 0; list-style: none; }
+    .cb-edit li { display: flex; align-items: center; gap: .6rem; padding: .5rem .6rem; border: 1px solid var(--gp-line); border-radius: 12px; }
+    .cb-edit-nom { flex: 1 1 auto; min-width: 0; }
+    .cb-edit-nom b { display: block; font-weight: 800; font-size: .86rem; text-transform: uppercase; }
+    .cb-edit-nom small { color: var(--gp-muted); font-weight: 600; font-size: .74rem; }
+    .cb-edit-cant { flex: none; display: flex; align-items: center; gap: .3rem; }
+    .cb-edit-cant .gp-control { width: 5.2rem; height: 2.3rem; text-align: center; font-weight: 800; }
+    .cb-edit-cant span { color: var(--gp-muted); font-weight: 800; font-size: .8rem; }
+    .cb-costo { display: flex; justify-content: space-between; align-items: center; margin-top: .6rem; padding: .55rem .8rem; border-radius: 12px; background: #f6f7fb; }
+    .cb-costo span { color: var(--gp-muted); font-weight: 700; font-size: .85rem; }
+    .cb-costo b { font-weight: 900; }
+    .cb-precios { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .7rem; }
+    .cb-pv { color: var(--gp-ok) !important; font-weight: 900 !important; font-size: 1.1rem !important; }
+
+    @@media (max-width: 575.98px) {
+        .cb-head { flex-wrap: wrap; }
+        .cb-info { flex-basis: calc(100% - 3.6rem); }
+        .cb-precio { flex: 1 1 auto; flex-direction: row; align-items: baseline; justify-content: flex-start; gap: .6rem; padding-left: 3.45rem; }
+        .cb-cifras b { font-size: .85rem; }
+        .cb-edit li { flex-wrap: wrap; }
+        .cb-edit-nom { flex-basis: 100%; }
+        .cb-edit-cant { margin-right: auto; }
+    }
+</style>
+
+@code {
+    [Parameter] public string RutaVentaRapida { get; set; } = "/gestion-venta-rapida";
+
+    private AvisosPagina avisos = default!;
+    private List<Producto> listaCombos = new();
+    private List<Familia> listaFamilia = new();
+    private Dictionary<long, List<ComboDetalle>> detallesPorCombo = new();
+
+    private Producto comboPadreEdicion = new();
+    private List<ComboDetalle> detallesEdicion = new();
+    private long comboAbiertoId = 0;
+
+    private string busqueda = "";
+    private long categoriaFiltroId = 0;
+    private string estadoFiltro = "todos";
+
+    private bool cargando = false;
+    private bool cargandoModal = false;
+    private bool mostrarModal = false;
+    private string nombreLista2 = "";
+    private int combosConCostoDesactualizado = 0;
+
+    private readonly CultureInfo cultura = CultureInfo.GetCultureInfo("es-AR");
+
+    private decimal CostoCalculadoCombo => detallesEdicion.Sum(d => CalcularCostoComponente(d));
+
+    private IEnumerable<Producto> CombosFiltrados => listaCombos.Where(c =>
+        (string.IsNullOrWhiteSpace(busqueda) ||
+         c.Nombre.Contains(busqueda, StringComparison.OrdinalIgnoreCase) ||
+         (c.CodigoBarras != null && c.CodigoBarras.Contains(busqueda, StringComparison.OrdinalIgnoreCase))) &&
+        (categoriaFiltroId == 0 || c.FamiliaId == categoriaFiltroId) &&
+        (estadoFiltro == "todos" || (estadoFiltro == "activo" && c.Activo) || (estadoFiltro == "inactivo" && !c.Activo)));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await PrecioServ.AsegurarReglasAsync(State.KioscoId);   // recargos de la Lista 2 del negocio
+        await CargarFamiliasAsync();
+        await CargarCombosAsync();
+    }
+
+    // ======================= CARGA =======================
+    private async Task CargarFamiliasAsync()
+    {
+        try
+        {
+            // la familia COMBOS tiene que existir (los negocios nuevos ya la traen; a los viejos se les crea acá)
+            try { await Config.AsegurarFamiliaCombos(State.KioscoId); } catch { }
+            var res = await SupaClient.From<Familia>().Where(c => c.KioscoId == State.KioscoId).Get();
+            listaFamilia = (res.Models ?? new()).OrderBy(f => f.Nombre).ToList();
+        }
+        catch { listaFamilia = new(); }
+    }
+
+    private async Task CargarCombosAsync()
+    {
+        cargando = true;
+        try
+        {
+            var res = await SupaClient.From<Producto>()
+                .Where(p => p.KioscoId == State.KioscoId)
+                .Where(p => p.EsCombo == true)
+                .Select("id, nombre, codigo_barras, precio_venta, precio_lista2, precio_costo, utilidad_pv, utilidad_lista2, familia_id, activo, kiosco_id, es_combo, fecha_vigencia_desde_combo, fecha_vigencia_hasta_combo, limite_unidades_combo")
+                .Order("nombre", Ordering.Ascending)
+                .Get();
+
+            listaCombos = res.Models ?? new List<Producto>();
+            nombreLista2 = await PrecioServ.ObtenerNombreColumnaAsync(State.KioscoId, "precio_lista2");
+            await CargarDetallesAsync();
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudieron cargar los combos", ex.Message, "peligro");
+        }
+        finally
+        {
+            cargando = false;
+        }
+    }
+
+    /// <summary>Trae todos los componentes de todos los combos en 2 consultas (antes era una por producto).</summary>
+    private async Task CargarDetallesAsync()
+    {
+        detallesPorCombo = new();
+        if (!listaCombos.Any()) { combosConCostoDesactualizado = 0; return; }
+
+        var ids = listaCombos.Select(c => (object)c.Id).ToList();
+        var resDet = await SupaClient.From<ComboDetalle>()
+            .Select("id, combo_id, producto_hijo_id, cantidad, kiosco_id")
+            .Where(d => d.KioscoId == State.KioscoId)
+            .Filter("combo_id", Operator.In, ids)
+            .Get();
+        var detalles = resDet.Models ?? new List<ComboDetalle>();
+
+        var hijosIds = detalles.Select(d => d.ProductoHijoId).Distinct().Select(i => (object)i).ToList();
+        var productos = new Dictionary<long, Producto>();
+        if (hijosIds.Any())
+        {
+            var resProd = await SupaClient.From<Producto>()
+                .Select("id, nombre, codigo_barras, precio_costo, unidad, activo, es_combo, kiosco_id")
+                .Where(p => p.KioscoId == State.KioscoId)
+                .Filter("id", Operator.In, hijosIds)
+                .Get();
+            productos = (resProd.Models ?? new()).ToDictionary(p => p.Id);
+        }
+
+        foreach (var d in detalles)
+            d.ProductoHijo = productos.TryGetValue(d.ProductoHijoId, out var p) ? p : null;
+
+        detallesPorCombo = detalles.GroupBy(d => d.ComboId).ToDictionary(g => g.Key, g => g.ToList());
+        combosConCostoDesactualizado = listaCombos.Count(c => c.Activo && CostoSubio(c, CostoActual(DetallesDe(c.Id))));
+    }
+
+    private List<ComboDetalle> DetallesDe(long comboId) => detallesPorCombo.TryGetValue(comboId, out var l) ? l : new();
+
+    private string? NombreFamilia(long? id) => id is null or 0 ? null : listaFamilia.FirstOrDefault(f => f.Id == id)?.Nombre;
+
+    private void Alternar(long id) => comboAbiertoId = comboAbiertoId == id ? 0 : id;
+
+    // ======================= CÁLCULOS =======================
+    private decimal CalcularCostoComponente(ComboDetalle det)
+    {
+        if (det.ProductoHijo == null) return 0m;
+        decimal costoBase = det.ProductoHijo.PrecioCosto ?? 0m;
+        // en productos por peso el costo es por kilo y la cantidad está en gramos
+        return det.ProductoHijo.EsVentaPorPeso() ? (costoBase / 1000m) * det.Cantidad : costoBase * det.Cantidad;
+    }
+
+    private decimal CostoActual(List<ComboDetalle> dets) => dets.Sum(d => CalcularCostoComponente(d));
+
+    /// <summary>Más de 1% por encima del costo con el que se guardó el combo.</summary>
+    private static bool CostoSubio(Producto combo, decimal costoHoy)
+        => (combo.PrecioCosto ?? 0) > 0 && costoHoy > combo.PrecioCosto!.Value * 1.01m;
+
+    private static decimal Ganancia(Producto combo, decimal costo) => (combo.PrecioVenta ?? 0) - costo;
+
+    private string GananciaTexto(Producto combo, decimal costo)
+    {
+        var g = Ganancia(combo, costo);
+        var pct = costo > 0 ? Math.Round(g / costo * 100m, 1) : 0;
+        return $"${g.FormatearMonto(cultura)} ({pct.ToString("0.#", cultura)}%)";
+    }
+
+    private static string? EstadoVigencia(Producto c)
+    {
+        var hoy = DateTime.Today;
+        if (c.FechaVigenciaHastaCombo.HasValue && c.FechaVigenciaHastaCombo.Value.Date < hoy) return "vencido";
+        if (c.FechaVigenciaDesdeCombo.HasValue && c.FechaVigenciaDesdeCombo.Value.Date > hoy) return "futuro";
+        return null;
+    }
+
+    private static string TextoCantidad(ComboDetalle det)
+    {
+        if (!det.ProductoHijo.EsVentaPorPeso()) return $"{det.Cantidad} u.";
+        return det.Cantidad >= 1000 && det.Cantidad % 100 == 0
+            ? $"{(det.Cantidad / 1000m).ToString("0.##", CultureInfo.GetCultureInfo("es-AR"))} kg"
+            : $"{det.Cantidad} gr";
+    }
+
+    /// <summary>Los input type=number siempre usan punto decimal.</summary>
+    private static string NumInv(decimal? v) => v?.ToString("0.##", CultureInfo.InvariantCulture) ?? "";
+
+    private static bool TryNum(object? valor, out decimal n)
+    {
+        var s = valor?.ToString()?.Trim() ?? "";
+        // type=number manda "40.5"; por si acaso aceptamos también "40,5"
+        return decimal.TryParse(s.Replace(',', '.'), NumberStyles.Number, CultureInfo.InvariantCulture, out n);
+    }
+
+    // ======================= MODAL =======================
+    private void AbrirModalNuevoCombo()
+    {
+        var familiaCombo = listaFamilia.FirstOrDefault(ConfiguracionService.EsFamiliaCombos);   // elegida por defecto
+
+        comboPadreEdicion = new Producto
+        {
+            KioscoId = State.KioscoId,
+            EsCombo = true,
+            MostrarEnVentaRapida = false,
+            Activo = true,
+            FamiliaId = familiaCombo?.Id
+        };
+        detallesEdicion = new();
+        mostrarModal = true;
+    }
+
+    private async Task EditarCombo(Producto combo)
+    {
+        try
+        {
+            var resProducto = await SupaClient.From<Producto>()
+                .Where(p => p.Id == combo.Id).Where(p => p.KioscoId == State.KioscoId)
+                .Single();
+            comboPadreEdicion = resProducto ?? combo;
+            if (comboPadreEdicion.FamiliaId == 0) comboPadreEdicion.FamiliaId = null;
+
+            // copia de los componentes (para que "Cancelar" no toque la lista)
+            detallesEdicion = DetallesDe(combo.Id)
+                .Select(d => new ComboDetalle { ComboId = d.ComboId, ProductoHijoId = d.ProductoHijoId, Cantidad = d.Cantidad, KioscoId = d.KioscoId, ProductoHijo = d.ProductoHijo })
+                .ToList();
+
+            // costo con los precios de HOY
+            comboPadreEdicion.PrecioCosto = CostoCalculadoCombo;
+
+            if (!comboPadreEdicion.UtilidadPV.HasValue && comboPadreEdicion.PrecioVenta > 0 && comboPadreEdicion.PrecioCosto > 0)
+                comboPadreEdicion.UtilidadPV = Math.Round((comboPadreEdicion.PrecioVenta.Value - comboPadreEdicion.PrecioCosto.Value) / comboPadreEdicion.PrecioCosto.Value * 100m, 2);
+
+            if (!comboPadreEdicion.UtilidadLista2.HasValue && comboPadreEdicion.PrecioLista2 > 0 && comboPadreEdicion.PrecioCosto > 0)
+                comboPadreEdicion.UtilidadLista2 = Math.Round((comboPadreEdicion.PrecioLista2.Value - comboPadreEdicion.PrecioCosto.Value) / comboPadreEdicion.PrecioCosto.Value * 100m, 2);
+
+            mostrarModal = true;
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudo abrir el combo", ex.Message, "peligro");
+        }
+    }
+
+    private void CerrarModal() => mostrarModal = false;
+
+    /// <summary>
+    /// Código numérico propio (EAN-13 que empieza con 29), el mismo tipo que se crea para los productos sin código:
+    /// se puede escanear e imprimir en Carteles → Códigos de barras. Se fija que no lo tenga otro producto o combo.
+    /// </summary>
+    private bool creandoCodigo;
+    private async Task GenerarCodigo()
+    {
+        creandoCodigo = true;
+        try
+        {
+            comboPadreEdicion.CodigoBarras = await CodigoBarras.CrearCodigoPropioAsync(SupaClient, State.KioscoId);
+            avisos.Toast("Código creado. Al guardar, podés imprimir la etiqueta en Carteles → Códigos de barras.", "exito", 3500);
+        }
+        catch (Exception ex) { avisos.Toast("No se pudo crear el código: " + ex.Message, "peligro"); }
+        finally { creandoCodigo = false; }
+    }
+
+    private void AgregarProductoHijo(Producto prodHijo)
+    {
+        if (prodHijo.EsCombo == true) { avisos.Toast("Un combo no puede llevar otro combo.", "peligro"); return; }
+        if (prodHijo.Id == comboPadreEdicion.Id) return;
+
+        var existente = detallesEdicion.FirstOrDefault(d => d.ProductoHijoId == prodHijo.Id);
+        if (existente != null)
+        {
+            // en vez de dar error, le sumamos uno más
+            existente.Cantidad += prodHijo.EsVentaPorPeso() ? 100 : 1;
+            avisos.Toast($"{prodHijo.Nombre}: ahora lleva {TextoCantidad(existente)}", "info", 2200);
+        }
+        else
+        {
+            detallesEdicion.Add(new ComboDetalle
+            {
+                ProductoHijoId = prodHijo.Id,
+                Cantidad = prodHijo.EsVentaPorPeso() ? 100 : 1,
+                KioscoId = State.KioscoId,
+                ProductoHijo = prodHijo
+            });
+        }
+        RecalcularPreciosTotales();
+    }
+
+    private void ActualizarCantidadDetalle(ComboDetalle det, ChangeEventArgs e)
+    {
+        if (TryNum(e.Value, out var n))
+        {
+            det.Cantidad = n >= 1 ? (int)Math.Round(n) : 1;
+            RecalcularPreciosTotales();
+        }
+    }
+
+    private void EliminarDetalle(ComboDetalle det)
+    {
+        detallesEdicion.Remove(det);
+        RecalcularPreciosTotales();
+    }
+
+    private void CalcularPrecioVentaMargen(ChangeEventArgs e)
+    {
+        // antes se leía con cultura es-AR y "40.5" quedaba como 405 %
+        if (!TryNum(e.Value, out var margen)) return;
+        comboPadreEdicion.UtilidadPV = margen;
+        comboPadreEdicion.PrecioCosto = CostoCalculadoCombo;
+        comboPadreEdicion.PrecioVenta = comboPadreEdicion.CalcularPrecioPorUtilidad(CostoCalculadoCombo, margen, State);
+        PrecioService.ProcesarLista2Automatico(comboPadreEdicion, State.KioscoId, State);
+    }
+
+    private void OnCambioPrecioVenta(ChangeEventArgs e)
+    {
+        comboPadreEdicion.PrecioCosto = CostoCalculadoCombo;
+        comboPadreEdicion.CalcularMargenDesdeVenta(e, "Principal", cultura);
+        PrecioService.ProcesarLista2Automatico(comboPadreEdicion, State.KioscoId, State);
+    }
+
+    private void CalcularPrecioVentaMargenLista2(ChangeEventArgs e)
+    {
+        if (!TryNum(e.Value, out var margen)) return;
+        comboPadreEdicion.UtilidadLista2 = margen;
+        comboPadreEdicion.PrecioCosto = CostoCalculadoCombo;
+        comboPadreEdicion.PrecioLista2 = comboPadreEdicion.CalcularPrecioPorUtilidad(CostoCalculadoCombo, margen, State);
+    }
+
+    private void RecalcularPreciosTotales()
+    {
+        comboPadreEdicion.PrecioCosto = CostoCalculadoCombo;
+        if (comboPadreEdicion.UtilidadPV > 0)
+            comboPadreEdicion.PrecioVenta = comboPadreEdicion.CalcularPrecioPorUtilidad(CostoCalculadoCombo, comboPadreEdicion.UtilidadPV, State);
+        PrecioService.ProcesarLista2Automatico(comboPadreEdicion, State.KioscoId, State);
+    }
+
+    // ======================= GUARDAR =======================
+    private async Task GuardarComboAsync()
+    {
+        comboPadreEdicion.Nombre = comboPadreEdicion.Nombre?.Trim().ToUpper() ?? "";
+        comboPadreEdicion.CodigoBarras = comboPadreEdicion.CodigoBarras?.Trim();
+
+        if (string.IsNullOrWhiteSpace(comboPadreEdicion.Nombre)) { avisos.Toast("Poné un nombre para el combo.", "peligro"); return; }
+        if (string.IsNullOrWhiteSpace(comboPadreEdicion.CodigoBarras)) { avisos.Toast("Poné un código (o tocá la varita para generarlo).", "peligro"); return; }
+        if (!detallesEdicion.Any()) { avisos.Toast("Agregá al menos un producto al combo.", "peligro"); return; }
+        if ((comboPadreEdicion.PrecioVenta ?? 0) <= 0) { avisos.Toast("Poné el precio de venta.", "peligro"); return; }
+        if (comboPadreEdicion.FechaVigenciaDesdeCombo.HasValue && comboPadreEdicion.FechaVigenciaHastaCombo.HasValue &&
+            comboPadreEdicion.FechaVigenciaHastaCombo < comboPadreEdicion.FechaVigenciaDesdeCombo)
+        { avisos.Toast("La fecha 'Hasta' no puede ser anterior a 'Desde'.", "peligro"); return; }
+        if (comboPadreEdicion.LimiteUnidadesCombo <= 0) comboPadreEdicion.LimiteUnidadesCombo = null;
+
+        cargandoModal = true;
+        Producto? comboGuardado = null;
+        bool esNuevo = comboPadreEdicion.Id == 0;
+
+        try
+        {
+            // el código no puede repetirse con otro producto del negocio
+            string codigo = comboPadreEdicion.CodigoBarras!;
+            long idActual = comboPadreEdicion.Id;
+            var repetido = await SupaClient.From<Producto>()
+                .Select("id, nombre")
+                .Where(p => p.KioscoId == State.KioscoId).Where(p => p.CodigoBarras == codigo).Where(p => p.Id != idActual)
+                .Limit(1)
+                .Get();
+            if (repetido.Models.Any())
+            {
+                avisos.Toast($"Ese código ya lo usa: {repetido.Models[0].Nombre}", "peligro", 4500);
+                return;
+            }
+
+            comboPadreEdicion.EsCombo = true;
+            comboPadreEdicion.KioscoId = State.KioscoId;
+            comboPadreEdicion.PrecioCosto = CostoCalculadoCombo;
+            comboPadreEdicion.FechaActualizacion = DateTime.Now;
+
+            if (comboPadreEdicion.FamiliaId is null or 0)
+            {
+                comboPadreEdicion.FamiliaId = listaFamilia.FirstOrDefault(ConfiguracionService.EsFamiliaCombos)?.Id;
+            }
+
+            if (comboPadreEdicion.PrecioLista2 == null || comboPadreEdicion.PrecioLista2 <= 0)
+                PrecioService.ProcesarLista2Automatico(comboPadreEdicion, State.KioscoId, State);
+
+            if (esNuevo)
+            {
+                var res = await SupaClient.From<Producto>().Insert(comboPadreEdicion);
+                comboGuardado = res.Models.FirstOrDefault();
+            }
+            else
+            {
+                var res = await SupaClient.From<Producto>()
+                    .Where(p => p.Id == comboPadreEdicion.Id).Where(p => p.KioscoId == State.KioscoId)
+                    .Update(comboPadreEdicion);
+                comboGuardado = res.Models.FirstOrDefault() ?? comboPadreEdicion;
+            }
+
+            if (comboGuardado == null) throw new Exception("La base no devolvió el combo guardado.");
+
+            long comboId = comboGuardado.Id;
+            await SupaClient.From<ComboDetalle>()
+                .Where(d => d.ComboId == comboId).Where(d => d.KioscoId == State.KioscoId)
+                .Delete();
+
+            // todos los componentes en un solo insert
+            var nuevos = detallesEdicion.Select(det => new ComboDetalle
+            {
+                ComboId = comboId,
+                ProductoHijoId = det.ProductoHijoId,
+                Cantidad = det.Cantidad,
+                KioscoId = State.KioscoId,
+                ProductoHijo = null
+            }).ToList();
+            await SupaClient.From<ComboDetalle>().Insert(nuevos);
+
+            _ = avisos.GuardadoAsync(esNuevo ? "Combo creado" : "Combo guardado");
+            mostrarModal = false;
+            comboAbiertoId = comboId;
+            await CargarCombosAsync();
+        }
+        catch (Exception ex)
+        {
+            if (comboGuardado != null && esNuevo)
+            {
+                try { long id = comboGuardado.Id; await SupaClient.From<Producto>().Where(p => p.Id == id).Delete(); } catch { }
+            }
+            await avisos.InformarAsync("No se pudo guardar el combo", ex.Message, "peligro");
+        }
+        finally
+        {
+            cargandoModal = false;
+        }
+    }
+
+    private async Task CambiarActivoAsync(Producto combo)
+    {
+        try
+        {
+            bool nuevo = !combo.Activo;
+            long id = combo.Id;
+            await SupaClient.From<Producto>()
+                .Where(p => p.Id == id).Where(p => p.KioscoId == State.KioscoId)
+                .Set(p => p.Activo, nuevo)
+                .Update();
+            combo.Activo = nuevo;
+            avisos.Toast(nuevo ? "Combo activado" : "Combo desactivado", "exito");
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudo cambiar el estado", ex.Message, "peligro");
+        }
+    }
+
+    private async Task EliminarComboAsync(Producto combo)
+    {
+        long id = combo.Id;
+        try
+        {
+            // si ya se vendió, no se puede borrar (rompería el historial de ventas): se ofrece desactivarlo
+            var vendidas = await SupaClient.From<VentaDetalle>()
+                .Select("id")
+                .Where(v => v.ProductoId == id)
+                .Limit(1)
+                .Get();
+
+            if (vendidas.Models.Any())
+            {
+                if (!combo.Activo)
+                {
+                    await avisos.InformarAsync("No se puede eliminar", $"{combo.Nombre} ya tiene ventas registradas. Queda inactivo para no perder el historial.", "aviso");
+                    return;
+                }
+                if (await avisos.ConfirmarAsync("Este combo ya se vendió", $"{combo.Nombre} tiene ventas registradas, así que no se puede borrar. ¿Lo desactivo para que no aparezca más?", "Desactivar", "aviso"))
+                    await CambiarActivoAsync(combo);
+                return;
+            }
+
+            if (!await avisos.ConfirmarAsync($"¿Eliminar {combo.Nombre}?", "Se borra el combo y su composición. Los productos que lo forman no se tocan.", "Eliminar")) return;
+
+            var respaldo = DetallesDe(id);
+            await SupaClient.From<ComboDetalle>().Where(d => d.ComboId == id).Where(d => d.KioscoId == State.KioscoId).Delete();
+            try
+            {
+                await SupaClient.From<Producto>().Where(p => p.Id == id).Where(p => p.KioscoId == State.KioscoId).Delete();
+            }
+            catch
+            {
+                // si el producto no se pudo borrar, devolvemos la composición como estaba
+                if (respaldo.Any())
+                    await SupaClient.From<ComboDetalle>().Insert(respaldo.Select(d => new ComboDetalle { ComboId = d.ComboId, ProductoHijoId = d.ProductoHijoId, Cantidad = d.Cantidad, KioscoId = d.KioscoId }).ToList());
+                throw;
+            }
+
+            avisos.Toast("Combo eliminado", "exito");
+            comboAbiertoId = 0;
+            await CargarCombosAsync();
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudo eliminar", ex.Message, "peligro");
+        }
+    }
+}

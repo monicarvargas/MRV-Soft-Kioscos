@@ -1,0 +1,57 @@
+=====================================================================
+ COPIAS DE SEGURIDAD DE PRODUCCION - MRV Soft
+=====================================================================
+
+Hay DOS copias:
+
+1) COPIA COMPLETA (esta carpeta): toda la base de PRODUCCION, todos los negocios.
+   La hace esta PC todas las noches a las 23:30 y guarda 30 dias.
+   Sirve para RECUPERAR TODO si pasa algo grave con Supabase.
+
+2) "HACER COPIA" EN LA APP: Configuracion > Copia de seguridad (solo el dueno).
+   Baja un Excel con los datos de SU negocio. Tranquilidad para el dueno; no reemplaza a la 1.
+
+
+---------------------------------------------------------------------
+ PREPARAR LA COPIA COMPLETA (una sola vez)
+---------------------------------------------------------------------
+1. Ver la version de Postgres de Supabase:
+   Supabase (PRODUCCION) > Project Settings > Infrastructure > "Postgres version" (ej: 17.x o 15.x).
+
+2. Instalar las herramientas de PostgreSQL de ESA version o una mas nueva (gratis):
+   https://www.enterprisedb.com/downloads/postgres-postgresql-downloads  > Windows
+   En el instalador tildar SOLO "Command Line Tools" (no hace falta el servidor).
+   Queda en: C:\Program Files\PostgreSQL\17\bin  (o el numero de version que instales)
+
+3. Abrir config_backup.bat con el Bloc de notas y completar:
+   - PGHOST, PGUSER y PGPASSWORD (Supabase > boton "Connect" > "Session pooler")
+   - CARPETA: donde guardar. Ideal: una carpeta de OneDrive o Google Drive (suben solas a la nube).
+   - PGBIN: la carpeta del paso 2 si no es la 17.
+   Guardar.
+
+4. Doble clic en backup_produccion.bat  -> tiene que decir "Copia OK".
+   Si dice error, abrir backup_log.txt (en la CARPETA) y ver que dice.
+
+5. Doble clic en instalar_tarea_programada.bat  -> queda programada todas las noches.
+
+
+---------------------------------------------------------------------
+ CONTROLAR QUE ANDA (una vez por semana)
+---------------------------------------------------------------------
+Abrir la CARPETA: tiene que haber un archivo mrv_produccion_FECHA.dump de cada dia.
+backup_log.txt dice OK o ERROR de cada noche.
+
+
+---------------------------------------------------------------------
+ RESTAURAR (solo si hace falta)  -  CON CUIDADO
+---------------------------------------------------------------------
+Primero SIEMPRE probarlo en el proyecto de TEST, nunca directo en PRODUCCION.
+
+En una ventana de comandos (cmd), con los datos de conexion del proyecto DONDE se restaura:
+
+  set PGPASSWORD=la_clave_de_ese_proyecto
+  "C:\Program Files\PostgreSQL\17\bin\pg_restore.exe" --clean --if-exists --no-owner --no-privileges ^
+     --schema=public -h HOST -p 5432 -U USUARIO -d postgres "mrv_produccion_FECHA.dump"
+
+--clean BORRA las tablas que hay y las vuelve a crear con lo de la copia.
+Si hay dudas, consultar antes de restaurar en PRODUCCION.

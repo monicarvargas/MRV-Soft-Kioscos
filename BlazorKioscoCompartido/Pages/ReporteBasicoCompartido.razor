@@ -1,169 +1,517 @@
 ﻿@using BlazorKioscoCompartido.Services
 @using BlazorKioscoCompartido.Services.Reportes
-@using BlazorKioscoCompartido.Models
-@using BlazorKioscoCompartido.Models.DTO
-@inject AppState State // Para obtener el KioscoId actual dinámicamente
-@inject ReporteRecaudacionDiariaService ReporteRecaudacionDiariaService
+@using BlazorKioscoCompartido.Components
+@inject AppState State
+@inject ReporteRecaudacionDiariaService Reporte
+@inject IJSRuntime JS
+@inject AsistenciaService Asistencia
+@inject NavigationManager Nav
 
-<div class="container py-3">
-    <div class="card shadow-sm border-0 rounded-4 max-width-card mx-auto">
+<PedidosEstilos />
+<VentasEstilos />
 
-        @* === ENCABEZADO === *@
-        <div class="card-header bg-primary text-white text-center py-3 rounded-top-4">
-            <h5 class="mb-0 fw-bold">💰 Consulta de Recaudación Diaria</h5>
-        </div>
+<div class="container-fluid px-3 py-2 min-vh-100 style-notebook gp-scope gp-page">
+    <EncabezadoPagina Titulo="Recaudación del día"
+                      Subtitulo="Lo que entró a la caja, lo fiado y lo que vendió cada uno"
+                      IconoClass="bi-calendar-check-fill"
+                      ColorBorde="success"
+                      ColorIcono="success"
+                      MostrarBotonAyuda="false"
+                      RutaVolver="@RutaVolver" />
 
-        <div class="card-body p-3 p-md-4">
+    <div class="vt-wrap" style="display:flex; flex-direction:column; gap:1rem">
 
-            @* === SELECTOR DE FECHA Y BOTÓN EN GRILLA RESPONSIVA === *@
-            <div class="row g-3 align-items-end mb-3">
-                <div class="col-12 col-md-7">
-                    <label for="fechaReporte" class="form-label fw-bold text-secondary small mb-1">
-                        Seleccione una Fecha:
-                    </label>
-                    <div class="input-group">
-                        <span class="input-group-text bg-light border-end-0 text-muted">
-                            <i class="bi bi-calendar3"></i>
-                        </span>
-                        <input type="date"
-                               id="fechaReporte"
-                               class="form-control border-start-0 ps-0"
-                               @bind="fechaSeleccionada" />
+        @* ================= FECHA ================= *@
+        <section class="gp-card gp-card-pad">
+            <div class="rd-fecha">
+                <button type="button" class="gp-btn gp-btn-outline gp-btn-icon" title="Día anterior" @onclick="() => CambiarDia(-1)"><i class="bi bi-chevron-left"></i></button>
+                <input type="date" class="gp-control" @bind="fecha" @bind:after="Cargar" max="@DateTime.Today.ToString("yyyy-MM-dd")" />
+                <button type="button" class="gp-btn gp-btn-outline gp-btn-icon" title="Día siguiente" disabled="@(fecha >= DateTime.Today)" @onclick="() => CambiarDia(1)"><i class="bi bi-chevron-right"></i></button>
+                @if (fecha != DateTime.Today)
+                {
+                    <button type="button" class="gp-btn gp-btn-soft" @onclick="IrAHoy">Hoy</button>
+                }
+                <span class="rd-dia">@NombreDia</span>
+            </div>
+        </section>
+
+        @if (cargando)
+        {
+            <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>Calculando...</p></div>
+        }
+        else if (!string.IsNullOrEmpty(error))
+        {
+            <div class="gp-banner is-danger"><i class="bi bi-exclamation-octagon-fill"></i><p>@error</p></div>
+        }
+        else if (r != null)
+        {
+            @* 1) Total recaudado y, al lado, por medio de pago *@
+            <div class="vt-cols rd-arriba">
+                <div class="vt-col">
+                    @* ================= TOTAL ================= *@
+                    <div class="vt-caja">
+                        <span class="vt-caja-label">Total recaudado</span>
+                        <div class="vt-caja-total" style="color:#fff">$ @r.TotalRecaudado.ToString("N2")</div>
+                        <div class="vt-caja-filas">
+                            <div class="vt-caja-fila"><span>Ventas cobradas (@Ventas(r.CantidadVentas))</span><b>$ @r.VentasCobradas.ToString("N2")</b></div>
+                            <div class="vt-caja-fila"><span>Cobros de deudas</span><b class="is-ok">$ @r.CobrosDeudas.ToString("N2")</b></div>
+                        </div>
+                        <div style="margin-top:.7rem; color:rgba(255,255,255,.7); font-size:.8rem; font-weight:600">
+                            <i class="bi bi-info-circle"></i> Solo la plata que entró: no cuenta lo fiado ni lo descontado a empleados.
+                        </div>
                     </div>
                 </div>
-
-                <div class="col-12 col-md-5">
-                    <button class="btn btn-success w-100 py-2 fw-bold rounded-3 shadow-sm d-flex align-items-center justify-content-center gap-2"
-                            @onclick="CalcularRecaudacion"
-                            disabled="@cargando">
-                        @if (cargando)
+                <div class="vt-col">
+                    @* ================= MEDIOS DE PAGO ================= *@
+                    <section class="gp-card gp-card-pad">
+                        <div class="gp-card-head" style="margin-bottom:.7rem">
+                            <span class="gp-bubble gp-bubble-sm"><i class="bi bi-wallet2"></i></span>
+                            <div class="vt-head-text"><h2 style="font-size:1.05rem">Por medio de pago</h2><p>Para controlar la caja y las transferencias.</p></div>
+                        </div>
+                        @if (!r.Medios.Any())
                         {
-                            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                            <span>Procesando...</span>
+                            <div class="gp-hint"><i class="bi bi-info-circle" style="color:var(--gp-primary)"></i> No entró plata este día.</div>
                         }
                         else
                         {
-                            <i class="bi bi-search"></i>
-                            <span>Consultar</span>
+                            <ul class="rd-lista">
+                                @foreach (var m in r.Medios)
+                                {
+                                    <li>
+                                        <i class="bi @Utilidades.ObtenerIconoFormaPago(m.Nombre) rd-ico"></i>
+                                        <div class="rd-txt">
+                                            <b>@m.Nombre</b>
+                                            @if (m.CobrosDeudas > 0)
+                                            {
+                                                <small>Ventas $ @m.Ventas.ToString("N2") · Deudas $ @m.CobrosDeudas.ToString("N2")</small>
+                                            }
+                                        </div>
+                                        <span class="rd-monto">$ @m.Total.ToString("N2")</span>
+                                    </li>
+                                }
+                            </ul>
                         }
-                    </button>
+                    </section>
                 </div>
             </div>
 
-            @* === RESULTADOS (TOTAL Y DESGLOSE POR FORMA DE PAGO) === *@
-            @if (busquedaRealizada)
+            @* 2) Por turno *@
+            @if (porTurno.Any())
             {
-                <div class="mt-4">
-
-                    @* Tarjeta Destacada de Total General *@
-                    <div class="bg-primary text-white rounded-4 p-3 text-center mb-4 shadow-sm">
-                        <span class="d-block text-white-50 text-uppercase fw-bold small mb-1">
-                            Total General Recaudado
-                        </span>
-                        <h2 class="display-6 fw-bold mb-0">
-                            $ @totalRecaudado.ToString("N2")
-                        </h2>
+                <section class="gp-card gp-card-pad">
+                    <div class="gp-card-head" style="margin-bottom:.7rem">
+                        <span class="gp-bubble gp-bubble-sm"><i class="bi bi-clock-fill"></i></span>
+                        <div class="vt-head-text"><h2 style="font-size:1.05rem">Por turno</h2><p>Según la hora de cada venta. El turno noche cuenta entero para el día en que empezó.</p></div>
                     </div>
-
-                    @* Desglose por Formas de Pago *@
-                    <h6 class="fw-bold text-secondary mb-3 d-flex align-items-center gap-2">
-                        <i class="bi bi-wallet2 text-primary"></i>
-                        <span>Desglose por Medio de Pago:</span>
-                    </h6>
-
-                    @if (desgloseFormasPago != null && desgloseFormasPago.Any())
-                    {
-                        <div class="list-group list-group-flush border rounded-3 overflow-hidden shadow-sm">
-                            @foreach (var item in desgloseFormasPago)
-                            {
-                                bool esFiado = !string.IsNullOrEmpty(item.FormaPago) &&
-                                (item.FormaPago.ToLower().Contains("fiado") || item.FormaPago.ToLower().Contains("crédito") || item.FormaPago.ToLower().Contains("credito"));
-
-                                <div class="list-group-item d-flex justify-content-between align-items-center py-3 px-3">
-                                    <div class="d-flex align-items-center gap-2">
-                                        <i class="bi @(esFiado ? "bi-exclamation-triangle-fill text-danger" : "bi-credit-card-2-front text-primary") fs-5"></i>
-                                        <div>
-                                            <span class="fw-bold text-dark d-block">@item.FormaPago</span>
-                                            @if (esFiado)
-                                            {
-                                                <small class="text-danger fw-semibold d-block mt-n1" style="font-size: 0.75rem;">
-                                                    ⚠️ No contabilizado
-                                                </small>
-                                            }
-                                        </div>
-                                    </div>
-
-                                    @if (esFiado)
-                                    {
-                                        <span class="badge bg-danger bg-opacity-10 text-danger fw-bold fs-6 px-3 py-2 rounded-pill border border-danger border-opacity-25">
-                                            $ @item.Total.ToString("N2")
-                                        </span>
-                                    }
-                                    else
-                                    {
-                                        <span class="badge bg-success bg-opacity-10 text-success fw-bold fs-6 px-3 py-2 rounded-pill border border-success border-opacity-25">
-                                            $ @item.Total.ToString("N2")
-                                        </span>
-                                    }
+                    <div class="rt-turnos">
+                        @foreach (var t in porTurno)
+                        {
+                            <article class="rt-turno @(t.TotalVendido + t.CobrosDeudas == 0 ? "is-vacio" : "")">
+                                <div class="rt-head">
+                                    <div><b>@t.Nombre</b><small>@t.Rango</small></div>
+                                    <strong>$ @t.TotalRecaudado.ToString("N2")</strong>
                                 </div>
-                            }
-                        </div>
+                                <div class="rt-filas">
+                                    <span>Cobrado <b>$ @t.Cobrado.ToString("N2")</b></span>
+                                    @if (t.CobrosDeudas > 0) { <span>Deudas <b>$ @t.CobrosDeudas.ToString("N2")</b></span> }
+                                    @if (t.Fiado > 0) { <span class="warn">Fiado <b>$ @t.Fiado.ToString("N2")</b></span> }
+                                    <span>@Ventas(t.CantidadVentas)</span>
+                                </div>
+                                @if (t.PorMedio.Any())
+                                {
+                                    <div class="rt-chips">
+                                        @foreach (var m in t.PorMedio.OrderByDescending(x => x.Value))
+                                        {
+                                            <span class="rt-chip"><i class="bi @Utilidades.ObtenerIconoFormaPago(m.Key)"></i> @m.Key $ @m.Value.ToString("N2")</span>
+                                        }
+                                    </div>
+                                }
+                                @if (t.PorEmpleado.Any())
+                                {
+                                    <div class="rt-emps">
+                                        @foreach (var e in t.PorEmpleado.OrderByDescending(x => x.Value))
+                                        {
+                                            <div><span><i class="bi bi-person-fill"></i> @e.Key</span><b>$ @e.Value.ToString("N2")</b></div>
+                                        }
+                                    </div>
+                                }
+                            </article>
+                        }
+                    </div>
+                </section>
+            }
+
+            @* 3) Por empleado *@
+                <section class="gp-card gp-card-pad">
+                    <div class="gp-card-head" style="margin-bottom:.7rem">
+                        <span class="gp-bubble gp-bubble-sm"><i class="bi bi-person-badge-fill"></i></span>
+                        <div class="vt-head-text"><h2 style="font-size:1.05rem">Por empleado</h2><p>Lo que vendió y cobró cada usuario.</p></div>
+                    </div>
+                    @if (!r.Empleados.Any())
+                    {
+                        <div class="gp-hint"><i class="bi bi-info-circle" style="color:var(--gp-primary)"></i> No hubo movimientos este día.</div>
                     }
                     else
                     {
-                        <div class="alert alert-light text-center border rounded-3 py-3 text-muted mb-0">
-                            No se encontraron registros de cobro para este día.
+                        <div class="rd-emps rd-emps-lista">
+                            @foreach (var e in r.Empleados)
+                            {
+                                <article class="rd-emp">
+                                    <div class="rd-emp-head">
+                                        <span class="rd-avatar">@Inicial(e.Nombre)</span>
+                                        <div class="rd-txt">
+                                            <b>@e.Nombre</b>
+                                            <small>@Ventas(e.CantidadVentas)</small>
+                                        </div>
+                                        <div class="rd-emp-total">
+                                            <span>Vendió</span>
+                                            <b>$ @e.TotalVendido.ToString("N2")</b>
+                                        </div>
+                                    </div>
+                                    <div class="rd-emp-filas">
+                                        <div><span>Cobrado</span><b>$ @e.Cobrado.ToString("N2")</b></div>
+                                        <div><span>Fiado</span><b class="@(e.Fiado > 0 ? "warn" : "")">$ @e.Fiado.ToString("N2")</b></div>
+                                        @if (e.CobrosDeudas > 0)
+                                        {
+                                            <div><span>Cobró deudas</span><b>$ @e.CobrosDeudas.ToString("N2")</b></div>
+                                        }
+                                        @if (e.Descontado > 0)
+                                        {
+                                            <div><span>Descontó</span><b>$ @e.Descontado.ToString("N2")</b></div>
+                                        }
+                                        <div class="rd-caja"><span>Tiene que tener en caja</span><b>$ @e.EnCaja.ToString("N2")</b></div>
+                                    </div>
+
+                                    @if (e.Ventas.Any())
+                                    {
+                                        <button type="button" class="gp-btn gp-btn-soft gp-btn-sm rd-ver" @onclick="() => AbrirVentas(e)">
+                                            <i class="bi bi-bag-check-fill"></i> Ver qué vendió (@Ventas(e.CantidadVentas))
+                                        </button>
+                                    }
+                                </article>
+                            }
                         </div>
                     }
+                </section>
 
-                </div>
-            }
-
-        </div>
+            @* 4) Lo fiado (no entró plata) *@
+                @* ================= NO ENTRA EN LA CAJA ================= *@
+                <section class="gp-card gp-card-pad">
+                    <div class="gp-card-head" style="margin-bottom:.7rem">
+                        <span class="gp-bubble gp-bubble-sm" style="background:var(--gp-warn-soft); color:var(--gp-warn)"><i class="bi bi-journal-bookmark-fill"></i></span>
+                        <div class="vt-head-text"><h2 style="font-size:1.05rem">No entró plata</h2><p>Se muestra aparte, no suma al total.</p></div>
+                    </div>
+                    <div class="rd-mini">
+                        <div><span>Vendido fiado</span><b class="warn">$ @r.Fiado.ToString("N2")</b></div>
+                        <div><span>Descontado a empleados</span><b>$ @r.Descontado.ToString("N2")</b></div>
+                    </div>
+                </section>
+        }
     </div>
 </div>
 
+@* ===================== MODAL: LO QUE VENDIÓ UN EMPLEADO ===================== *@
+@if (empModal != null)
+{
+    <div class="gp-scope gp-modal-backdrop" @onclick="CerrarVentas">
+        <div class="gp-modal vt-modal-grande rd-modal" role="dialog" aria-modal="true" @onclick:stopPropagation="true">
+            <div class="gp-modal-head">
+                <span class="gp-bubble gp-bubble-sm"><i class="bi bi-person-badge-fill"></i></span>
+                <div>
+                    <h3>@empModal.Nombre</h3>
+                    <p>@Roles.Legible(empModal.Rol) · @NombreDia · @Ventas(empModal.CantidadVentas) · $ @empModal.TotalVendido.ToString("N2")</p>
+                </div>
+                <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm gp-btn-icon gp-modal-x" aria-label="Cerrar" @onclick="CerrarVentas"><i class="bi bi-x-lg"></i></button>
+            </div>
+
+            <div class="rd-modal-barra">
+                <div class="gp-seg" role="group">
+                    <button type="button" class="@(!porProducto ? "is-active" : "")" @onclick="() => porProducto = false"><i class="bi bi-receipt"></i> Por venta</button>
+                    <button type="button" class="@(porProducto ? "is-active" : "")" @onclick="() => porProducto = true"><i class="bi bi-box-seam"></i> Por producto</button>
+                </div>
+                <div class="gp-search rd-buscar">
+                    <i class="bi bi-search"></i>
+                    <input type="text" class="gp-control" placeholder="Buscar producto..." @bind="filtroProd" @bind:event="oninput" />
+                </div>
+            </div>
+
+            <div class="gp-modal-body rd-modal-body">
+                @if (!empModal.ProductosCargados)
+                {
+                    <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>Cargando lo que vendió...</p></div>
+                }
+                else if (!porProducto)
+                {
+                    var tickets = TicketsFiltrados;
+                    if (!tickets.Any())
+                    {
+                        <div class="gp-hint"><i class="bi bi-info-circle" style="color:var(--gp-primary)"></i> No hay ventas con ese producto.</div>
+                    }
+                    <div class="rd-tickets">
+                        @foreach (var t in tickets)
+                        {
+                            <div class="rd-ticket @(t.TieneFiado ? "is-fiado" : "")">
+                                <div class="rd-ticket-head">
+                                    <span class="rd-hora"><i class="bi bi-clock"></i> @HoraLocal(t)</span>
+                                    <span class="rd-forma">@t.FormaPago</span>
+                                    <b>$ @t.Total.ToString("N2")</b>
+                                </div>
+                                @foreach (var it in t.Items)
+                                {
+                                    <div class="rd-item">
+                                        <span class="rd-cant">@DetalleArticulos.TextoCantidad(it.Cantidad, it.Unidad)</span>
+                                        <span class="rd-nom">@(it.EsVario ? it.Nombre + " (varios)" : it.Nombre)</span>
+                                        <span class="rd-pu">$ @it.PrecioUnitario.ToString("N2") @(Utilidades.EsMedidaGramos(it.Unidad) ? "/kg" : "c/u")</span>
+                                        <b class="rd-sub">$ @it.Subtotal.ToString("N2")</b>
+                                    </div>
+                                }
+                                @if (!t.Items.Any())
+                                {
+                                    <div class="rd-item"><span class="rd-nom gp-muted">Sin detalle de productos</span></div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    var grupos = AgruparFiltrado;
+                    <div class="rd-ticket">
+                        <div class="rd-item rd-item-cab">
+                            <span>Cant.</span><span>Producto</span><span>Precio</span><span>Total</span>
+                        </div>
+                        @foreach (var g in grupos)
+                        {
+                            <div class="rd-item">
+                                <span class="rd-cant">@DetalleArticulos.TextoCantidad(g.Cantidad, g.Unidad)</span>
+                                <span class="rd-nom">@g.Nombre</span>
+                                <span class="rd-pu">$ @g.PrecioUnitario.ToString("N2") @(Utilidades.EsMedidaGramos(g.Unidad) ? "/kg" : "c/u")</span>
+                                <b class="rd-sub">$ @g.Subtotal.ToString("N2")</b>
+                            </div>
+                        }
+                        @if (!grupos.Any())
+                        {
+                            <div class="rd-item"><span class="rd-nom gp-muted">No hay productos con ese nombre</span></div>
+                        }
+                    </div>
+                    <div class="gp-hint" style="margin-top:.5rem; font-size:.78rem"><i class="bi bi-info-circle" style="color:var(--gp-primary)"></i> Si un producto se vendió a distintos precios (ej: de día y de noche) aparece en renglones separados.</div>
+                }
+            </div>
+
+            <div class="gp-modal-foot rd-modal-foot">
+                <span>Cobrado <b>$ @empModal.Cobrado.ToString("N2")</b> · Fiado <b>$ @empModal.Fiado.ToString("N2")</b></span>
+                <button type="button" class="gp-btn gp-btn-primary" @onclick="CerrarVentas">Cerrar</button>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
-    .max-width-card {
-        max-width: 550px;
+    .rt-turnos { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: .6rem; }
+    .rt-turno { padding: .75rem; border: 1px solid var(--gp-line); border-radius: 14px; background: #fff; }
+    .rt-turno.is-vacio { opacity: .55; }
+    .rt-head { display: flex; justify-content: space-between; align-items: flex-start; gap: .5rem; }
+    .rt-head b { display: block; font-weight: 900; }
+    .rt-head small { color: var(--gp-muted); font-weight: 700; font-size: .75rem; }
+    .rt-head strong { color: var(--gp-ok); font-weight: 900; font-size: 1.15rem; white-space: nowrap; }
+    .rt-filas { display: flex; flex-wrap: wrap; gap: .25rem .8rem; margin-top: .45rem; color: var(--gp-muted); font-size: .8rem; font-weight: 600; }
+    .rt-filas b { color: var(--gp-text); }
+    .rt-filas .warn b { color: var(--gp-warn); }
+    .rt-chips { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .5rem; }
+    .rt-chip { display: inline-flex; align-items: center; gap: .3rem; padding: .1rem .5rem; border-radius: 999px; background: #f0f2f9; font-size: .72rem; font-weight: 700; }
+    .rt-emps { display: flex; flex-direction: column; gap: .2rem; margin-top: .55rem; padding-top: .45rem; border-top: 1px dashed var(--gp-line); font-size: .82rem; }
+    .rt-emps div { display: flex; justify-content: space-between; }
+    .rt-emps i { color: var(--gp-primary); }
+    .rd-fecha { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+    .rd-fecha .gp-control { width: auto; min-width: 10.5rem; height: 2.6rem; font-weight: 800; }
+    .rd-dia { margin-left: auto; color: var(--gp-muted); font-weight: 800; font-size: .9rem; text-transform: capitalize; }
+
+    .rd-mini { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+    .rd-mini div { display: flex; flex-direction: column; padding: .6rem .75rem; border-radius: 12px; background: #f6f7fb; }
+    .rd-mini span { color: var(--gp-muted); font-size: .74rem; font-weight: 700; }
+    .rd-mini b { font-size: 1.1rem; font-weight: 900; }
+    .rd-mini b.warn, .rd-emp-filas b.warn { color: var(--gp-warn); }
+
+    .rd-lista { display: flex; flex-direction: column; gap: .4rem; margin: 0; padding: 0; list-style: none; }
+    .rd-lista li { display: flex; align-items: center; gap: .7rem; padding: .6rem .75rem; border: 1px solid var(--gp-line); border-radius: 12px; }
+    .rd-ico { flex: none; color: var(--gp-primary); font-size: 1.2rem; }
+    .rd-txt { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+    .rd-txt b { font-weight: 800; font-size: .92rem; }
+    .rd-txt small { color: var(--gp-muted); font-weight: 600; font-size: .75rem; }
+    .rd-monto { flex: none; font-weight: 900; color: var(--gp-ok); }
+
+    .rd-emps { display: flex; flex-direction: column; gap: .6rem; }
+    .rd-emps.rd-emps-grilla { display: grid; grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr)); align-items: start; }
+    .rd-arriba > .vt-col > .vt-caja, .rd-arriba > .vt-col > .gp-card { height: 100%; }
+    .rd-emp { padding: .75rem; border: 1px solid var(--gp-line); border-radius: 14px; }
+    .rd-emp-head { display: flex; align-items: center; gap: .65rem; }
+    .rd-avatar { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 2.4rem; height: 2.4rem; border-radius: 50%; background: var(--gp-primary-soft); color: var(--gp-primary); font-weight: 900; }
+    .rd-emp-total { flex: none; display: flex; flex-direction: column; align-items: flex-end; }
+    .rd-emp-total span { color: var(--gp-muted); font-size: .7rem; font-weight: 700; }
+    .rd-emp-total b { font-weight: 900; font-size: 1.05rem; }
+    .rd-emp-filas { display: grid; grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr)); gap: .4rem; margin-top: .65rem; }
+    .rd-emp-filas div { display: flex; flex-direction: column; padding: .45rem .6rem; border-radius: 10px; background: #f6f7fb; }
+    .rd-emp-filas span { color: var(--gp-muted); font-size: .7rem; font-weight: 700; }
+    .rd-emp-filas b { font-weight: 900; font-size: .9rem; }
+    .rd-emp-filas .rd-caja { grid-column: 1 / -1; flex-direction: row; justify-content: space-between; align-items: center; background: var(--gp-ok-soft); }
+    .rd-emp-filas .rd-caja b { color: var(--gp-ok); font-size: 1rem; }
+
+    .rd-ver { width: 100%; justify-content: center; margin-top: .6rem; }
+
+    /* Por empleado: uno debajo del otro, cada uno en una fila a lo ancho */
+    .rd-emps-lista { display: flex; flex-direction: column; gap: .6rem; }
+    @@media (min-width: 900px) {
+        .rd-emps-lista .rd-emp { display: grid; grid-template-columns: minmax(16rem, 1.2fr) minmax(0, 3fr) auto; align-items: center; gap: 1rem; }
+        .rd-emps-lista .rd-emp-head { gap: .8rem; padding-right: .4rem; }
+        .rd-emps-lista .rd-txt b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .rd-emps-lista .rd-emp-filas { margin-top: 0; grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr)); }
+        .rd-emps-lista .rd-emp-filas .rd-caja { grid-column: auto; flex-direction: column; justify-content: center; align-items: flex-start; }
+        .rd-emps-lista .rd-ver { width: auto; margin-top: 0; white-space: nowrap; }
+    }
+    .rd-modal { max-width: 52rem !important; height: calc(100dvh - 2rem); }
+    .rd-modal-barra { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; padding: .6rem 1.1rem; border-bottom: 1px solid var(--gp-line); }
+    .rd-buscar { flex: 1 1 12rem; }
+    .rd-buscar .gp-control { height: 2.4rem; }
+    .rd-modal-body { flex: 1 1 auto; overflow-y: auto; background: #f6f7fb; }
+    .rd-modal-foot { justify-content: space-between !important; flex-wrap: wrap; gap: .5rem; font-size: .85rem; color: var(--gp-muted); }
+    .rd-modal-foot b { color: var(--gp-text); }
+    .rd-tickets { display: flex; flex-direction: column; gap: .5rem; }
+    .rd-item-cab { color: var(--gp-muted); font-size: .7rem !important; font-weight: 800; text-transform: uppercase; border-bottom: 1px solid var(--gp-line); }
+    .rd-ticket { border: 1px solid var(--gp-line); border-radius: 12px; padding: .45rem .6rem; background: #fff; }
+    .rd-ticket.is-fiado { border-color: var(--gp-warn-line); background: #fffaf0; }
+    .rd-ticket-head { display: flex; align-items: center; gap: .5rem; padding-bottom: .3rem; margin-bottom: .2rem; border-bottom: 1px dashed var(--gp-line); font-size: .8rem; }
+    .rd-hora { display: inline-flex; align-items: center; gap: .25rem; padding: .05rem .45rem; border-radius: 999px; background: var(--gp-primary-soft); color: var(--gp-primary); font-weight: 900; }
+    .rd-forma { flex: 1 1 auto; color: var(--gp-muted); font-weight: 700; }
+    .rd-ticket.is-fiado .rd-forma { color: var(--gp-warn); }
+    .rd-item { display: grid; grid-template-columns: 3.6rem minmax(0, 1fr) auto auto; align-items: baseline; gap: .5rem; padding: .2rem 0; font-size: .8rem; }
+    .rd-cant { color: var(--gp-primary); font-weight: 900; }
+    .rd-nom { font-weight: 700; text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rd-pu { color: var(--gp-muted); font-weight: 600; white-space: nowrap; }
+    .rd-sub { font-weight: 900; white-space: nowrap; }
+    @@media (max-width: 575.98px) {
+        .rd-modal { height: calc(100dvh - 1rem); }
+        .rd-item { grid-template-columns: 3.2rem minmax(0, 1fr) auto; }
+        .rd-item-cab span:nth-child(3) { display: none; }
+        .rd-pu { grid-column: 2; grid-row: 2; font-size: .74rem; }
+        .rd-nom { white-space: normal; }
     }
 </style>
 
 @code {
-    private DateTime fechaSeleccionada = DateTime.Today;
-    private decimal totalRecaudado = 0m;
-    private List<RecaudacionPorFormaPagoDto> desgloseFormasPago = new();
-    private bool cargando = false;
-    private bool busquedaRealizada = false;
+    [Parameter] public string RutaVolver { get; set; } = "/productos";
+
+    private DateTime fecha = DateTime.Today;
+    private ResumenDia? r;
+    private bool cargando;
+    private string error = "";
+
+    private string NombreDia => fecha == DateTime.Today ? "Hoy"
+        : fecha == DateTime.Today.AddDays(-1) ? "Ayer"
+        : fecha.ToString("dddd d 'de' MMMM", new System.Globalization.CultureInfo("es-AR"));
+
+    // diferencia del equipo con UTC en minutos (Argentina: 180). Se toma del navegador,
+    // porque la app del celular no siempre conoce la zona horaria.
+    private int? minutosUtc;
+
+    // ----- turnos -----
+    private List<Turno> turnos = new();
+    private List<FilaTurno> porTurno = new();
+
+    private bool EsAdmin => Roles.VeRecaudacion(State.UsuarioRol);   // el dueño (y los perfiles a los que se lo habilitó)
 
     protected override async Task OnInitializedAsync()
     {
-        await CalcularRecaudacion();
+        // los empleados no ven la recaudación (aunque escriban la dirección a mano)
+        if (!EsAdmin) { Nav.NavigateTo("/productos"); return; }
+
+        try { minutosUtc = await JS.InvokeAsync<int>("eval", "new Date().getTimezoneOffset()"); } catch { }
+        try { turnos = await Asistencia.GetTurnos(State.KioscoId); } catch { turnos = new(); }
+        await Cargar();
     }
 
-    private async Task CalcularRecaudacion()
+    private string HoraLocal(TicketVenta t)
     {
-        cargando = true;
-        busquedaRealizada = false;
+        if (t.HoraUtc == null) return "sin hora";
+        var local = minutosUtc.HasValue ? t.HoraUtc.Value.AddMinutes(-minutosUtc.Value) : t.HoraUtc.Value.ToLocalTime();
+        return local.ToString("HH:mm");
+    }
 
+    private async Task CambiarDia(int dias)
+    {
+        var nueva = fecha.AddDays(dias);
+        if (nueva > DateTime.Today) return;
+        fecha = nueva;
+        await Cargar();
+    }
+
+    private async Task IrAHoy()
+    {
+        fecha = DateTime.Today;
+        await Cargar();
+    }
+
+    private async Task Cargar()
+    {
+        if (State.KioscoId == 0 || !EsAdmin) return;   // antes, sin negocio, mostraba los datos del negocio 1
+        cargando = true;
+        error = "";
         try
         {
-            long kioscoId = State.KioscoId;
-            if (kioscoId == 0) kioscoId = 1;
-
-            // Obtenemos el total general y la lista desglosada
-            totalRecaudado = await ReporteRecaudacionDiariaService.ObtenerRecaudacionPorDia(fechaSeleccionada, kioscoId);
-            desgloseFormasPago = await ReporteRecaudacionDiariaService.ObtenerRecaudacionPorFormaPago(fechaSeleccionada, kioscoId);
-
-            busquedaRealizada = true;
+            r = await Reporte.ObtenerResumenDelDia(fecha, State.KioscoId);
+            porTurno = turnos.Any(t => t.Activo)
+                ? await Reporte.ObtenerPorTurnoAsync(fecha, State.KioscoId, turnos, minutosUtc ?? 180)
+                : new();
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error al calcular la recaudación: {ex.Message}");
+            error = "No se pudo calcular el reporte: " + ex.Message;
         }
         finally
         {
             cargando = false;
         }
     }
+
+    // ----- productos vendidos por empleado (modal) -----
+    private FilaEmpleado? empModal;
+    private bool porProducto;
+    private string filtroProd = "";
+
+    private async Task AbrirVentas(FilaEmpleado e)
+    {
+        empModal = e;
+        porProducto = false;
+        filtroProd = "";
+        if (!e.ProductosCargados)
+        {
+            StateHasChanged();
+            try { await Reporte.CargarProductosAsync(e, State.KioscoId); }
+            catch (Exception ex) { empModal = null; error = "No se pudieron cargar los productos: " + ex.Message; }
+        }
+    }
+
+    private void CerrarVentas() => empModal = null;
+
+    private bool CoincideFiltro(ItemVendido i) => string.IsNullOrWhiteSpace(filtroProd) || i.Nombre.Contains(filtroProd.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    private List<TicketVenta> TicketsFiltrados => empModal == null ? new()
+        : string.IsNullOrWhiteSpace(filtroProd) ? empModal.Ventas
+        : empModal.Ventas.Where(t => t.Items.Any(CoincideFiltro)).ToList();
+
+    private List<ItemVendido> AgruparFiltrado => empModal == null ? new() : Agrupar(empModal).Where(CoincideFiltro).ToList();
+
+    /// <summary>Suma las cantidades del mismo producto vendido al mismo precio.</summary>
+    private static List<ItemVendido> Agrupar(FilaEmpleado e) => e.Ventas
+        .SelectMany(t => t.Items)
+        .GroupBy(i => (i.Nombre, i.PrecioUnitario, i.Unidad))
+        .Select(g => new ItemVendido
+        {
+            Nombre = g.Key.Nombre, PrecioUnitario = g.Key.PrecioUnitario, Unidad = g.Key.Unidad,
+            Cantidad = g.Sum(x => x.Cantidad), Subtotal = g.Sum(x => x.Subtotal)
+        })
+        .OrderByDescending(i => i.Subtotal)
+        .ToList();
+
+    private static string Ventas(int n) => n == 1 ? "1 venta" : $"{n} ventas";
+    private static string Inicial(string n) => string.IsNullOrWhiteSpace(n) ? "?" : n.Trim()[..1].ToUpper();
 }

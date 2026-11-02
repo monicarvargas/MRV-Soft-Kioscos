@@ -1,0 +1,144 @@
+﻿@page "/configuracion"
+@* .NET 8 Web App con render por componente: descomentá la línea de abajo *@
+@* @rendermode InteractiveServer *@
+@using BlazorKioscoCompartido.Components
+@inject AppState State
+@inject NavigationManager Nav
+@inject Supabase.Client Db
+
+<PedidosEstilos />
+
+<div class="container-fluid px-3 py-2 min-vh-100 style-notebook gp-scope gp-page">
+    <EncabezadoPagina Titulo="@TituloPagina"
+                      Subtitulo="Clientes, proveedores, precios, formas de pago, usuarios y color"
+                      IconoClass="bi-gear-fill"
+                      ColorBorde="primary"
+                      ColorIcono="primary"
+                      MostrarBotonAyuda="false"
+                      RutaVolver="/productos" />
+
+    @if (!Gestiona)
+    {
+        <div class="gp-card gp-card-pad">
+            <div class="gp-empty">
+                <span class="gp-bubble"><i class="bi bi-shield-lock-fill"></i></span>
+                <strong>Sin permiso</strong>
+                <span>Tu usuario no tiene permiso para entrar a la configuración del negocio. Lo puede habilitar el dueño.</span>
+            </div>
+        </div>
+    }
+    else if (KioscoIdActual == 0)
+    {
+        <div class="gp-card gp-card-pad">
+            <div class="gp-empty">
+                <span class="gp-bubble"><i class="bi bi-shop"></i></span>
+                <strong>Sin negocio asociado</strong>
+                <span>El usuario logueado no tiene un negocio asociado.</span>
+            </div>
+        </div>
+    }
+    else
+    {
+        <!-- PESTAÑAS -->
+        <div class="gp-tabs cf-tabs" role="tablist">
+            @foreach (var t in TabsVisibles)
+            {
+                <button type="button" role="tab" aria-selected="@(tab == t.Nombre)"
+                        class="gp-tab @(tab == t.Nombre ? "is-active" : "")" @onclick="() => tab = t.Nombre">
+                    <i class="bi @t.Icono"></i> <span>@t.Nombre</span>
+                </button>
+            }
+        </div>
+
+        @if (tab == "Clientes")               { <AbmClientes KioscoId="KioscoIdActual" /> }
+        else if (tab == "Proveedores")        { <AbmProveedores KioscoId="KioscoIdActual" /> }
+        else if (tab == "Familias")           { <AbmFamilias KioscoId="KioscoIdActual" /> }
+        else if (tab == "Listas de precios")  { <AbmListasPrecios KioscoId="KioscoIdActual" /> }
+        else if (tab == "Formas de pago")     { <AbmFormasPago KioscoId="KioscoIdActual" /> }
+        else if (tab == "Usuarios" && Roles.AdministraUsuarios(State.UsuarioRol)) { <AbmUsuarios KioscoId="KioscoIdActual" UsuarioActualId="State.UsuarioId" /> }
+        else if (tab == "Turnos")             { <AbmTurnos KioscoId="KioscoIdActual" /> }
+        else if (tab == "Unidades")           { <AbmUnidades KioscoId="KioscoIdActual" /> }
+        else if (tab == "Color")              { <AbmApariencia KioscoId="KioscoIdActual" /> }
+        else if (tab == "Redondeo" && Roles.EsAdmin(State.UsuarioRol)) { <AbmRedondeo KioscoId="KioscoIdActual" /> }
+        else if (tab == "Copia de seguridad" && Roles.EsAdmin(State.UsuarioRol)) { <AbmCopia KioscoId="KioscoIdActual" /> }
+        else if (tab == "Ayuda y plan")       { <AbmAyuda KioscoId="KioscoIdActual" /> }
+    }
+</div>
+
+<ConfigEstilos />
+
+@code {
+    // Solo el superadmin puede abrir la config de OTRO negocio: /configuracion?KioscoId=15
+    [Parameter, SupplyParameterFromQuery] public long? KioscoId { get; set; }
+    // Para abrir directo una pestaña desde el menú: /configuracion?tab=clientes
+    [Parameter, SupplyParameterFromQuery(Name = "tab")] public string? TabInicial { get; set; }
+
+    bool EsSuperAdmin => Roles.EsSuperAdmin(State.UsuarioRol);
+    bool Gestiona => Roles.Puede(State.UsuarioRol, Roles.PConfiguracion);   // dueño (y los perfiles con permiso de configuración)
+
+    // el encargado no ve "Usuarios" (si no, se podría poner admin a sí mismo)
+    // "Clientes" solo si el plan incluye fiado o asistencia (clientes y empleados)
+    IEnumerable<(string Nombre, string Icono)> TabsVisibles =>
+        tabs.Where(t => t.Nombre != "Usuarios" || Roles.AdministraUsuarios(State.UsuarioRol))
+            .Where(t => t.Nombre != "Redondeo" || Roles.EsAdmin(State.UsuarioRol))   // el redondeo: solo el dueño
+            .Where(t => t.Nombre != "Copia de seguridad" || Roles.EsAdmin(State.UsuarioRol))   // la copia: solo el dueño
+            .Where(t => t.Nombre != "Clientes" || State.Tiene(FuncionesPlan.Fiado) || State.Tiene(FuncionesPlan.Asistencia));
+
+    long KioscoIdActual => EsSuperAdmin && KioscoId > 0 ? KioscoId.Value : State.KioscoId;
+
+    // "Configuración del negocio KIOSCO LA ESQUINA" (el superadmin sabe qué negocio está tocando)
+    string? nombreOtroNegocio;
+    string TituloPagina => "Configuración del negocio" +
+        ((EsSuperAdmin && KioscoId > 0 ? nombreOtroNegocio : State.NombreNegocio) is string n && n.Trim() != "" ? " " + n.Trim() : "");
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (EsSuperAdmin && KioscoId > 0)
+        {
+            try
+            {
+                long id = KioscoId.Value;
+                var k = await Db.From<Kiosco>().Select("id, nombre_negocio").Where(x => x.Id == id).Single();
+                nombreOtroNegocio = k?.NombreKiosco;
+            }
+            catch { nombreOtroNegocio = null; }
+        }
+    }
+
+    readonly (string Nombre, string Icono)[] tabs =
+    {
+        ("Clientes", "bi-people"),
+        ("Proveedores", "bi-truck"),
+        ("Familias", "bi-tags-fill"),
+        ("Listas de precios", "bi-currency-dollar"),
+        ("Formas de pago", "bi-credit-card-2-front-fill"),
+        ("Usuarios", "bi-person-badge-fill"),
+        ("Turnos", "bi-clock-fill"),
+        ("Unidades", "bi-rulers"),
+        ("Color", "bi-palette-fill"),
+        ("Redondeo", "bi-calculator-fill"),
+        ("Copia de seguridad", "bi-cloud-arrow-down-fill"),
+        ("Ayuda y plan", "bi-question-circle-fill"),
+    };
+    string tab = "Clientes";
+
+    string? tabAplicada;
+    protected override void OnParametersSet()
+    {
+        // solo cuando cambia la dirección (si no, al refrescarse la página volvería a la pestaña del link)
+        if (!string.IsNullOrWhiteSpace(TabInicial) && TabInicial != tabAplicada)
+        {
+            tabAplicada = TabInicial;
+            var t = TabsVisibles.FirstOrDefault(x => string.Equals(x.Nombre, TabInicial, StringComparison.OrdinalIgnoreCase));
+            if (t.Nombre != null) tab = t.Nombre;
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        // si no hay nadie logueado, al login
+        if (State.KioscoId == 0) Nav.NavigateTo("/login");
+        // si la pestaña inicial no está en el plan, arranca en la primera que sí
+        if (!TabsVisibles.Any(t => t.Nombre == tab)) tab = TabsVisibles.First().Nombre;
+    }
+}

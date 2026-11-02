@@ -1,0 +1,92 @@
+﻿
+.style-notebook {
+    font-size: 0.95rem;
+    color: #111111;
+    padding-bottom: 25px;
+}
+
+.x-small-text {
+    font-size: 0.82rem;
+}
+
+.small-font {
+    font-size: 0.75rem;
+}
+
+.fw-black {
+    font-weight: 850;
+}
+
+.text-dark-custom {
+    color: #111111 !important;
+}
+
+.btn-medio-custom {
+    background-color: #ffffff;
+    color: #111111;
+    border-color: #ced4da !important;
+}
+
+    .btn-medio-custom:hover {
+        background-color: #f8f9fa;
+    }
+
+.active-efectivo {
+    background-color: #e8f5e9;
+    color: #2e7d32;
+    border-color: #2e7d32 !important;
+    font-weight: bold;
+}
+
+.active-mercado {
+    background-color: #e3f2fd;
+    color: #0d6efd;
+    border-color: #0d6efd !important;
+    font-weight: bold;
+}
+
+.active-transferencia {
+    background-color: #f3e5f5;
+    color: #7b1fa2;
+    border-color: #7b1fa2 !important;
+    font-weight: bold;
+}
+
+.active-fiado {
+    background-color: #ffebee;
+    color: #c62828;
+    border-color: #c62828 !important;
+    font-weight: bold;
+}
+
+.style-notebook input:focus, .style-notebook select:focus {
+    border-color: #000000 !important;
+    box-shadow: 0 0 0 0.2rem rgba(0,0,0,0.1) !important;
+}
+.extra-small {
+    font-size: 0.75rem;
+}
+/*<style >
+.max-width-card {
+    max-width: 800px;
+}
+
+.fw-extrabold {
+    font-weight: 800;
+}
+
+@@media (min-width: 768px) {
+    .border-start-md {
+        border-left: 1px solid !important;
+    }
+
+    .border-top-md-0 {
+        border-top: 0 !important;
+    }
+
+    .border-bottom-md-0 {
+        border-bottom: 0 !important;
+    }
+}
+
+</style >*/

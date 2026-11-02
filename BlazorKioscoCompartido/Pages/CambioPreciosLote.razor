@@ -1,0 +1,474 @@
+﻿@page "/precios-en-lote"
+@using BlazorKioscoCompartido.Models
+@using BlazorKioscoCompartido.Components
+@using System.Globalization
+@using static Supabase.Postgrest.Constants
+@inject Supabase.Client SupaClient
+@inject AppState State
+@inject PrecioService PrecioServ
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PedidosEstilos />
+<ConfigEstilos />
+<VentasEstilos />
+<AvisosPagina @ref="avisos" />
+
+<div class="container-fluid px-3 py-2 min-vh-100 style-notebook gp-scope gp-page">
+    <EncabezadoPagina Titulo="Cambiar precios en grupo"
+                      Subtitulo="Varios productos de una vez: costo, precio o aumento %"
+                      IconoClass="bi-collection-fill"
+                      ColorBorde="primary"
+                      ColorIcono="primary"
+                      MostrarBotonAyuda="false"
+                      RutaVolver="/productos" />
+
+    <div class="vt-wrap" style="display:flex; flex-direction:column; gap:1rem">
+
+        @* ================= RESULTADO DEL ÚLTIMO GUARDADO ================= *@
+        @if (resultado != null)
+        {
+            <section class="gp-card gp-card-pad pl-ok @(resultado.Errores.Any() ? "con-errores" : "")">
+                <div class="gp-card-head" style="margin-bottom:0">
+                    <span class="gp-bubble"><i class="bi @(resultado.Errores.Any() ? "bi-exclamation-triangle-fill" : "bi-check-circle-fill")"></i></span>
+                    <div class="vt-head-text">
+                        <h2>@(resultado.Errores.Any() ? $"Se guardaron {resultado.Guardados} de {resultado.Total} productos" : $"¡Listo! Se cambió el precio de {resultado.Guardados} producto(s)")</h2>
+                        <p>Se aplicó: @resultado.Resumen. Ya se pueden vender con el precio nuevo.</p>
+                    </div>
+                </div>
+                @if (resultado.Errores.Any())
+                {
+                    <ul class="pl-errores">
+                        @foreach (var er in resultado.Errores.Take(10)) { <li>@er</li> }
+                    </ul>
+                }
+                <div class="pl-ok-acciones">
+                    @if (resultado.Guardados > 0)
+                    {
+                        <button type="button" class="gp-btn gp-btn-outline gp-btn-sm" title="Llevar estos productos a Carteles de precios" @onclick="ImprimirCarteles"><i class="bi bi-tags-fill"></i> Imprimir carteles de estos</button>
+                    }
+                    <button type="button" class="gp-btn gp-btn-primary gp-btn-sm" @onclick="() => resultado = null"><i class="bi bi-plus-lg"></i> Hacer otro cambio</button>
+                </div>
+            </section>
+        }
+
+        @* ================= 1. ELEGIR PRODUCTOS ================= *@
+        <section class="gp-card gp-card-pad">
+            <div class="gp-card-head">
+                <span class="gp-bubble"><i class="bi bi-1-circle-fill"></i></span>
+                <div class="vt-head-text">
+                    <h2>Elegí los productos</h2>
+                    <p>Buscá por nombre o marca (ej: "plusbell") y tildá los que querés cambiar.</p>
+                </div>
+            </div>
+
+            <BuscadorMultiple EstaElegido="@(id => seleccion.ContainsKey(id))" OnAlternar="Alternar" OnAgregarTodos="TildarTodos" CargarProveedores="true" Maximo="1000" />
+        </section>
+
+        @* ================= 2. QUÉ CAMBIO ================= *@
+        <section class="gp-card gp-card-pad">
+            <div class="gp-card-head">
+                <span class="gp-bubble"><i class="bi bi-2-circle-fill"></i></span>
+                <div class="vt-head-text">
+                    <h2>¿Qué cambiás?</h2>
+                    <p>Se aplica a los @seleccion.Count producto(s) elegidos.</p>
+                </div>
+            </div>
+
+            <div class="pl-ops">
+                @foreach (var op in Operaciones)
+                {
+                    <button type="button" class="pl-op @(operacion == op.Clave ? "is-active" : "")" @onclick="() => operacion = op.Clave">
+                        <i class="bi @op.Icono"></i>
+                        <b>@op.Titulo</b>
+                        <small>@op.Ayuda</small>
+                    </button>
+                }
+            </div>
+
+            <div class="pl-valor">
+                <label class="cf-lbl">@EtiquetaValor</label>
+                <div class="pl-valor-input">
+                    <span>@(EsPorcentaje ? "%" : "$")</span>
+                    <input type="text" inputmode="decimal" class="gp-control @(EsPorcentaje ? "" : "js-monto")" placeholder="@(EsPorcentaje ? "Ej: 15" : "Ej: 2.500")" @bind="valorTexto" @bind:event="oninput" />
+                </div>
+                @if (seleccion.Values.Any(x => x.Original.EsVentaPorPeso()) && !EsPorcentaje)
+                {
+                    <div class="gp-hint" style="margin-top:.4rem"><i class="bi bi-exclamation-triangle-fill"></i> Hay productos por peso: para esos el valor es <b>por kilo</b>.</div>
+                }
+            </div>
+        </section>
+
+        @* ================= 3. VISTA PREVIA ================= *@
+        <section class="gp-card gp-card-pad">
+            <div class="gp-card-head">
+                <span class="gp-bubble"><i class="bi bi-3-circle-fill"></i></span>
+                <div class="vt-head-text">
+                    <h2>Así van a quedar</h2>
+                    <p>Revisá antes de guardar. Tocá la ✕ para sacar uno.</p>
+                </div>
+                @if (seleccion.Any())
+                {
+                    <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm vt-head-right" @onclick="() => seleccion.Clear()"><i class="bi bi-trash3"></i> Vaciar</button>
+                }
+            </div>
+
+            @if (!seleccion.Any())
+            {
+                <div class="gp-empty">
+                    <span class="gp-bubble"><i class="bi bi-collection"></i></span>
+                    <strong>No elegiste productos</strong>
+                    <span>Buscalos en el paso 1.</span>
+                </div>
+            }
+            else
+            {
+                <div class="gp-table-wrap gp-stack-wrap">
+                    <table class="gp-table gp-stack pl-tabla">
+                        <thead>
+                            <tr>
+                                <th>Producto</th>
+                                <th class="t-right">Costo</th>
+                                <th class="t-right">Ganancia</th>
+                                <th class="t-right">Precio venta</th>
+                                @if (!string.IsNullOrEmpty(nombreLista2)) { <th class="t-right">@nombreLista2</th> }
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var it in seleccion.Values.OrderBy(x => x.Original.Nombre))
+                            {
+                                var n = Calcular(it.Original);
+                                <tr>
+                                    <td class="gp-td-main" data-label="Producto"><span class="gp-product">@it.Original.Nombre</span><div class="gp-sub">@((it.Original.CodigoBarras ?? "") + (it.Original.EsVentaPorPeso() ? " · por kg" : ""))</div></td>
+                                    <td class="t-right" data-label="Costo">@Cambio(it.Original.PrecioCosto, n.PrecioCosto)
+                                        @if (TieneBulto(it.Original) && n.BultoPrecio != it.Original.BultoPrecio)
+                                        {
+                                            <div class="gp-sub"><i class="bi bi-box-seam"></i> Bulto x@(it.Original.BultoUnidades): $@((it.Original.BultoPrecio ?? 0).ToString("N2")) → <b>$@((n.BultoPrecio ?? 0).ToString("N2"))</b></div>
+                                        }
+                                    </td>
+                                    <td class="t-right" data-label="Ganancia">@CambioPct(it.Original.UtilidadPV, n.UtilidadPV)</td>
+                                    <td class="t-right" data-label="Precio venta">@Cambio(it.Original.PrecioVenta, n.PrecioVenta)</td>
+                                    @if (!string.IsNullOrEmpty(nombreLista2)) { <td class="t-right" data-label="@nombreLista2">@Cambio(it.Original.PrecioLista2, n.PrecioLista2)</td> }
+                                    <td class="t-center gp-td-actions" data-label="">
+                                        <button type="button" class="gp-btn gp-btn-danger-soft gp-btn-sm gp-btn-icon" title="Sacar" @onclick="() => seleccion.Remove(it.Original.Id)"><i class="bi bi-x-lg"></i></button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+
+        @if (seleccion.Any())
+        {
+            <div class="gp-selbar">
+                <div class="gp-selinfo"><b>@seleccion.Count</b> producto(s) · @(ValorValido ? ResumenOperacion : "Escribí el valor en el paso 2")</div>
+                <div class="gp-btn-group">
+                    <button type="button" class="gp-btn gp-btn-ok" disabled="@(guardando || !ValorValido)" @onclick="Aplicar">
+                        <i class="bi bi-check-lg"></i> @(guardando ? $"Guardando {progreso}/{seleccion.Count}..." : "Guardar precios")
+                    </button>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    .pl-ok { border: 2px solid var(--gp-ok); background: var(--gp-ok-soft); }
+    .pl-ok .gp-bubble { background: var(--gp-ok); color: #fff; }
+    .pl-ok.con-errores { border-color: var(--gp-warn); background: #fffbeb; }
+    .pl-ok.con-errores .gp-bubble { background: var(--gp-warn); }
+    .pl-ok-acciones { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .5rem; margin-top: .8rem; }
+    .pl-errores { margin: .6rem 0 0 1.2rem; padding: 0; color: var(--gp-danger); font-size: .85rem; font-weight: 600; }
+
+    .pl-ops { display: grid; grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr)); gap: .5rem; }
+    .pl-op { display: flex; flex-direction: column; align-items: flex-start; gap: .15rem; padding: .7rem .8rem; border: 2px solid var(--gp-line); border-radius: 14px; background: #fff; color: var(--gp-text); font: inherit; text-align: left; cursor: pointer; }
+    .pl-op i { font-size: 1.2rem; color: var(--gp-primary); }
+    .pl-op b { font-weight: 900; font-size: .9rem; }
+    .pl-op small { color: var(--gp-muted); font-size: .74rem; font-weight: 600; line-height: 1.25; }
+    .pl-op.is-active { border-color: var(--gp-primary); background: var(--gp-primary-soft); }
+    .pl-valor { margin-top: 1rem; max-width: 20rem; }
+    .pl-valor-input { display: flex; align-items: center; gap: .4rem; }
+    .pl-valor-input span { font-weight: 900; font-size: 1.3rem; color: var(--gp-primary); }
+    .pl-valor-input .gp-control { height: 3rem; font-size: 1.3rem; font-weight: 900; }
+
+    .pl-tabla .pl-viejo { color: var(--gp-muted); text-decoration: line-through; font-weight: 600; font-size: .8rem; margin-right: .3rem; }
+    .pl-tabla .pl-nuevo { font-weight: 900; }
+    .pl-tabla .pl-nuevo.sube { color: var(--gp-warn); }
+    .pl-tabla .pl-nuevo.baja { color: var(--gp-ok); }
+</style>
+
+@code {
+    private AvisosPagina avisos = default!;
+
+    // ----- resultado del último guardado (cartel verde arriba) -----
+    private sealed record Resultado(int Guardados, int Total, string Resumen, List<string> Errores, List<Producto> Productos);
+    private Resultado? resultado;
+
+    // ----- selección (se recuerda si sale y vuelve) -----
+    public sealed class Elegido { public Producto Original { get; set; } = new(); }
+    private static Dictionary<long, Elegido> seleccion = new();
+
+    // ----- operación -----
+    private sealed record Operacion(string Clave, string Titulo, string Ayuda, string Icono);
+    private static readonly Operacion[] Operaciones =
+    {
+        new("costo", "Nuevo costo", "Mismo costo a todos; el precio se recalcula con la ganancia de cada uno", "bi-truck"),
+        new("costo%", "Costo + %", "Aumenta el costo y recalcula el precio de venta", "bi-graph-up-arrow"),
+        new("venta", "Nuevo precio de venta", "Mismo precio a todos (la ganancia se recalcula)", "bi-tag-fill"),
+        new("venta%", "Precio de venta + %", "Aumenta el precio de venta (el costo no cambia)", "bi-percent"),
+        new("ganancia", "Nueva ganancia %", "Misma ganancia a todos sobre su costo", "bi-pie-chart-fill"),
+    };
+    private string operacion = "costo";
+    private string valorTexto = "";
+    private bool guardando;
+    private int progreso;
+    private string nombreLista2 = "";
+    private static readonly CultureInfo Ar = CultureInfo.GetCultureInfo("es-AR");
+
+    private bool EsPorcentaje => operacion is "costo%" or "venta%" or "ganancia";
+    private string EtiquetaValor => operacion switch
+    {
+        "costo" => "Nuevo costo",
+        "costo%" => "Aumento del costo (%)  — usá negativo para bajar",
+        "venta" => "Nuevo precio de venta",
+        "venta%" => "Aumento del precio de venta (%)  — usá negativo para bajar",
+        _ => "Ganancia (%)"
+    };
+
+    private decimal? Valor
+    {
+        get
+        {
+            var t = (valorTexto ?? "").Trim().Replace("$", "").Replace("%", "").Replace(" ", "");
+            if (t == "") return null;
+            // montos: 2.500 · 2.500,50 (el punto es de miles); los % se leen como antes (pueden ser negativos)
+            if (!EsPorcentaje) return Plata.TryLeer(t, out var m) ? m : null;
+            // acepta "2.500,50", "2500,5" y "2500.5"
+            if (t.Contains(',')) t = t.Replace(".", "").Replace(',', '.');
+            else if (t.Count(c => c == '.') > 1) t = t.Replace(".", "");
+            return decimal.TryParse(t, NumberStyles.Number | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var v) ? v : null;
+        }
+    }
+    private bool ValorValido => Valor is decimal v && (EsPorcentaje ? v > -100 : v > 0);
+
+    private string ResumenOperacion => operacion switch
+    {
+        "costo" => $"costo $ {F(Valor)}",
+        "costo%" => $"costo {(Valor >= 0 ? "+" : "")}{Valor:0.##}%",
+        "venta" => $"precio $ {F(Valor)}",
+        "venta%" => $"precio {(Valor >= 0 ? "+" : "")}{Valor:0.##}%",
+        _ => $"ganancia {Valor:0.##}%"
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (State.KioscoId == 0) { Nav.NavigateTo("/login"); return; }
+        // solo los perfiles con permiso para cambiar precios (aunque escriban la dirección a mano)
+        if (!Roles.Puede(State.UsuarioRol, Roles.PPrecios))
+        { Nav.NavigateTo("/productos"); return; }
+        if (seleccion.Values.Any(s => s.Original.KioscoId != State.KioscoId)) seleccion.Clear();
+        await PrecioServ.AsegurarReglasAsync(State.KioscoId);   // recargos de la Lista 2 del negocio
+        long k = State.KioscoId;
+        try
+        {
+            var lst = await SupaClient.From<ListaPrecio>().Where(x => x.KioscoId == k).Get();
+            var l2 = (lst.Models ?? new()).FirstOrDefault(x => x.NombreColumnaProductos == "precio_lista2");
+            nombreLista2 = l2 == null ? "" : (string.IsNullOrWhiteSpace(l2.NombreLista) ? "Lista 2" : l2.NombreLista!);
+        }
+        catch { }
+    }
+
+    // ===================== ELEGIR (el buscador es el componente BuscadorMultiple) =====================
+    private void Alternar(Producto p)
+    {
+        if (!seleccion.Remove(p.Id)) seleccion[p.Id] = new Elegido { Original = p };
+        resultado = null;
+    }
+
+    private void TildarTodos(List<Producto> nuevos)
+    {
+        foreach (var p in nuevos) seleccion.TryAdd(p.Id, new Elegido { Original = p });
+        resultado = null;
+    }
+
+    // ===================== CÁLCULO (mismas reglas que la pantalla de producto) =====================
+    private Producto Calcular(Producto o)
+    {
+        var n = new Producto
+        {
+            Id = o.Id, KioscoId = o.KioscoId, UnidadMedida = o.UnidadMedida,
+            PrecioCosto = o.PrecioCosto, UtilidadPV = o.UtilidadPV, PrecioVenta = o.PrecioVenta,
+            PrecioLista2 = o.PrecioLista2, UtilidadLista2 = o.UtilidadLista2,
+            PrecioLista3 = o.PrecioLista3, UtilidadLista3 = o.UtilidadLista3,
+            PrecioVentaxMayor = o.PrecioVentaxMayor, UtilidadVentaxMayor = o.UtilidadVentaxMayor,
+            BultoPrecio = o.BultoPrecio, BultoUnidades = o.BultoUnidades, BultoFecha = o.BultoFecha
+        };
+        if (Valor is not decimal v || !ValorValido) return n;
+        bool igual = PrecioService.EsMismoPrecioDiaNoche(n);   // gomitas: mismo precio de día y de noche, se mantiene
+        decimal costo = n.PrecioCosto ?? 0;
+
+        switch (operacion)
+        {
+            case "costo":
+            case "costo%":
+                n.PrecioCosto = operacion == "costo" ? v : Math.Round(costo * (1 + v / 100m), 2);
+                RecalcularDesdeCosto(n, igual);
+                AjustarBulto(n, o);
+                break;
+
+            case "ganancia":
+                n.UtilidadPV = v;
+                n.PrecioVenta = n.CalcularPrecioPorUtilidad(n.PrecioCosto, v, State);
+                PrecioService.ProcesarLista2Automatico(n, State.KioscoId, State, igual);
+                break;
+
+            case "venta":
+            case "venta%":
+                decimal venta = operacion == "venta" ? v : (n.PrecioVenta ?? 0) * (1 + v / 100m);
+                if (operacion == "venta%") venta = Redondear(n, venta);
+                decimal margen = costo > 0 ? Math.Round((venta - costo) / costo * 100m, 2) : 0;
+                n.AsignarUtilidadYPrecio("Principal", Math.Round(venta, 2), margen);
+                PrecioService.ProcesarLista2Automatico(n, State.KioscoId, State, igual);
+                break;
+        }
+        return n;
+    }
+
+    /// <summary>Se compra por bulto ("Lo compro por bulto" cargado): tiene precio del bulto y más de una unidad.</summary>
+    private static bool TieneBulto(Producto p) => (p.BultoPrecio ?? 0) > 0 && (p.BultoUnidades ?? 0) > 1;
+
+    /// <summary>Cambió el costo por unidad: el precio del bulto pasa a ser costo nuevo × unidades (para que coincidan).</summary>
+    private static void AjustarBulto(Producto n, Producto o)
+    {
+        if (!TieneBulto(o) || n.PrecioCosto == o.PrecioCosto) return;
+        n.BultoPrecio = Math.Round((n.PrecioCosto ?? 0) * o.BultoUnidades!.Value, 2);
+        n.BultoFecha = DateTime.UtcNow;
+    }
+
+    private void RecalcularDesdeCosto(Producto n, bool igual = false)
+    {
+        n.PrecioVenta = n.CalcularPrecioPorUtilidad(n.PrecioCosto, n.UtilidadPV, State);
+        PrecioService.ProcesarLista2Automatico(n, State.KioscoId, State, igual);
+        if (n.UtilidadLista3.HasValue) n.PrecioLista3 = n.CalcularPrecioPorUtilidad(n.PrecioCosto, n.UtilidadLista3, State);
+        if (n.UtilidadVentaxMayor.HasValue) n.PrecioVentaxMayor = n.CalcularPrecioPorUtilidad(n.PrecioCosto, n.UtilidadVentaxMayor, State);
+    }
+
+    /// <summary>Redondeo del negocio (si está activo): hacia arriba al múltiplo; en productos por gramos, sobre los 100 g.</summary>
+    private decimal Redondear(Producto p, decimal valor)
+    {
+        if (!p.UsaRedondeo(State)) return Math.Round(valor, 2);   // salvo los productos "sin redondeo"
+        decimal paso = State.MultiploRedondeo > 0 ? State.MultiploRedondeo : 50m;
+        if (p.PrecioCada100g()) return Math.Ceiling(valor / 10m / paso) * paso * 10m;   // en KILO, por kilo
+        return Math.Ceiling(valor / paso) * paso;
+    }
+
+    // ===================== MOSTRAR =====================
+    private static string F(decimal? v) => (v ?? 0).ToString(v.HasValue && v == Math.Truncate(v.Value) ? "N0" : "N2", Ar);
+
+    private RenderFragment Cambio(decimal? antes, decimal? despues) => __builder =>
+    {
+        if ((antes ?? 0) == (despues ?? 0))
+        {
+            <span>$ @F(despues)</span>
+        }
+        else
+        {
+            <span class="pl-viejo">$ @F(antes)</span>
+            <span class="pl-nuevo @((despues ?? 0) > (antes ?? 0) ? "sube" : "baja")">$ @F(despues)</span>
+        }
+    };
+
+    private RenderFragment CambioPct(decimal? antes, decimal? despues) => __builder =>
+    {
+        if (Math.Round(antes ?? 0, 2) == Math.Round(despues ?? 0, 2))
+        {
+            <span>@((despues ?? 0).ToString("0.##", Ar))%</span>
+        }
+        else
+        {
+            <span class="pl-viejo">@((antes ?? 0).ToString("0.##", Ar))%</span>
+            <span class="pl-nuevo">@((despues ?? 0).ToString("0.##", Ar))%</span>
+        }
+    };
+
+    // ===================== GUARDAR =====================
+    private async Task Aplicar()
+    {
+        if (!ValorValido || !seleccion.Any()) return;
+        if (!await avisos.ConfirmarAsync($"¿Cambiar el precio de {seleccion.Count} producto(s)?", $"Se aplica: {ResumenOperacion}.", "Guardar precios", "aviso")) return;
+
+        guardando = true;
+        progreso = 0;
+        resultado = null;
+        string resumen = ResumenOperacion;
+        var errores = new List<string>();
+        var fallaronIds = new List<long>();
+        foreach (var it in seleccion.Values.ToList())
+        {
+            var n = Calcular(it.Original);
+            try
+            {
+                long id = n.Id;
+                await SupaClient.From<Producto>()
+                    .Where(p => p.Id == id)
+                    .Where(p => p.KioscoId == State.KioscoId)
+                    .Set(p => p.PrecioCosto, n.PrecioCosto)
+                    .Set(p => p.UtilidadPV, n.UtilidadPV)
+                    .Set(p => p.PrecioVenta, n.PrecioVenta)
+                    .Set(p => p.PrecioLista2, n.PrecioLista2)
+                    .Set(p => p.UtilidadLista2, n.UtilidadLista2)
+                    .Set(p => p.PrecioLista3, n.PrecioLista3)
+                    .Set(p => p.PrecioVentaxMayor, n.PrecioVentaxMayor)
+                    .Set(p => p.FechaActualizacion, DateTime.UtcNow)
+                    .Update();
+
+                // se compra por bulto: el precio del bulto acompaña al costo nuevo
+                if (TieneBulto(it.Original) && n.BultoPrecio != it.Original.BultoPrecio)
+                {
+                    try
+                    {
+                        await SupaClient.From<Producto>().Where(p => p.Id == id)
+                            .Set(p => p.BultoPrecio!, n.BultoPrecio)
+                            .Set(p => p.BultoFecha!, n.BultoFecha)
+                            .Update();
+                        it.Original.BultoPrecio = n.BultoPrecio; it.Original.BultoFecha = n.BultoFecha;
+                    }
+                    catch { /* sin el script 32: queda el bulto anterior */ }
+                }
+
+                // queda con los valores nuevos (por si quiere aplicar otro cambio encima)
+                it.Original.PrecioCosto = n.PrecioCosto; it.Original.UtilidadPV = n.UtilidadPV; it.Original.PrecioVenta = n.PrecioVenta;
+                it.Original.PrecioLista2 = n.PrecioLista2; it.Original.UtilidadLista2 = n.UtilidadLista2;
+                it.Original.PrecioLista3 = n.PrecioLista3; it.Original.PrecioVentaxMayor = n.PrecioVentaxMayor;
+                it.Original.FechaActualizacion = DateTime.Now;   // sale en el cartel
+            }
+            catch (Exception ex) { errores.Add($"{it.Original.Nombre}: {ex.Message}"); fallaronIds.Add(it.Original.Id); }
+            progreso++;
+            StateHasChanged();
+        }
+        guardando = false;
+
+        // Cartel verde arriba con el resultado, y la página queda limpia para el próximo cambio.
+        // Si alguno falló, quedan elegidos solo esos para reintentar.
+        int total = seleccion.Count;
+        var fallados = new HashSet<long>(fallaronIds);
+        var guardados = seleccion.Values.Where(x => !fallados.Contains(x.Original.Id)).Select(x => x.Original).ToList();
+        resultado = new Resultado(total - errores.Count, total, resumen, errores, guardados);
+        foreach (var id in seleccion.Keys.ToList()) if (!fallados.Contains(id)) seleccion.Remove(id);
+        if (!errores.Any()) valorTexto = "";
+
+        StateHasChanged();
+        try { await JS.InvokeVoidAsync("scrollTo", 0, 0); } catch { }
+    }
+
+    /// <summary>Lleva los productos recién cambiados a "Carteles de precios" para imprimirlos con el precio nuevo.</summary>
+    private void ImprimirCarteles()
+    {
+        if (resultado == null) return;
+        CartelesPrecios.Precargar(resultado.Productos);
+        Nav.NavigateTo("/carteles");
+    }
+}

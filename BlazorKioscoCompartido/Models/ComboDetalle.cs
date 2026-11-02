@@ -19,5 +19,11 @@ namespace BlazorKioscoCompartido.Models
         public int Cantidad { get; set; } // Cuántas unidades de este producto lleva el combo
         [Column("kiosco_id")]
         public long KioscoId { get; set; }
+        // Propiedad auxiliar (no mapeada en la BD) para la interfaz de usuario
+        //[Reference(typeof(Producto), false)]
+        //public Producto? ProductoHijo { get; set; }
+        // Especificar explícitamente la FK para evitar la ambigüedad en PostgREST
+        [Reference(typeof(Producto), foreignKey: "fk_producto_hijo")]
+        public Producto? ProductoHijo { get; set; }
     }
 }

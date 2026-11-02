@@ -19,7 +19,9 @@ builder.RootComponents.Add<HeadOutlet>("head::after");
 builder.Services.AddSingleton<AppState>();
 builder.Services.AddSingleton<CarritoService>();
 builder.Services.AddScoped<ReporteRecaudacionDiariaService>();
-
+builder.Services.AddScoped<ProveedorService>();
+builder.Services.AddScoped<ConfiguracionService>();
+builder.Services.AddScoped<AsistenciaService>();      // turnos y entrada/salida de empleados
 //builder.Services.AddSingleton<PrecioService>();
 
 // HttpClient

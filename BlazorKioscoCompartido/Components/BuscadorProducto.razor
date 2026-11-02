@@ -3,11 +3,13 @@
 @using Microsoft.JSInterop
 @using Supabase.Postgrest
 @using static Supabase.Postgrest.Constants
+@using BlazorKioscoCompartido.Services.SinInternet
 @implements IDisposable
 
 @inject Supabase.Client SupaClient
 @inject IJSRuntime JSRuntime
 @inject PrecioService PrecioServ
+@inject AppState State
 
 <div class="search-box shadow-sm rounded border bg-white mb-2">
     <div class="input-group">
@@ -66,7 +68,16 @@
                     <div class="text-end me-3">
                         @if (MostrarPrimeraLista)
                         {
-                            @* <div class="fw-bold text-primary">$@prod.PrecioVenta?.ToString("N2")</div> *@
+                            @if (EsFeriadoEnVenta)
+                            {
+                                @* domingo / feriado: el precio que se cobra ahora, en rojo *@
+                                <td class="text-center">
+                                    <span class="fw-bold fs-5" style="color:#e11d48">$ @PrecioService.PrecioSegunLista(prod, "precio_lista3", idNegocio).ToString("N2")</span>
+                                    <div style="font-size:.65rem; font-weight:800; color:#e11d48">@NombreFeriado</div>
+                                </td>
+                            }
+                            else
+                            {
                             <td class="text-center @(columnaPrecioActiva == "precio_venta" ? "table-primary border-primary border-start border-end" : "")">
                                 <span class="@(columnaPrecioActiva == "precio_venta" ? "fw-bold fs-5 text-primary" : "text-muted small")">
                                      @(prod.PrecioVenta?.ToString("N2") ?? "0.00")
@@ -76,15 +87,15 @@
                                     <div class="badge bg-primary d-block mx-auto mt-1" style="font-size: 0.65rem; max-width: 70px;"></div>
                                 }
                             </td>
+                            }
                             
                         }
                         @if (MostrarSegundaLista)
                         {
                             // 1. Calculamos el precio real a mostrar en una variable local para no repetir código
                             // Si PrecioLista2 es nulo o es igual a 0, le sumamos un recargo al PrecioVenta
-                            decimal precioLista2AMostrar = (prod.PrecioLista2 == null || prod.PrecioLista2 == 0 || prod.PrecioLista2 <=prod.PrecioVenta)
-                            ? (prod.PrecioVenta ?? 0) + CalcularPrecioConRecargo(prod.PrecioVenta ?? 0)
-                            : prod.PrecioLista2.Value;
+                            // la misma regla que se cobra: cargada (aunque sea igual al de venta) o, si falta / es menor, la regla
+                            decimal precioLista2AMostrar = PrecioService.PrecioSegunLista(prod, "precio_lista2", idNegocio);
 
                             <td class="text-center @(columnaPrecioActiva == "precio_lista2" ? "table-success border-success border-start border-end" : "")">
                                 <span class="@(columnaPrecioActiva == "precio_lista2" ? "fw-bold fs-5 text-success" : "text-muted small")">
@@ -92,7 +103,7 @@
                                 </span>
 
                                 @* Un plus: Si aplicó el recargo de auxilio, le podemos poner un cartelito sutil al vendedor *@
-                                @if (prod.PrecioLista2 == null || prod.PrecioLista2 == 0 || prod.PrecioLista2 <= prod.PrecioVenta)
+                                @if (PrecioService.Lista2SinCargar(prod))
                                 {
                                     <div class="text-danger" style="font-size: 0.65rem;" title="PrecioLista2 no cargado. Se aplicó un recargo por defecto.">
                                         <i class="bi bi-exclamation-circle"></i> Ajustado
@@ -107,9 +118,6 @@
                         }
                     </div>
 
-                    @* <button class="btn btn-primary btn-sm rounded-3 shadow-sm">
-                        <i class="bi bi-plus-lg fs-5"></i>
-                    </button> *@
                 </div>
             }
         </div>
@@ -123,7 +131,7 @@
     private string textoActual = "";
     private string columnaPrecioActiva = "precio_venta"; // Por defecto
     private TimeSpan horaInicioVenta = DateTime.Now.TimeOfDay;
-    private long idNegocio = 1; // Tu kiosco activo
+    private long idNegocio=0; // Tu kiosco activo
     private ElementReference txtBuscar;
 
     [Parameter] public bool CargarAlInicio { get; set; } = false;
@@ -131,20 +139,32 @@
     [Parameter] public EventCallback<string> OnProductoNoEncontrado { get; set; }
     [Parameter] public bool MostrarPrimeraLista { get; set; } = true;
     [Parameter] public bool MostrarSegundaLista { get; set; } = false;
+    /// <summary>Lista que usa la página (Vender la fija por venta). Si no se pasa, el buscador la calcula por horario.</summary>
+    [Parameter] public string? ColumnaActiva { get; set; }
+
+    /// <summary>En Vender, un domingo / feriado: se muestra el precio de esa lista (no el de venta).</summary>
+    private bool EsFeriadoEnVenta => !string.IsNullOrEmpty(ColumnaActiva) && columnaPrecioActiva == "precio_lista3";
+    private string NombreFeriado => PrecioService.NombreLista(idNegocio, "precio_lista3") is { Length: > 0 } n ? n : "FERIADO";
 
     protected override async Task OnInitializedAsync()
     {
+        idNegocio = State.KioscoId;
         if (CargarAlInicio)
         {
-            // await EjecutarBusqueda("");
+            
             // Al inicio ponemos false para que no dispare un alta si la base está vacía
             await EjecutarBusqueda("", forzarAlta: false);
         }
         
-        columnaPrecioActiva = await PrecioServ.ObtenerColumnaPrecioActivaAsync(idNegocio, horaInicioVenta);
+        // la lista por horario (sin internet sale de la copia guardada en la PC)
+        await PrecioServ.AsegurarReglasAsync(idNegocio);
+        columnaPrecioActiva = !string.IsNullOrEmpty(ColumnaActiva)
+            ? ColumnaActiva
+            : await PrecioServ.ObtenerColumnaPrecioActivaAsync(idNegocio, horaInicioVenta);
     }
     protected override void OnParametersSet()
     {
+        if (!string.IsNullOrEmpty(ColumnaActiva)) columnaPrecioActiva = ColumnaActiva;
         // Cada vez que el componente padre (Productos.razor) actualice el parámetro,
         // le avisamos a la interfaz del buscador que debe redibujarse con el nuevo valor.
         StateHasChanged();
@@ -160,28 +180,11 @@
         timer?.Dispose();
         timer = new System.Threading.Timer(async _ =>
         {
-            // await InvokeAsync(async () => await EjecutarBusqueda(textoActual));
-            // Las búsquedas automáticas del timer NO deben forzar el alta automática
+           // Las búsquedas automáticas del timer NO deben forzar el alta automática
             await InvokeAsync(async () => await EjecutarBusqueda(textoActual, forzarAlta: false));
         }, null, 400, System.Threading.Timeout.Infinite);
     }
-    public decimal CalcularPrecioConRecargo(decimal precioVenta)
-    {
-        // Evaluamos el rango del precio de venta para determinar el recargo fijo
-        decimal recargo = precioVenta switch
-        {
-            <= 500 => 50,
-            > 500 and <= 800 => 100,
-            > 800 and <= 2000 => 200,
-            > 2000 and <= 5000 => 300,
-            > 5000 and <= 7000 => 400,
-            > 7000 and <= 9999 => 500,
-            _ => 800 // Para 10000 o más (caso por defecto)
-        };
-
-        // Devolvemos  el recargo correspondiente
-        return  recargo;
-    }
+    
     private async Task EjecutarBusqueda(string busqueda, bool forzarAlta)
     {
         if (string.IsNullOrWhiteSpace(busqueda) && !CargarAlInicio)
@@ -197,26 +200,23 @@
 
         try
         {
-            var query = SupaClient.From<Producto>();
+            var query = SupaClient.From<Producto>().Where(p => p.KioscoId == State.KioscoId);
             if (!string.IsNullOrWhiteSpace(busqueda))
             {
-                var res = await query.Or(new List<Supabase.Postgrest.Interfaces.IPostgrestQueryFilter>
-                {
-                    new Supabase.Postgrest.QueryFilter("nombre", Operator.ILike, $"%{busqueda}%"),
-                    new Supabase.Postgrest.QueryFilter("codigo_barras", Operator.ILike, $"%{busqueda}%")
-                }).Limit(20).Get();
-                productosFiltrados = res.Models;
+                productosFiltrados = await BuscarEnBase(busqueda);
                 //Se agrega esta condición para que si el usuario presiona Enter y hay un solo resultado, se seleccione automáticamente
                 if (EsCodigoBarras(textoActual))
                 {
                     if (productosFiltrados.Count == 1)
                     {
+                        busquedaResuelta = true;
                         await SeleccionarProducto(productosFiltrados[0]);
                         return;
                     }
 
                     if (productosFiltrados.Count == 0)
                     {
+                        busquedaResuelta = true;
                         await OnProductoNoEncontrado.InvokeAsync(textoActual);
                         return;
                     }
@@ -225,20 +225,73 @@
                 // Si la base de datos no devolvió nada Y el usuario presionó Enter (o vino del escáner)
                 if (!productosFiltrados.Any() && forzarAlta)
                 {
+                    busquedaResuelta = true;
                     await OnProductoNoEncontrado.InvokeAsync(busqueda);
                 }
             }
-            else if (CargarAlInicio)
+            else if (CargarAlInicio && VentaSinInternet.Actual?.ModoLimitado != true)
             {
                 var res = await query.Limit(50).Get();
                 productosFiltrados = res.Models;
             }
+        }
+        catch (Exception ex) when (VentaSinInternet.Actual != null && VentaSinInternet.EsErrorDeRed(ex))
+        {
+            VentaSinInternet.Actual.MarcarSinConexion();
+            productosFiltrados = new();
         }
         finally
         {
             estaCargando = false;
             StateHasChanged();
         }
+    }
+
+    // Busca sin importar acentos ni mayúsculas ("cafe" encuentra "CAFÉ") usando la columna nombre_busqueda.
+    // Si todavía no se corrió busqueda_sin_acentos.sql, busca por "nombre" como antes.
+    private static bool usarSinAcentos = true;
+
+    private async Task<List<Producto>> BuscarEnBase(string busqueda)
+    {
+        var limpio = System.Text.RegularExpressions.Regex.Replace(busqueda ?? "", @"[,()%""\\*]", " ").Trim();
+        var palabras = limpio.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var patronNombre = "%" + string.Join("%", palabras.Select(w => usarSinAcentos ? SinAcentos(w) : w)) + "%";
+
+        // ETAPA 7: sin internet se busca en la copia guardada en la PC
+        var off = VentaSinInternet.Actual;
+        if (off?.ModoLimitado == true) return off.Buscar(busqueda ?? "");
+        try
+        {
+            var res = await SupaClient.From<Producto>()
+                .Where(p => p.KioscoId == State.KioscoId)
+                .Where(x => x.Activo == true)
+                .Or(new List<Supabase.Postgrest.Interfaces.IPostgrestQueryFilter>
+                {
+                    new Supabase.Postgrest.QueryFilter(usarSinAcentos ? "nombre_busqueda" : "nombre", Operator.ILike, patronNombre),
+                    new Supabase.Postgrest.QueryFilter("codigo_barras", Operator.ILike, $"%{string.Join("", palabras)}%")
+                })
+                .Limit(20).Get();
+            return res.Models ?? new List<Producto>();
+        }
+        catch (Exception ex) when (usarSinAcentos && ex.Message.Contains("nombre_busqueda"))
+        {
+            usarSinAcentos = false;
+            return await BuscarEnBase(busqueda);
+        }
+        catch (Exception ex) when (off != null && VentaSinInternet.EsErrorDeRed(ex))
+        {
+            // se cortó internet justo ahora: se pasa a la copia y se toma la lista por horario de ahí
+            off.MarcarSinConexion();
+            columnaPrecioActiva = off.ColumnaPrecioActiva(DateTime.Now.TimeOfDay);
+            return off.Buscar(busqueda ?? "");
+        }
+    }
+
+    private static string SinAcentos(string s)
+    {
+        var d = (s ?? "").ToLowerInvariant().Normalize(System.Text.NormalizationForm.FormD);
+        return new string(d.Where(c => System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark).ToArray())
+            .Normalize(System.Text.NormalizationForm.FormC);
     }
 
     // --- LÓGICA DEL ESCÁNER ---
@@ -249,43 +302,28 @@
         await JSRuntime.InvokeVoidAsync("methodsJS.iniciarEscaneo", dotNetHelper);
     }
 
-    // [JSInvokable]
-    // public async Task ProcesarCodigoEscaneado(string code)
-    // {
-    //     textoActual = code;
-    //     await EjecutarBusqueda(code);
-
-    //     // Si solo hay un resultado (es lo común con código de barras), lo seleccionamos automáticamente
-    //     if (productosFiltrados.Count == 1)
-    //     {
-    //         await SeleccionarProducto(productosFiltrados[0]);
-    //     }
-    // }
     [JSInvokable]
     public async Task ProcesarCodigoEscaneado(string code)
     {
         textoActual = code;
 
         // Al venir de la cámara, pasamos forzarAlta: true porque el código ya entró completo
+        busquedaResuelta = false;
         await EjecutarBusqueda(code, forzarAlta: true);
+        if (busquedaResuelta) return;   // ya se agregó (o ya avisó que no existe): no repetir
 
         if (productosFiltrados.Count == 1)
-        {
             await SeleccionarProducto(productosFiltrados[0]);
-        }
-        else if (!productosFiltrados.Any())
-        {
-            await OnProductoNoEncontrado.InvokeAsync(code);
-        }
     }
     // --- FIN LÓGICA ESCÁNER ---
 
     private async Task LimpiarBusqueda()
     {
         textoActual = "";
-        if (CargarAlInicio)
+        if (CargarAlInicio && VentaSinInternet.Actual?.ModoLimitado != true)
         {
-            var res = await SupaClient.From<Producto>().Limit(50).Get();
+            // antes traía productos de TODOS los negocios
+            var res = await SupaClient.From<Producto>().Where(p => p.KioscoId == State.KioscoId).Where(p => p.Activo == true).Limit(50).Get();
             productosFiltrados = res.Models;
         }
         else
@@ -294,28 +332,7 @@
         }
     }
 
-    // private async Task SeleccionarProducto(Producto p)
-    // {
-    //     await OnProductoEncontrado.InvokeAsync(p);
-
-    //     if (!CargarAlInicio)
-    //     {
-    //         LimpiarTodo();
-    //     }
-    // }
-    // private async Task SeleccionarProducto(Producto p)
-    // {
-    //     await OnProductoEncontrado.InvokeAsync(p);
-
-    //     if (!CargarAlInicio)
-    //     {
-    //         LimpiarTodo();
-
-    //         await Task.Delay(50);
-
-    //         await JSRuntime.InvokeVoidAsync("methodsJS.focusBuscarProducto");
-    //     }
-    // }
+    
     private async Task SeleccionarProducto(Producto p)
     {
         await OnProductoEncontrado.InvokeAsync(p);
@@ -329,37 +346,30 @@
             await txtBuscar.FocusAsync();
         }
     }
+    /// <summary>La búsqueda ya resolvió sola (agregó el producto o avisó que no existe).</summary>
+    private bool busquedaResuelta;
+
     public void LimpiarTodo()
     {
         textoActual = "";
         productosFiltrados = new();
         StateHasChanged();
     }
-    // private async Task ManejarKeyUp(KeyboardEventArgs e)
-    // {
-    //     // Si presiona Enter, forzamos la búsqueda inmediata y permitimos la redirección si no existe
-    //     if (e.Key == "Enter")
-    //     {
-    //         timer?.Dispose(); // Cancelamos el timer pendiente para que no se ejecute doble
-    //         await EjecutarBusqueda(textoActual, forzarAlta: true);
-    //     }
-    // }
+   
     private async Task ManejarKeyUp(KeyboardEventArgs e)
     {
         if (e.Key == "Enter")
         {
             timer?.Dispose();
 
+            busquedaResuelta = false;
             await EjecutarBusqueda(textoActual, forzarAlta: true);
+            // Antes: la búsqueda ya agregaba el producto y limpiaba la lista, y acá se creía que "no había nada"
+            // → se abría "Producto sin código" con el producto ya cargado abajo.
+            if (busquedaResuelta) return;
 
             if (productosFiltrados.Count == 1)
-            {
                 await SeleccionarProducto(productosFiltrados[0]);
-            }
-            else if (!productosFiltrados.Any())
-            {
-                await OnProductoNoEncontrado.InvokeAsync(textoActual);
-            }
         }
     }
     public async Task Enfocar()
@@ -370,7 +380,7 @@
     {
         return !string.IsNullOrWhiteSpace(texto)
                && texto.All(char.IsDigit)
-               && texto.Length >= 8;
+               && texto.Length >= 6; 
     }
     public void Dispose() => timer?.Dispose();
     

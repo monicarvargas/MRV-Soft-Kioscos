@@ -1,0 +1,387 @@
+@inject Supabase.Client Db
+<AvisosPagina @ref="avisos" />
+
+<section class="gp-card gp-card-pad">
+    <div class="gp-card-head">
+        <span class="gp-bubble"><i class="bi bi-tags-fill"></i></span>
+        <div class="cf-head-text">
+            <h2>Familias / categorías</h2>
+            <p>Sirven para agrupar los productos. Cada familia puede tener subfamilias (ej: GOLOSINAS → ALFAJORES, CHICLES, GOMITAS).</p>
+        </div>
+        <button type="button" class="gp-btn gp-btn-primary gp-btn-sm cf-head-btn" @onclick="AbrirNuevo"><i class="bi bi-plus-lg"></i> Nueva familia</button>
+    </div>
+
+    @if (formAbierto)
+    {
+    <div class="cf-modal-fondo" @onclick="CerrarForm">
+        <div class="cf-form cf-modal cf-m-fam @(editando.Id == 0 ? "" : "is-editing")" @onclick:stopPropagation="true" role="dialog" aria-modal="true">
+            <div class="cf-form-title">
+                <i class="bi @(editando.Id == 0 ? "bi-plus-circle-fill" : "bi-pencil-fill")"></i>
+                @(editando.Id == 0 ? "Nueva familia" : "Editar familia")
+            <button type="button" class="cf-modal-x" title="Cerrar" @onclick="CerrarForm"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="cf-grid">
+                <div>
+                    <label class="cf-lbl">Nombre *</label>
+                    <input class="gp-control cf-control" placeholder="ej: BEBIDAS" @bind="editando.Nombre"
+                           disabled="@(editando.Id != 0 && ConfiguracionService.EsFamiliaDefault(editando))" />
+                </div>
+                <div>
+                    <label class="cf-lbl">% de utilidad</label>
+                    <input type="number" min="0" step="any" inputmode="decimal" class="gp-control" placeholder="@($"{Subfamilia.UtilidadGeneral:0} (la general)")" @bind="editando.Utilidad" />
+                </div>
+                <div class="cf-col-2">
+                    <label class="cf-lbl">Descripción</label>
+                    <input class="gp-control" placeholder="Opcional" @bind="editando.Descripcion" />
+                </div>
+                <div class="cf-col-full gp-hint"><i class="bi bi-percent" style="color:var(--gp-primary)"></i> Es la utilidad con la que arrancan los productos nuevos de esta familia (al cargarlos a mano o al importar un Excel). Vacío = @Subfamilia.UtilidadGeneral.ToString("0")%.</div>
+            </div>
+            <div class="cf-form-actions">
+                <button type="button" class="gp-btn gp-btn-outline" @onclick="CerrarForm">Cancelar</button>
+                <button type="button" class="gp-btn gp-btn-ok" disabled="@guardando" @onclick="Guardar">
+                    <i class="bi @(editando.Id == 0 ? "bi-plus-lg" : "bi-check-lg")"></i> @(editando.Id == 0 ? "Agregar" : "Guardar")
+                </button>
+            </div>
+        </div>
+    </div>
+    }
+
+    @if (!string.IsNullOrEmpty(error))
+    {
+        <div class="gp-banner is-danger"><i class="bi bi-exclamation-octagon-fill"></i><p>@error</p></div>
+    }
+
+    @if (lista == null)
+    {
+        <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>Cargando familias...</p></div>
+    }
+    else
+    {
+        <div class="gp-table-wrap gp-stack-wrap">
+            <table class="gp-table gp-stack">
+                <thead><tr><th>Nombre</th><th class="t-center">Utilidad</th><th>Descripción</th><th class="t-center">Acciones</th></tr></thead>
+                <tbody>
+                    @if (!lista.Any())
+                    {
+                        <tr class="gp-empty-row">
+                            <td colspan="4">
+                                <div class="gp-empty">
+                                    <span class="gp-bubble"><i class="bi bi-tags"></i></span>
+                                    <strong>Todavía no hay familias</strong>
+                                    <span>Cargá la primera con el formulario de arriba.</span>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                    @foreach (var f in lista)
+                    {
+                        var esDefault = ConfiguracionService.EsFamiliaDefault(f);
+                        <tr class="@(editando.Id == f.Id ? "is-selected" : "")">
+                            <td class="gp-td-main" data-label="Nombre">
+                                <span class="gp-product">@f.Nombre</span>
+                                @if (esDefault) { <span class="cf-tag">por defecto</span> }
+                            </td>
+                            <td class="t-center" data-label="Utilidad">
+                                @if (f.Utilidad is decimal uf) { <span class="fu-pill">@uf.ToString("0.##")%</span> }
+                                else { <span class="gp-muted" title="No tiene una propia: usa la general">@Subfamilia.UtilidadGeneral.ToString("0")% <small>(general)</small></span> }
+                            </td>
+                            <td data-label="Descripción">@(string.IsNullOrWhiteSpace(f.Descripcion) ? "—" : f.Descripcion)</td>
+                            <td class="t-center gp-td-actions" data-label="">
+                                <div class="gp-cell-actions">
+                                    @if (subDisponible)
+                                    {
+                                        var cant = subfamilias.Count(s => s.FamiliaId == f.Id);
+                                        <button type="button" class="gp-btn @(abierta == f.Id ? "gp-btn-primary" : "gp-btn-soft") gp-btn-sm" title="Ver y cargar subfamilias" @onclick="() => AbrirSub(f.Id)">
+                                            <i class="bi bi-diagram-3"></i> Subfamilias@(cant > 0 ? $" ({cant})" : "")
+                                        </button>
+                                    }
+                                    <button type="button" class="gp-btn gp-btn-soft gp-btn-sm gp-btn-icon" title="Editar" @onclick="() => Editar(f)"><i class="bi bi-pencil-fill"></i></button>
+                                    @if (!esDefault)
+                                    {
+                                        <button type="button" class="gp-btn gp-btn-danger-soft gp-btn-sm gp-btn-icon" title="Eliminar" @onclick="() => Eliminar(f)"><i class="bi bi-trash3-fill"></i></button>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                        if (abierta == f.Id)
+                        {
+                            <tr class="sf-row">
+                                <td colspan="4">
+                                    <div class="sf-panel">
+                                        <div class="sf-tit"><i class="bi bi-diagram-3"></i> Subfamilias de <b>@f.Nombre</b></div>
+                                        @{ var subs = subfamilias.Where(s => s.FamiliaId == f.Id).OrderBy(s => s.Nombre).ToList(); }
+                                        @if (!subs.Any())
+                                        {
+                                            <div class="gp-hint">Todavía no tiene subfamilias. Cargá la primera abajo.</div>
+                                        }
+                                        <ul class="sf-lista">
+                                            @foreach (var s in subs)
+                                            {
+                                                <li>
+                                                    @if (renombrando == s.Id)
+                                                    {
+                                                        <input class="gp-control" @bind="nombreSub" @bind:event="oninput" @onkeyup="e => TeclaRenombrar(e, s)" />
+                                                        <button type="button" class="gp-btn gp-btn-ok gp-btn-sm gp-btn-icon" title="Guardar" @onclick="() => Renombrar(s)"><i class="bi bi-check-lg"></i></button>
+                                                        <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm gp-btn-icon" title="Cancelar" @onclick="() => renombrando = 0"><i class="bi bi-x-lg"></i></button>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="sf-nom">@s.Nombre</span>
+                                                        <span class="sf-util" title="Utilidad de la subfamilia (vacío = la de la familia)">
+                                                            <input type="text" inputmode="decimal" maxlength="6" autocomplete="off" placeholder="@((f.Utilidad ?? Subfamilia.UtilidadGeneral).ToString("0.##"))"
+                                                                   value="@TextoUtil(s)" @oninput="e => utilBorrador[s.Id] = e.Value?.ToString() ?? string.Empty"
+                                                                   @onkeydown="e => TeclaUtil(e, s, f)" onfocus="this.select()" />%
+                                                            @if (UtilCambiada(s))
+                                                            {
+                                                                <button type="button" class="gp-btn gp-btn-ok gp-btn-sm gp-btn-icon" title="Guardar la utilidad (Enter)" @onclick="() => GuardarUtilSub(s, f)"><i class="bi bi-check-lg"></i></button>
+                                                                <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm gp-btn-icon" title="Deshacer (Esc)" @onclick="() => utilBorrador.Remove(s.Id)"><i class="bi bi-x-lg"></i></button>
+                                                            }
+                                                        </span>
+                                                        <button type="button" class="gp-btn gp-btn-soft gp-btn-sm gp-btn-icon" title="Renombrar" @onclick="() => { renombrando = s.Id; nombreSub = s.Nombre; }"><i class="bi bi-pencil-fill"></i></button>
+                                                        <button type="button" class="gp-btn gp-btn-danger-soft gp-btn-sm gp-btn-icon" title="Eliminar" @onclick="() => EliminarSub(s)"><i class="bi bi-trash3-fill"></i></button>
+                                                    }
+                                                </li>
+                                            }
+                                        </ul>
+                                        <div class="sf-nueva">
+                                            <input class="gp-control" placeholder="Nueva subfamilia (ej: GOMITAS)" @bind="nuevaSub" @bind:event="oninput" @onkeyup="e => TeclaNueva(e, f)" />
+                                            <button type="button" class="gp-btn gp-btn-ok gp-btn-sm" disabled="@(string.IsNullOrWhiteSpace(nuevaSub))" @onclick="() => CrearSub(f)"><i class="bi bi-plus-lg"></i> Agregar</button>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+<style>
+    .sf-row > td { background: #f7f9fd; }
+    .sf-panel { display: flex; flex-direction: column; gap: .6rem; padding: .4rem .2rem; }
+    .sf-tit { font-weight: 700; color: var(--gp-muted); }
+    .sf-tit b { color: var(--gp-text); }
+    .sf-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .45rem; }
+    .sf-lista li { display: inline-flex; align-items: center; gap: .35rem; padding: .3rem .4rem .3rem .75rem; border: 1px solid var(--gp-line); border-radius: 999px; background: #fff; }
+    .sf-lista li .gp-control { width: 13rem; padding: .3rem .6rem; }
+    .sf-nom { font-weight: 800; }
+    .sf-util { display: inline-flex; align-items: center; gap: .15rem; font-weight: 800; color: var(--gp-muted); }
+    .sf-util input { width: 4.2rem; height: 1.9rem; padding: 0 .3rem; border: 1px solid var(--gp-line); border-radius: 8px; text-align: center; font: inherit; font-weight: 800; }
+    .fu-pill { display: inline-block; padding: .1rem .55rem; border-radius: 999px; background: #f1ebff; color: #6d28d9; font-weight: 900; }
+    .sf-nueva { display: flex; gap: .45rem; max-width: 28rem; }
+</style>
+
+@code {
+    bool formAbierto;
+    void AbrirNuevo() { Limpiar(); formAbierto = true; }
+    void CerrarForm() { Limpiar(); formAbierto = false; }
+    [Parameter] public long KioscoId { get; set; }
+
+    private AvisosPagina avisos = default!;
+    List<Familia>? lista;
+    Familia editando = new();
+    bool guardando;
+    string error = "";
+
+    protected override async Task OnParametersSetAsync() { Limpiar(); await Cargar(); await CargarSub(); }
+
+    // ===================== SUBFAMILIAS (script 26) =====================
+    List<Subfamilia> subfamilias = new();
+    bool subDisponible;
+    long abierta, renombrando;
+    string nuevaSub = "", nombreSub = "";
+
+    async Task CargarSub()
+    {
+        try
+        {
+            long k = KioscoId;
+            subfamilias = (await Db.From<Subfamilia>().Where(s => s.KioscoId == k).Get()).Models ?? new();
+            subDisponible = true;
+        }
+        catch { subDisponible = false; }   // falta el script 26
+    }
+
+    void AbrirSub(long familiaId)
+    {
+        abierta = abierta == familiaId ? 0 : familiaId;
+        nuevaSub = ""; renombrando = 0;
+    }
+
+    bool Repetida(long familiaId, string nombre, long sinContar = 0) =>
+        subfamilias.Any(s => s.FamiliaId == familiaId && s.Id != sinContar && string.Equals(s.Nombre.Trim(), nombre, StringComparison.OrdinalIgnoreCase));
+
+    async Task TeclaNueva(KeyboardEventArgs e, Familia f) { if (e.Key == "Enter") await CrearSub(f); }
+
+    async Task CrearSub(Familia f)
+    {
+        var nombre = (nuevaSub ?? "").Trim().ToUpper();
+        if (nombre == "") return;
+        if (Repetida(f.Id, nombre)) { avisos.Toast("Ya existe esa subfamilia en " + f.Nombre, "peligro"); return; }
+        try
+        {
+            var res = await Db.From<Subfamilia>().Insert(new Subfamilia { KioscoId = KioscoId, FamiliaId = f.Id, Nombre = nombre });
+            var nueva = res.Models?.FirstOrDefault();
+            if (nueva != null) subfamilias.Add(nueva); else await CargarSub();
+            nuevaSub = "";
+            avisos.Toast($"Subfamilia {nombre} agregada", "exito");
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo agregar", ConfiguracionService.MensajeError(ex), "peligro"); }
+    }
+
+    async Task TeclaRenombrar(KeyboardEventArgs e, Subfamilia s)
+    {
+        if (e.Key == "Enter") await Renombrar(s);
+        else if (e.Key == "Escape") renombrando = 0;
+    }
+
+    async Task Renombrar(Subfamilia s)
+    {
+        var nombre = (nombreSub ?? "").Trim().ToUpper();
+        if (nombre == "") { avisos.Toast("El nombre es obligatorio.", "peligro"); return; }
+        if (Repetida(s.FamiliaId, nombre, s.Id)) { avisos.Toast("Ya existe una subfamilia con ese nombre.", "peligro"); return; }
+        try
+        {
+            long id = s.Id;
+            await Db.From<Subfamilia>().Where(x => x.Id == id).Set(x => x.Nombre, nombre).Update();
+            s.Nombre = nombre;
+            renombrando = 0;
+            avisos.Toast("Subfamilia renombrada", "exito");
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo renombrar", ConfiguracionService.MensajeError(ex), "peligro"); }
+    }
+
+    async Task EliminarSub(Subfamilia s)
+    {
+        if (!await avisos.ConfirmarAsync($"¿Eliminar la subfamilia {s.Nombre}?",
+                "Los productos que la tenían quedan solo con la familia (no se borra ningún producto).", "Eliminar")) return;
+        try
+        {
+            long id = s.Id;
+            await Db.From<Subfamilia>().Where(x => x.Id == id).Delete();
+            subfamilias.Remove(s);
+            avisos.Toast("Subfamilia eliminada", "exito");
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo eliminar", ConfiguracionService.MensajeError(ex), "peligro"); }
+    }
+
+    async Task Cargar()
+    {
+        try { lista = await Config.GetFamilias(KioscoId); error = ""; }
+        catch (Exception ex) { error = ConfiguracionService.MensajeError(ex); }
+    }
+
+    void Limpiar() => editando = new Familia { KioscoId = KioscoId, Nombre = "" };
+
+    void Editar(Familia f)
+    {
+        formAbierto = true;
+        editando = new Familia { Id = f.Id, KioscoId = f.KioscoId, Nombre = f.Nombre, Descripcion = f.Descripcion, FechaCreacion = f.FechaCreacion, Utilidad = f.Utilidad };
+    }
+
+    async Task Guardar()
+    {
+        if (string.IsNullOrWhiteSpace(editando.Nombre)) { avisos.Toast("El nombre es obligatorio.", "peligro"); return; }
+        editando.Nombre = editando.Nombre.Trim().ToUpper();
+        if (lista!.Any(x => x.Id != editando.Id && string.Equals(x.Nombre, editando.Nombre, StringComparison.OrdinalIgnoreCase)))
+        { avisos.Toast("Ya existe una familia con ese nombre.", "peligro"); return; }
+
+        if (editando.Utilidad < 0) { avisos.Toast("La utilidad no puede ser negativa.", "peligro"); return; }
+        bool esNueva = editando.Id == 0;
+        var antes = lista!.FirstOrDefault(x => x.Id == editando.Id)?.Utilidad;
+        var nueva = editando.Utilidad;
+        var nombreFam = editando.Nombre;
+
+        guardando = true;
+        try
+        {
+            await Config.Guardar(editando, esNueva);
+            long idFam = editando.Id;
+            // se le sacó la utilidad propia: se borra aparte (el guardado no manda los vacíos)
+            if (!esNueva && nueva == null && antes != null)
+                await Db.From<Familia>().Where(x => x.Id == idFam).Set(x => x.Utilidad!, (object?)null).Update();
+            _ = avisos.GuardadoAsync("Familia guardada");
+            Limpiar(); formAbierto = false;
+            await Cargar();
+            if (!esNueva && nueva != antes)
+                await PreguntarAplicar(idFam, null, nombreFam, nueva ?? Subfamilia.UtilidadGeneral);
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo guardar", ConfiguracionService.MensajeError(ex), "peligro"); }
+        finally { guardando = false; }
+    }
+
+    // ===================== UTILIDAD POR GRUPO (script 37) =====================
+    /// <summary>Cambió la utilidad de una subfamilia (vacío = usa la de la familia).</summary>
+    // lo que se está escribiendo en cada subfamilia (se guarda recién con el ✓ o Enter)
+    readonly Dictionary<long, string> utilBorrador = new();
+
+    static string UtilTexto(decimal? u) => u?.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) ?? "";
+    string TextoUtil(Subfamilia s) => utilBorrador.TryGetValue(s.Id, out var t) ? t : UtilTexto(s.Utilidad);
+    bool UtilCambiada(Subfamilia s) => utilBorrador.TryGetValue(s.Id, out var t) && t.Trim().Replace(',', '.') != UtilTexto(s.Utilidad);
+
+    async Task TeclaUtil(KeyboardEventArgs e, Subfamilia s, Familia f)
+    {
+        if (e.Key == "Enter") await GuardarUtilSub(s, f);
+        else if (e.Key == "Escape") utilBorrador.Remove(s.Id);
+    }
+
+    async Task GuardarUtilSub(Subfamilia s, Familia f)
+    {
+        var txt = TextoUtil(s).Trim().Replace(',', '.');
+        decimal? nueva = null;
+        if (txt != "")
+        {
+            if (!decimal.TryParse(txt, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var v) || v < 0 || v > 1000)
+            { avisos.Toast("Escribí un número, por ejemplo 45 (vacío = usa la de la familia).", "peligro", 3000); return; }
+            nueva = Math.Round(v, 2);
+        }
+        utilBorrador.Remove(s.Id);
+        if (nueva == s.Utilidad) return;
+        try
+        {
+            long id = s.Id;
+            await Db.From<Subfamilia>().Where(x => x.Id == id).Set(x => x.Utilidad!, (object?)nueva).Update();
+            s.Utilidad = nueva;
+            avisos.Toast(nueva is decimal u ? $"{s.Nombre}: {u:0.##}% de utilidad" : $"{s.Nombre}: usa la de {f.Nombre}", "exito", 2200);
+            await PreguntarAplicar(f.Id, s.Id, $"{f.Nombre} › {s.Nombre}", nueva ?? f.Utilidad ?? Subfamilia.UtilidadGeneral);
+        }
+        catch (Exception ex)
+        {
+            var msg = ex.Message.Contains("utilidad") ? "Falta correr el script 37 (_sql\\37.utilidad_por_familia.sql)." : ConfiguracionService.MensajeError(ex);
+            await avisos.InformarAsync("No se pudo guardar", msg, "peligro");
+        }
+    }
+
+    /// <summary>Ofrece pasar los productos que ya existen a la utilidad nueva (y recalcular su precio de venta).</summary>
+    async Task PreguntarAplicar(long familiaId, long? subfamiliaId, string nombre, decimal util)
+    {
+        if (!await avisos.ConfirmarAsync($"¿Actualizar los productos de {nombre} a {util:0.##}%?",
+                "Se les cambia la utilidad y se recalcula el precio de venta con su costo (con el redondeo del negocio y, si se calcula sola, el precio noche). "
+                + (subfamiliaId == null ? "Los de una subfamilia con utilidad propia no se tocan. " : "")
+                + "Si decís que no, la utilidad se usa solo para los productos nuevos.",
+                "Sí, actualizar precios", "aviso", "No, solo los nuevos")) return;
+        try
+        {
+            var res = await Db.Rpc("aplicar_utilidad_grupo", new Dictionary<string, object?>
+            {
+                { "p_kiosco", KioscoId }, { "p_familia", familiaId }, { "p_subfamilia", subfamiliaId }, { "p_utilidad", util }
+            });
+            int.TryParse((res.Content ?? "0").Trim(), out int n);
+            await avisos.InformarAsync("Listo", $"Se actualizaron {n} producto(s) de {nombre}. Si tienen carteles, acordate de reimprimirlos.", "exito", "Aceptar");
+        }
+        catch (Exception ex)
+        {
+            var msg = ex.Message.Contains("aplicar_utilidad_grupo") ? "Falta correr el script 37 (_sql\\37.utilidad_por_familia.sql)." : ConfiguracionService.MensajeError(ex);
+            await avisos.InformarAsync("No se pudieron actualizar los precios", msg, "peligro");
+        }
+    }
+
+    async Task Eliminar(Familia f)
+    {
+        if (!await avisos.ConfirmarAsync($"¿Eliminar la familia {f.Nombre}?", "No se puede deshacer.", "Eliminar")) return;
+        try { await Config.Eliminar(f); avisos.Toast("Familia eliminada", "exito"); await Cargar(); }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo eliminar", ConfiguracionService.MensajeError(ex), "peligro"); }
+    }
+}

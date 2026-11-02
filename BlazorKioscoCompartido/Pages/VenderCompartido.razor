@@ -1,444 +1,553 @@
-﻿@using BlazorKioscoCompartido.Components
+@using BlazorKioscoCompartido.Components
 @using BlazorKioscoCompartido.Services
 @using BlazorKioscoCompartido.Models
+@using System.Globalization
 @using static Supabase.Postgrest.Constants
+@using BlazorKioscoCompartido.Services.SinInternet
 @inject Supabase.Client SupaClient
 @inject CarritoService Carrito
 @inject NavigationManager Nav
 @inject PrecioService PrecioServ
 @inject BlazorKioscoCompartido.Services.AppState State
-@using static Supabase.Postgrest.QueryFilter;
+@implements IDisposable
 
-<div class="venta-container mt-3">
-    <div class="d-flex align-items-center justify-content-between mb-4">
-        <div class="d-flex align-items-center">
-            <button class="btn btn-link text-dark p-0 me-3" @onclick="Volver">
-                <i class="bi bi-arrow-left fs-4"></i>
-            </button>
-            <h3 class="mb-0">Vender</h3>
-        </div>
+<PedidosEstilos />
+<ConfigEstilos />
+<ProductoEstilos />
+<VentasEstilos />
+<AvisosPagina @ref="avisos" />
 
-        <!-- BOTONES DE ACCIÓN RÁPIDA -->
-        <div class="d-flex gap-2">
-            <!-- BOTÓN VENTA DE VARIOS -->
-            <button class="btn btn-outline-dark fw-bold shadow-sm d-flex align-items-center gap-2 px-3 py-2 rounded-pill bg-white" @onclick="AbrirModalVentaVarios">
-                <i class="bi bi-boxes fs-5 text-secondary"></i>
-                <span>Varios</span>
-            </button>
+<div class="container-fluid px-3 py-2 min-vh-100 style-notebook gp-scope gp-page">
+    <EncabezadoPagina Titulo="Vender"
+                      Subtitulo="Escaneá o buscá los productos"
+                      IconoClass="bi-cash-stack"
+                      ColorBorde="success"
+                      ColorIcono="success"
+                      MostrarBotonAyuda="false"
+                      RutaVolver="/productos" />
 
-            <!-- BOTÓN VENTA RÁPIDA -->
-            <button class="btn btn-warning fw-bold shadow-sm d-flex align-items-center gap-2 px-3 py-2 rounded-pill" @onclick="AbrirModalCategorias">
-                <i class="bi bi-lightning-fill fs-5"></i>
-                <span>Venta Rápida</span>
-            </button>
-        </div>
-    </div>
+    <div class="vt-wrap" style="display:flex; flex-direction:column; gap:1rem">
 
-    @* --- 1. SECCIÓN BÚSQUEDA --- *@
-    <div class="search-section p-3 bg-white shadow-sm sticky-top">
-        <div class="d-flex gap-2 align-items-start">
-            <div class="flex-grow-1">
-                <BuscadorProducto @ref="buscadorRef" OnProductoEncontrado="AgregarAlCarrito" CargarAlInicio="false" MostrarPrimeraLista="mostrarPrimeraLista" MostrarSegundaLista="mostrarSegundaLista" />
+        @* ================= BUSCADOR Y ACCESOS ================= *@
+        <section class="gp-card gp-card-pad vt-search">
+            <div class="gp-buscador">
+                <BuscadorProducto @ref="buscadorRef"
+                                  OnProductoEncontrado="AgregarAlCarrito"
+                                  OnProductoNoEncontrado="AlNoEncontrar"
+                                  CargarAlInicio="false"
+                                  MostrarPrimeraLista="mostrarPrimeraLista"
+                                  MostrarSegundaLista="mostrarSegundaLista"
+                                  ColumnaActiva="@columnaPrecioActiva" />
             </div>
-        </div>
-    </div>
+            <div class="vt-accesos">
+                @if (State.Tiene(FuncionesPlan.VentaRapida))
+                {
+                    <button type="button" class="gp-btn gp-btn-soft gp-btn-sm" @onclick="AbrirModalCategorias"><i class="bi bi-lightning-charge-fill"></i> Venta rápida</button>
+                }
+                <button type="button" class="gp-btn gp-btn-outline gp-btn-sm" @onclick='() => AbrirModalVentaVarios("")'><i class="bi bi-pencil-square"></i> Producto sin código</button>
+                @if (!string.IsNullOrEmpty(nombreListaActiva))
+                {
+                    <span class="vt-lista" title="Según el horario se cobra con otra lista de precios"><i class="bi bi-moon-stars-fill"></i> Lista @nombreListaActiva</span>
+                }
+            </div>
+        </section>
 
-    @* --- 2. SECCIÓN DEL CARRITO --- *@
-    <div class="container mt-3">
-        <div class="card shadow-sm border-0">
-            @* Encabezado del Carrito *@
-            <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
-                <div class="d-flex align-items-center">
-                    <i class="bi bi-cart3 text-primary fs-4 me-2"></i>
-                    <h5 class="mb-0 fw-bold">Carrito (@Carrito.Items.Count)</h5>
+        @* ================= CARRITO ================= *@
+        <section class="gp-card gp-card-pad">
+            <div class="gp-card-head">
+                <span class="gp-bubble"><i class="bi bi-cart3"></i></span>
+                <div class="vt-head-text">
+                    <h2>Venta actual</h2>
+                    <p>@Carrito.Items.Count producto(s)</p>
                 </div>
-                <button class="btn btn-link text-danger text-decoration-none p-0" @onclick="VaciarCarrito">
-                    Vaciar carrito <i class="bi bi-trash"></i>
+                @if (Carrito.Items.Any())
+                {
+                    <button type="button" class="gp-btn gp-btn-danger-soft gp-btn-sm vt-head-right" @onclick="VaciarCarritoAsync"><i class="bi bi-trash3"></i> Vaciar</button>
+                }
+            </div>
+
+            @if (!Carrito.Items.Any())
+            {
+                <div class="gp-empty">
+                    <span class="gp-bubble"><i class="bi bi-cart-plus"></i></span>
+                    <strong>Todavía no hay productos</strong>
+                    <span>Escaneá un código o buscalo arriba. Si el producto no está cargado, usá "Producto sin código".</span>
+                </div>
+            }
+            else
+            {
+                <ul class="vt-items">
+                    @foreach (var item in Carrito.Items)
+                    {
+                        bool esPesable = EsProductoPesable(item.Producto);
+                        <li class="vt-item">
+                            <div class="vt-item-info">
+                                <div class="vt-item-name">
+                                    @if (item.EsProductoVario) { <span class="vt-tag vario">VARIOS</span> }
+                                    @if (esPesable) { <span class="vt-tag peso"><i class="bi bi-speedometer2"></i> PESO</span> }
+                                    @if (item.Producto.EsCombo == true) { <span class="vt-tag combo">COMBO</span> }
+                                    @item.Producto.Nombre
+                                </div>
+                                <div class="vt-item-sub">
+                                    $ @item.PrecioUnitario.ToString("N2") @(esPesable ? "por kilo" : "c/u")
+                                    @if (item.EsPorMayor)
+                                    {
+                                        <span class="vt-tag mayor"><i class="bi bi-boxes"></i> X MAYOR</span>
+                                    }
+                                    else if (item.TienePorMayor)
+                                    {
+                                        <span class="vt-mayor-hint">· llevando @item.Producto.CantxMayor o más: $ @item.Producto.PrecioVentaxMayor!.Value.ToString("N2") c/u</span>
+                                    }
+                                    @if (item.UsaEscalas)
+                                    {
+                                        <span class="vt-tag mayor" title="Precio por cantidad"><i class="bi bi-boxes"></i> @item.DetalleEscalas</span>
+                                    }
+                                    @if (item.Sugerencia is { } sug)
+                                    {
+                                        <button type="button" class="vt-sugerencia" title="Sumar al carrito" @onclick="() => item.Cantidad += sug.Mas">
+                                            <i class="bi bi-lightbulb-fill"></i>
+                                            Llevando @(sug.Mas == 1 ? "1 más" : sug.Mas + " más") paga $ @sug.Total.ToString("N0")@(sug.Ahorro > 0 ? " (ahorra $ " + sug.Ahorro.ToString("N0") + ")" : " (lo mismo)")
+                                            <b>+@sug.Mas</b>
+                                        </button>
+                                    }
+                                    else if (item.Escalas?.Any() == true && !item.UsaEscalas)
+                                    {
+                                        <span class="vt-mayor-hint">· @(TextoEscalas(item.Escalas))</span>
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="vt-item-qty">
+                                @if (esPesable)
+                                {
+                                    <button type="button" class="vt-peso" title="Cambiar el peso" @onclick="() => EditarPeso(item)">
+                                        <i class="bi bi-pencil"></i> @FormatearCantidadPesable(item.Cantidad)
+                                    </button>
+                                }
+                                else
+                                {
+                                    <div class="vt-qty">
+                                        <button type="button" aria-label="Uno menos" @onclick="() => DecrementarCantidad(item)"><i class="bi bi-dash-lg"></i></button>
+                                        <input type="number" min="1" inputmode="numeric" value="@item.Cantidad" onfocus="this.select()"
+                                               @onchange="@(e => ActualizarCantidadManual(item, e.Value))" />
+                                        <button type="button" aria-label="Uno más" @onclick="() => item.Cantidad++"><i class="bi bi-plus-lg"></i></button>
+                                    </div>
+                                }
+                            </div>
+
+                            <div class="vt-subtotal">$ @item.Subtotal.ToString("N2")</div>
+
+                            <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm gp-btn-icon vt-item-del" title="Quitar" @onclick="() => Carrito.Eliminar(item)">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
+                        </li>
+                    }
+                </ul>
+            }
+        </section>
+
+        @* ================= TOTAL Y COBRO ================= *@
+        @if (Carrito.Items.Any())
+        {
+            <div class="vt-totalbar @(EsCelular ? "is-fija" : "")">
+                <div>
+                    <span class="vt-totalbar-label">Total</span>
+                    <span class="vt-totalbar-num">$ @Carrito.Total.ToString("N2")</span>
+                </div>
+                <button type="button" class="gp-btn gp-btn-ok" data-atajo="F4" @onclick="FinalizarVenta">
+                    <span>Cobrar</span> @if (!EsCelular) { <kbd class="vt-atajo">F4</kbd> } <i class="bi bi-arrow-right-circle-fill"></i>
                 </button>
             </div>
+            @if (EsCelular)
+            {
+                <div class="vt-espacio"></div>
+            }
+        }
+    </div>
+</div>
 
-            @* Contenedor con la barra de desplazamiento interna *@
-            <div class="card-body p-0 carrito-body-scroll">
-                @if (!Carrito.Items.Any())
+@* ===================== MODAL: PRODUCTO SIN CÓDIGO (VARIOS) ===================== *@
+@if (mostrarModalVarios)
+{
+    <div class="gp-scope gp-modal-backdrop" @onclick="CerrarModales">
+        <div class="gp-modal" role="dialog" aria-modal="true" @onclick:stopPropagation="true">
+            <div class="gp-modal-head">
+                <span class="gp-bubble gp-bubble-sm"><i class="bi bi-pencil-square"></i></span>
+                <div>
+                    <h3>Producto sin código</h3>
+                    <p>Para vender algo que no está cargado en el sistema.@(string.IsNullOrEmpty(codigoNoEncontrado) ? "" : $" El código {codigoNoEncontrado} no existe.")</p>
+                </div>
+                <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm gp-btn-icon gp-modal-x" aria-label="Cerrar" @onclick="CerrarModales"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="gp-modal-body">
+                <label class="cf-lbl">¿Qué estás vendiendo?</label>
+                <input type="text" class="gp-control" maxlength="80" placeholder="Ej: Cargador de celular" @bind="descripcionVarios" />
+
+                <div class="cf-grid" style="margin-top:.9rem">
+                    <div>
+                        <label class="cf-lbl">Precio por unidad</label>
+                        <div class="vt-addon">
+                            <span>$</span>
+                            <InputMonto class="gp-control vt-big-input ok" Placeholder="0" Value="precioVarios" ValueChanged="v => precioVarios = v ?? 0" />
+                        </div>
+                    </div>
+                    <div>
+                        <label class="cf-lbl">Cantidad</label>
+                        <div class="vt-qty" style="width:100%; justify-content:space-between">
+                            <button type="button" @onclick="() => cantidadVarios = Math.Max(1, cantidadVarios - 1)"><i class="bi bi-dash-lg"></i></button>
+                            <input type="number" min="1" inputmode="numeric" style="flex:1 1 auto" @bind="cantidadVarios" @bind:event="oninput" />
+                            <button type="button" @onclick="() => cantidadVarios++"><i class="bi bi-plus-lg"></i></button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="vt-calc">
+                    <span>Total de este producto</span>
+                    <strong>$ @((precioVarios * Math.Max(1, cantidadVarios)).ToString("N2"))</strong>
+                </div>
+            </div>
+            <div class="gp-modal-foot">
+                <button type="button" class="gp-btn gp-btn-ghost" @onclick="CerrarModales">Cancelar</button>
+                <button type="button" class="gp-btn gp-btn-ok" disabled="@(precioVarios <= 0 || cantidadVarios <= 0)" @onclick="ConfirmarVentaVarios">
+                    <i class="bi bi-cart-plus-fill"></i> Agregar a la venta
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===================== MODAL: VENTA RÁPIDA - CATEGORÍAS ===================== *@
+@if (mostrarModalCategorias)
+{
+    <div class="gp-scope gp-modal-backdrop" @onclick="CerrarModales">
+        <div class="gp-modal" role="dialog" aria-modal="true" style="max-width:40rem" @onclick:stopPropagation="true">
+            <div class="gp-modal-head">
+                <span class="gp-bubble gp-bubble-sm"><i class="bi bi-lightning-charge-fill"></i></span>
+                <div>
+                    <h3>Venta rápida</h3>
+                    <p>Elegí una categoría.</p>
+                </div>
+                <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm gp-btn-icon gp-modal-x" aria-label="Cerrar" @onclick="CerrarModales"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="gp-modal-body">
+                @if (!listaCategorias.Any())
                 {
-                    <div class="text-center py-5 text-muted">
-                        <i class="bi bi-cart-plus display-1 opacity-25"></i>
-                        <p class="mt-2">No hay productos en la venta actual</p>
+                    <div class="gp-empty">
+                        <span class="gp-bubble"><i class="bi bi-lightning"></i></span>
+                        <strong>No hay categorías de venta rápida</strong>
+                        <span>Armalas en "Gestión Venta Rápida".</span>
                     </div>
                 }
                 else
                 {
-                    @foreach (var item in Carrito.Items)
-                    {
-                        <div class="d-flex align-items-center p-3 border-bottom">
-                            <div class="flex-grow-1">
-                                <div class="fw-bold text-dark small text-uppercase">@item.Producto.Nombre</div>
-                                <div class="text-muted small">$ @item.PrecioUnitario.ToString("N2")</div>
-                            </div>
-
-                            <div class="d-flex align-items-center bg-light rounded-pill px-2 py-1 mx-2">
-                                <button class="btn btn-sm border-0" @onclick="() => DecrementarCantidad(item)">
-                                    <i class="bi bi-dash-lg"></i>
-                                </button>
-                                @* <span class="mx-2 fw-bold" style="min-width: 25px; text-align: center;">@item.Cantidad</span> *@
-
-
-                                <input type="number"
-                                       min="1"
-                                       class="form-control text-center mx-1 d-inline-block"
-                                       style="width: 60px;"
-                                       value="@item.Cantidad"
-                                       @onchange="@(e => ActualizarCantidadManual(item, e.Value))" />
-
-                                <button class="btn btn-sm border-0" @onclick="() => item.Cantidad++">
-                                    <i class="bi bi-plus-lg"></i>
-                                </button>
-                            </div>
-
-                            <div class="text-end" style="min-width: 100px;">
-                                <div class="fw-bold text-primary">$ @item.Subtotal.ToString("N2")</div>
-                            </div>
-
-                            <button class="btn btn-link text-danger ms-2" @onclick="() => Carrito.Eliminar(item.Producto.Id)">
-                                <i class="bi bi-trash3"></i>
+                    <div class="vt-cats">
+                        @foreach (var cat in listaCategorias)
+                        {
+                            <button type="button" class="vt-cat" @onclick="() => SeleccionarCategoria(cat)">
+                                <i class="@(string.IsNullOrEmpty(cat.Icono) ? "bi bi-tag" : cat.Icono)"></i>
+                                <span>@cat.Nombre</span>
                             </button>
-                        </div>
-                    }
+                        }
+                    </div>
                 }
             </div>
         </div>
     </div>
-
-    @* --- 3. TOTAL Y COBRO --- *@
-    @if (Carrito.Items.Any())
-    {
-        @if (RutaCobrar != "/producto/cobrar")
-        {
-            <div class="container mt-4 mb-5 d-none d-lg-block">
-                <div class="card shadow-sm border-0 rounded-4 overflow-hidden">
-                    <div class="card-body p-4 bg-white">
-                        <hr class="text-muted opacity-25" />
-                        <div class="d-flex justify-content-between align-items-center mt-3 mb-4">
-                            <span class="fs-4 fw-bold text-dark">TOTAL</span>
-                            <span class="fs-3 fw-bold text-primary">$ @Carrito.Total.ToString("N2")</span>
-                        </div>
-                        <button class="btn btn-success btn-lg w-100 py-3 fw-bold rounded-4 shadow-sm d-flex align-items-center justify-content-center gap-2"
-                                style="background-color: #4CAF50; border: none;"
-                                @onclick="FinalizarVenta">
-                            <i class="bi bi-check-lg fs-4"></i>
-                            <span>Finalizar venta</span>
-                        </button>
-                    </div>
-                </div>
-            </div>
-        }
-        else
-        {
-            <div class="fixed-bottom bg-white border-top shadow-lg p-3 seccion-pago-celular animate__animated animate__slideInUp">
-                <div class="contenedor-ancho-maximo-boton">
-                    <div class="d-flex justify-content-between align-items-center mb-2 px-1">
-                        <span class="fw-bold text-muted small-font text-uppercase">Total a Cobrar</span>
-                        <span class="fs-4 fw-black text-primary font-monospace">$ @Carrito.Total.ToString("N2")</span>
-                    </div>
-                    <button class="btn btn-success btn-lg w-100 py-2 fw-black rounded-3 d-flex align-items-center justify-content-center gap-2 shadow"
-                            style="background-color: #4CAF50; border: none; font-size: 1rem;"
-                            @onclick="FinalizarVenta">
-                        <span>CONTINUAR A COBRAR</span>
-                        <i class="bi bi-arrow-right-circle-fill"></i>
-                    </button>
-                </div>
-            </div>
-            <div class="espaciador-inferior-movil"></div>
-        }
-    }
-</div>
-
-<!-- ========================================== -->
-<!-- MODAL: VENTA DE VARIOS -->
-<!-- ========================================== -->
-@if (mostrarModalVarios)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content rounded-4 border-0 shadow-lg">
-                <div class="modal-header border-0 pb-0">
-                    <h5 class="modal-title fw-bold">📦 Venta de Varios</h5>
-                    <button type="button" class="btn-close" @onclick="CerrarModales"></button>
-                </div>
-                <div class="modal-body p-4">
-                    <div class="mb-3">
-                        <label class="form-label fw-bold">Cantidad:</label>
-                        <input type="number" class="form-control form-control-lg text-center fw-bold fs-3" @bind="cantidadVarios" min="1" autofocus />
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-bold">Precio Unitario ($):</label>
-                        <input type="number" class="form-control form-control-lg text-center fw-bold fs-3 text-success" @bind="precioVarios" placeholder="Ej: 500" />
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-bold">Descripción (opcional):</label>
-                        <input type="text" class="form-control" @bind="descripcionVarios" placeholder="Ej: Varios varios / Varios mercadería" />
-                    </div>
-
-                    <button class="btn btn-success btn-lg w-100 py-3 fw-bold rounded-3 shadow-sm mt-3" @onclick="ConfirmarVentaVarios">
-                        Agregar al Carrito
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
 }
 
-<!-- ========================================== -->
-<!-- MODAL 1: SELECCIÓN DE CATEGORÍAS RÁPIDAS -->
-<!-- ========================================== -->
-@if (mostrarModalCategorias)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content rounded-4 border-0 shadow-lg">
-                <div class="modal-header border-0 pb-0">
-                    <h5 class="modal-title fw-bold">⚡ Venta Rápida - Categorías</h5>
-                    <button type="button" class="btn-close" @onclick="CerrarModales"></button>
-                </div>
-                <div class="modal-body p-4">
-                    <div class="d-grid gap-3">
-                        @foreach (var cat in listaCategorias)
-                        {
-                            <button class="btn btn-outline-primary btn-lg py-3 fw-bold d-flex align-items-center justify-content-center gap-2 shadow-sm rounded-3"
-                                    @onclick="() => SeleccionarCategoria(cat)">
-                                <i class="@(string.IsNullOrEmpty(cat.Icono) ? "bi bi-tag" : cat.Icono) fs-4"></i>
-                                <span class="fs-5">@cat.Nombre</span>
-                            </button>
-                        }
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-}
-
-<!-- ========================================== -->
-<!-- MODAL 2: GRILLA DE PRODUCTOS DE LA CATEGORÍA -->
-<!-- ========================================== -->
+@* ===================== MODAL: VENTA RÁPIDA - PRODUCTOS ===================== *@
 @if (mostrarModalProductos)
 {
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
-        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
-            <div class="modal-content rounded-4 border-0 shadow-lg">
-                <div class="modal-header border-0 pb-0">
-                    <div class="d-flex align-items-center gap-2">
-                        <button class="btn btn-light btn-sm rounded-circle" @onclick="VolverACategorias">
-                            <i class="bi bi-arrow-left"></i>
-                        </button>
-                        <h5 class="modal-title fw-bold">@categoriaSeleccionada?.Nombre</h5>
-                    </div>
-                    <button type="button" class="btn-close" @onclick="CerrarModales"></button>
+    <div class="gp-scope gp-modal-backdrop" @onclick="CerrarModales">
+        <div class="gp-modal vt-modal-grande" role="dialog" aria-modal="true" @onclick:stopPropagation="true">
+            <div class="gp-modal-head">
+                <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm gp-btn-icon" aria-label="Volver" @onclick="VolverACategorias"><i class="bi bi-arrow-left"></i></button>
+                <div>
+                    <h3>@categoriaSeleccionada?.Nombre</h3>
+                    <p>Tocá el producto para agregarlo.</p>
                 </div>
-                <div class="modal-body p-4">
-                    <!-- Buscador interno en el modal -->
-                    <div class="mb-3">
-                        <input type="text" class="form-control form-control-lg rounded-pill px-3" placeholder="Buscar producto en esta categoría..."
-                               @bind="filtroBusquedaRapida" @bind:event="oninput" />
-                    </div>
-
-                    <div class="row g-3">
-                        @foreach (var prod in ProductosFiltrados)
-                        {
-                            <div class="col-6 col-md-4">
-                                <button class="btn btn-light border w-100 p-3 h-100 d-flex flex-column justify-content-between rounded-4 shadow-sm text-start producto-card-btn"
-                                        @onclick="() => SeleccionarProductoRapido(prod)">
-                                    <div class="fw-bold text-dark text-uppercase small">@prod.Nombre</div>
-                                    <div class="text-primary fw-bold mt-2">$ @ObtenerPrecioProducto(prod).ToString("N2")</div>
-                                </button>
+                <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm gp-btn-icon gp-modal-x" aria-label="Cerrar" @onclick="CerrarModales"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="gp-modal-body">
+                <div class="gp-search" style="max-width:none">
+                    <i class="bi bi-search"></i>
+                    <input type="text" class="gp-control" placeholder="Buscar en esta categoría..." @bind="filtroBusquedaRapida" @bind:event="oninput" />
+                </div>
+                <div class="vt-prods">
+                    @foreach (var prod in ProductosFiltrados)
+                    {
+                        bool esPesable = EsProductoPesable(prod);
+                        <button type="button" class="vt-prod" @onclick="() => SeleccionarProductoRapido(prod)">
+                            <b>@prod.Nombre</b>
+                            <div>
+                                @if (esPesable) { <span class="vt-tag peso" style="margin-bottom:.25rem"><i class="bi bi-speedometer2"></i> por peso</span> }
+                                <span>$ @PrecioDe(prod).ToString("N2")@(esPesable ? " /kg" : "")</span>
                             </div>
-                        }
-                    </div>
+                        </button>
+                    }
                 </div>
             </div>
         </div>
     </div>
 }
 
-<!-- ========================================== -->
-<!-- MODAL 3: INGRESO DE CANTIDAD O IMPORTE EN DINERO -->
-<!-- ========================================== -->
+@* ===================== MODAL: CANTIDAD, IMPORTE O PESO ===================== *@
 @if (mostrarModalCantidad && productoSeleccionadoParaVenta != null)
 {
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content rounded-4 border-0 shadow-lg">
-                <div class="modal-header border-0 pb-0">
-                    <h5 class="modal-title fw-bold text-uppercase">@productoSeleccionadoParaVenta.Nombre</h5>
-                    <button type="button" class="btn-close" @onclick="CerrarModales"></button>
+    bool esPesableModal = EsProductoPesable(productoSeleccionadoParaVenta);
+    <div class="gp-scope gp-modal-backdrop" @onclick="CerrarModales">
+        <div class="gp-modal" role="dialog" aria-modal="true" @onclick:stopPropagation="true">
+            <div class="gp-modal-head">
+                <span class="gp-bubble gp-bubble-sm"><i class="bi @(esPesableModal ? "bi-speedometer2" : "bi-box")"></i></span>
+                <div>
+                    <h3 style="text-transform:uppercase">@productoSeleccionadoParaVenta.Nombre</h3>
+                    <p>$ @PrecioDe(productoSeleccionadoParaVenta).ToString("N2") @(esPesableModal ? "el kilo" : "por unidad")</p>
                 </div>
-                <div class="modal-body p-4">
-                    <p class="text-muted small mb-3">Precio unitario: <strong>$ @ObtenerPrecioProducto(productoSeleccionadoParaVenta).ToString("N2")</strong></p>
+                <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm gp-btn-icon gp-modal-x" aria-label="Cerrar" @onclick="CerrarModales"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="gp-modal-body">
+                @if (esPesableModal)
+                {
+                    <div class="gp-seg" style="display:flex; margin-bottom:.9rem">
+                        <button type="button" style="flex:1" class="@(modoIngresoPesable == "peso" ? "is-active" : "")" @onclick='() => SeleccionarModoPesable("peso")'><i class="bi bi-speedometer2"></i> Por peso</button>
+                        <button type="button" style="flex:1" class="@(modoIngresoPesable == "dinero" ? "is-active" : "")" @onclick='() => SeleccionarModoPesable("dinero")'><i class="bi bi-currency-dollar"></i> Por plata</button>
+                    </div>
 
-                    <!-- Pestañas para elegir cantidad o importe -->
-                    <ul class="nav nav-pills nav-fill mb-3 bg-light p-1 rounded-3">
-                        <li class="nav-item">
-                            <button class="nav-link @(modoIngreso == "cantidad" ? "active bg-primary text-white" : "text-dark")"
-                                    @onclick='() => modoIngreso = "cantidad"'>
-                                Por Cantidad
-                            </button>
-                        </li>
-                        @if (productoSeleccionadoParaVenta.AdmiteImporte)
-                        {
-                            <li class="nav-item">
-                                <button class="nav-link @(modoIngreso == "importe" ? "active bg-primary text-white" : "text-dark")"
-                                        @onclick='() => modoIngreso = "importe"'>
-                                    Por Dinero ($)
-                                </button>
-                            </li>
-                        }
-                    </ul>
-
-                    @if (modoIngreso == "cantidad")
+                    @if (modoIngresoPesable == "peso")
                     {
-                        <div class="mb-3">
-                            <label class="form-label fw-bold">Cantidad de unidades:</label>
-                            <input type="number" class="form-control form-control-lg text-center fw-bold fs-3" @bind="cantidadIngresada" min="1" autofocus />
+                        <label class="cf-lbl">¿Cuánto pidió?</label>
+                        <div style="display:flex; gap:.5rem">
+                            <input type="number" step="any" inputmode="decimal" class="gp-control vt-big-input" placeholder="0" onfocus="this.select()"
+                                   @bind="valorIngresadoPesable" @bind:event="oninput" />
+                            <div class="gp-seg" style="flex:none">
+                                <button type="button" class="@(unidadIngresada == "GR" ? "is-active" : "")" @onclick='() => unidadIngresada = "GR"'>Gramos</button>
+                                <button type="button" class="@(unidadIngresada == "KG" ? "is-active" : "")" @onclick='() => unidadIngresada = "KG"'>Kilos</button>
+                            </div>
+                        </div>
+                        <div class="vt-rapidos">
+                            <button type="button" @onclick="() => PesoRapido(100)">100 g</button>
+                            <button type="button" @onclick="() => PesoRapido(150)">150 g</button>
+                            <button type="button" @onclick="() => PesoRapido(250)">¼ kg</button>
+                            <button type="button" @onclick="() => PesoRapido(500)">½ kg</button>
+                            <button type="button" @onclick="() => PesoRapido(1000)">1 kg</button>
+                        </div>
+                        <div class="vt-calc">
+                            <span>@FormatearCantidadPesable(CalcularGramosCalculados())</span>
+                            <strong>$ @CalcularSubtotalPesable().ToString("N2")</strong>
                         </div>
                     }
                     else
                     {
-                        <div class="mb-3">
-                            <label class="form-label fw-bold">¿Cuánto dinero paga el cliente? ($):</label>
-                            <input type="number" class="form-control form-control-lg text-center fw-bold fs-3 text-success" @bind="importeIngresado" placeholder="Ej: 1000" autofocus />
-                            <div class="form-text text-muted text-center mt-2">
-                                El sistema calculará automáticamente las unidades equivalentes.
-                            </div>
+                        <label class="cf-lbl">¿Cuánta plata quiere gastar?</label>
+                        <div class="vt-addon">
+                            <span>$</span>
+                            <InputMonto class="gp-control vt-big-input ok" Placeholder="0" Value="valorIngresadoPesable" ValueChanged="v => valorIngresadoPesable = v ?? 0" />
+                        </div>
+                        <div class="vt-calc">
+                            <span>Hay que pesar</span>
+                            <strong style="color:var(--gp-primary)">@FormatearCantidadPesable(CalcularGramosCalculados())</strong>
+                        </div>
+                    }
+                }
+                else
+                {
+                    @if (productoSeleccionadoParaVenta.AdmiteImporte)
+                    {
+                        <div class="gp-seg" style="display:flex; margin-bottom:.9rem">
+                            <button type="button" style="flex:1" class="@(modoIngreso == "cantidad" ? "is-active" : "")" @onclick='() => modoIngreso = "cantidad"'>Por cantidad</button>
+                            <button type="button" style="flex:1" class="@(modoIngreso == "importe" ? "is-active" : "")" @onclick='() => modoIngreso = "importe"'>Por plata</button>
                         </div>
                     }
 
-                    <button class="btn btn-success btn-lg w-100 py-3 fw-bold rounded-3 shadow-sm mt-3" @onclick="ConfirmarAgregarDesdeModal">
-                        Agregar al Carrito
-                    </button>
-                </div>
+                    @if (modoIngreso == "cantidad")
+                    {
+                        <label class="cf-lbl">Cantidad</label>
+                        <div class="vt-qty" style="width:100%; justify-content:space-between">
+                            <button type="button" @onclick="() => cantidadIngresada = Math.Max(1, cantidadIngresada - 1)"><i class="bi bi-dash-lg"></i></button>
+                            <input type="number" min="1" inputmode="numeric" style="flex:1 1 auto" @bind="cantidadIngresada" @bind:event="oninput" />
+                            <button type="button" @onclick="() => cantidadIngresada++"><i class="bi bi-plus-lg"></i></button>
+                        </div>
+                    }
+                    else
+                    {
+                        <label class="cf-lbl">¿Cuánta plata paga?</label>
+                        <div class="vt-addon">
+                            <span>$</span>
+                            <InputMonto class="gp-control vt-big-input ok" Placeholder="0" Value="importeIngresado" ValueChanged="v => importeIngresado = v ?? 0" />
+                        </div>
+                        <div class="vt-calc">
+                            <span>Equivale a</span>
+                            <strong style="color:var(--gp-primary)">@UnidadesPorImporte() unidad(es)</strong>
+                        </div>
+                    }
+                }
+            </div>
+            <div class="gp-modal-foot">
+                <button type="button" class="gp-btn gp-btn-ghost" @onclick="CerrarModales">Cancelar</button>
+                <button type="button" class="gp-btn gp-btn-ok" disabled="@(esPesableModal && CalcularGramosCalculados() <= 0)" @onclick="ConfirmarAgregarDesdeModal">
+                    <i class="bi bi-cart-plus-fill"></i> @(itemEditando != null ? "Cambiar peso" : "Agregar a la venta")
+                </button>
             </div>
         </div>
     </div>
 }
 
 <style>
-    .fw-black {
-        font-weight: 850;
-    }
-
-    .small-font {
-        font-size: 0.75rem;
-    }
-
-    .producto-card-btn:hover {
-        background-color: #f8f9fa !important;
-        border-color: #0d6efd !important;
-        transform: translateY(-2px);
-        transition: all 0.2s ease;
-    }
-
-    @@media (min-width: 992px) {
-        .venta-container:not(:has(.seccion-pago-celular)) .carrito-body-scroll
-
-    {
-        max-height: none !important;
-        overflow-y: visible !important;
-        padding-bottom: 0px !important;
-    }
-
-    }
-
-    .seccion-pago-celular {
-        bottom: 58px !important;
-        z-index: 1050 !important;
-        border-radius: 16px 16px 0 0;
-        padding: 12px 16px !important;
-    }
-
-    .contenedor-ancho-maximo-boton {
-        max-width: 600px;
-        margin: 0 auto;
-    }
-
-    .carrito-body-scroll {
-        max-height: calc(100vh - 350px) !important;
-        overflow-y: auto !important;
-        -webkit-overflow-scrolling: touch;
-        padding-bottom: 110px !important;
-    }
-
-    .espaciador-inferior-movil {
-        height: 180px;
-    }
-
-    @@media (min-width: 992px) {
-        .carrito-body-scroll
-
-    {
-        max-height: calc(100vh - 380px) !important;
-        padding-bottom: 120px !important;
-    }
-
-    }
+    /* "Llevando 1 más paga menos" (precios por cantidad) */
+    .vt-sugerencia { display: inline-flex; align-items: center; gap: .35rem; margin-top: .3rem; padding: .25rem .55rem; border: 1px dashed #e0a800; border-radius: 10px; background: #fff8e1; color: #7a5500; font: inherit; font-size: .78rem; font-weight: 700; cursor: pointer; }
+    .vt-sugerencia i { color: #e0a800; }
+    .vt-sugerencia b { padding: .05rem .4rem; border-radius: 7px; background: #e0a800; color: #fff; }
+    .vt-sugerencia:hover { background: #ffefb3; }
 </style>
 
 @code {
+    [Parameter] public string RutaCobrar { get; set; } = "/producto/cobrar";
+
+    private AvisosPagina avisos = default!;
     private bool mostrarPrimeraLista = true;
     private bool mostrarSegundaLista = false;
     private BuscadorProducto? buscadorRef;
-    private List<ItemCarrito> carrito = new();
-    private TimeSpan horaInicioVenta;
     private string columnaPrecioActiva = "precio_venta";
+    private string nombreListaActiva = "";
 
-    [Parameter] public string RutaCobrar { get; set; } = "/producto/cobrar";
+    /// <summary>En el celular hay una barra de menú abajo: la barra del total se fija arriba de esa barra.</summary>
+    private bool EsCelular => RutaCobrar == "/producto/cobrar";
 
-    // Variables de Venta Rápida
+    // Venta rápida
     private bool mostrarModalCategorias = false;
     private bool mostrarModalProductos = false;
     private bool mostrarModalCantidad = false;
-
-    // Variables de Venta de Varios
-    private bool mostrarModalVarios = false;
-    private int cantidadVarios = 1;
-    private decimal precioVarios = 0;
-    private string descripcionVarios = "Varios";
-
     private List<CategoriaVentaRapida> listaCategorias = new();
     private List<Producto> listaProductosRapidos = new();
     private CategoriaVentaRapida? categoriaSeleccionada;
     private Producto? productoSeleccionadoParaVenta;
-
+    private ItemCarrito? itemEditando;              // si se está cambiando el peso de algo que ya está en la venta
     private string filtroBusquedaRapida = "";
-    private string modoIngreso = "cantidad"; // "cantidad" o "importe"
+    private string modoIngreso = "cantidad";        // "cantidad" o "importe"
     private int cantidadIngresada = 1;
     private decimal importeIngresado = 0;
+
+    // Productos por peso (la cantidad va en gramos y el precio es por kilo)
+    private string modoIngresoPesable = "peso";     // "peso" o "dinero"
+    private string unidadIngresada = "GR";          // "GR" o "KG"
+    private decimal valorIngresadoPesable = 0;
+
+    // Producto sin código (varios)
+    private bool mostrarModalVarios = false;
+    private int cantidadVarios = 1;
+    private decimal precioVarios = 0;
+    private string descripcionVarios = "";
+    private string codigoNoEncontrado = "";
 
     private IEnumerable<Producto> ProductosFiltrados =>
         string.IsNullOrWhiteSpace(filtroBusquedaRapida)
             ? listaProductosRapidos
-            : listaProductosRapidos.Where(p => p.Nombre.Contains(filtroBusquedaRapida, StringComparison.OrdinalIgnoreCase));
+            : listaProductosRapidos.Where(p => (p.Nombre ?? "").Contains(filtroBusquedaRapida, StringComparison.OrdinalIgnoreCase));
 
+    private bool EsProductoPesable(Producto? prod) =>
+        prod != null && !string.IsNullOrWhiteSpace(prod.UnidadMedida) && Utilidades.EsMedidaGramos(prod.UnidadMedida.Trim());
+
+    /// <summary>Precio con la lista activa: la misma regla que usa el carrito y que muestra el buscador.</summary>
+    private static string TextoEscalas(List<PrecioCantidad> escalas) =>
+        string.Join(" · ", escalas.Select(e => e.Cantidad + " u x $ " + e.Precio.ToString("N0")));
+
+    private decimal PrecioDe(Producto p) => PrecioService.PrecioSegunLista(p, columnaPrecioActiva, State.KioscoId);
+
+    // ======================= INICIO =======================
     protected override async Task OnInitializedAsync()
     {
-        await IniciarNuevaVenta();
-    }
+        // ETAPA 7: sin internet la lista por horario sale de la copia guardada en la PC
+        var off = VentaSinInternet.Actual;
+        await PrecioServ.AsegurarReglasAsync(State.KioscoId);   // horarios, listas y recargos (con o sin internet)
+        ActualizarLista(avisar: false);
+        // cada 15 s mira si empezó/terminó el horario de una lista (solo cambia cuando no hay una venta en curso)
+        timerLista = new System.Threading.Timer(_ => InvokeAsync(() => { if (ActualizarLista(avisar: true)) StateHasChanged(); }), null, 15000, 15000);
 
-    private async Task IniciarNuevaVenta()
-    {
-        carrito.Clear();
-        horaInicioVenta = DateTime.Now.TimeOfDay;
-        columnaPrecioActiva = await PrecioServ.ObtenerColumnaPrecioActivaAsync(1, horaInicioVenta);
-        if (columnaPrecioActiva == "precio_lista2")
+        // precios por cantidad (ej: gomitas 10 u x $250 · 23 u x $500)
+        if (off?.ModoLimitado == true) Carrito.FijarEscalas(off.Escalas());
+        else
         {
-            mostrarSegundaLista = true;
-            mostrarPrimeraLista = false;
+            try
+            {
+                long k = State.KioscoId;
+                var r = await SupaClient.From<PrecioCantidad>().Where(x => x.KioscoId == k).Get();
+                Carrito.FijarEscalas(r.Models);
+            }
+            catch (Exception ex) when (off != null && VentaSinInternet.EsErrorDeRed(ex)) { Carrito.FijarEscalas(off.Escalas()); }
+            catch { /* falta el script 27: se vende como siempre */ }
         }
     }
 
-    private void AbrirModalVentaVarios()
+    // ======================= LISTA DE PRECIOS DE LA VENTA =======================
+    private System.Threading.Timer? timerLista;
+    private bool listaIniciada;
+
+    /// <summary>
+    /// La lista se decide al EMPEZAR cada venta y queda fija hasta cobrar (CarritoService.ListaDeLaVenta).
+    /// Sin venta en curso, sigue al horario. Devuelve true si cambió.
+    /// </summary>
+    private bool ActualizarLista(bool avisar)
     {
+        string col = Carrito.Items.Any() && !string.IsNullOrEmpty(Carrito.ListaDeLaVenta)
+            ? Carrito.ListaDeLaVenta!
+            : PrecioService.ColumnaSegunMomento(State.KioscoId, DateTime.Now) ?? "precio_venta";
+        if (listaIniciada && col == columnaPrecioActiva) return false;
+
+        bool eraOtra = listaIniciada;
+        listaIniciada = true;
+        columnaPrecioActiva = col;
+        mostrarSegundaLista = col == "precio_lista2";
+        mostrarPrimeraLista = !mostrarSegundaLista;
+        nombreListaActiva = col == "precio_venta" ? "" : PrecioService.NombreLista(State.KioscoId, col);
+
+        if (eraOtra && avisar)
+            avisos.Toast(col == "precio_venta"
+                ? "Terminó el horario de la lista: desde ahora se cobra con el precio de venta."
+                : $"Empezó el horario de la lista {nombreListaActiva}: desde ahora se cobra con esos precios.", "info", 6000);
+        return true;
+    }
+
+    public void Dispose() => timerLista?.Dispose();
+
+    /// <summary>Al abrir Vender, el cursor queda en el buscador (listo para escanear o escribir).</summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        await Task.Delay(80);   // que el buscador termine de dibujarse
+        try { if (buscadorRef != null) await buscadorRef.Enfocar(); } catch { }
+    }
+
+    // ======================= AGREGAR DESDE EL BUSCADOR =======================
+    private void AgregarAlCarrito(Producto prod)
+    {
+        if (EsProductoPesable(prod))
+        {
+            AbrirModalCantidad(prod);
+        }
+        else
+        {
+            Carrito.Agregar(prod, columnaPrecioActiva);
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>Se escaneó un código que no existe: se ofrece venderlo como producto sin código.</summary>
+    private void AlNoEncontrar(string codigo)
+    {
+        avisos.Toast("No está cargado: podés venderlo como producto sin código", "aviso", 3500);
+        AbrirModalVentaVarios(codigo);
+    }
+
+    // ======================= PRODUCTO SIN CÓDIGO =======================
+    private void AbrirModalVentaVarios(string codigo)
+    {
+        CerrarModales();
+        var texto = codigo?.Trim() ?? "";
+        bool esCodigo = texto.Length > 0 && texto.All(char.IsDigit);
+        codigoNoEncontrado = esCodigo ? texto : "";
         cantidadVarios = 1;
         precioVarios = 0;
-        descripcionVarios = "Varios";
+        descripcionVarios = esCodigo ? "" : texto.ToUpper();   // si buscó por nombre, queda como descripción
         mostrarModalVarios = true;
     }
 
@@ -446,61 +555,91 @@
     {
         if (precioVarios <= 0 || cantidadVarios <= 0) return;
 
-        // Creamos un producto genérico/temporal para "Varios"
         var productoVarios = new Producto
         {
-            Id = -Guid.NewGuid().GetHashCode(), // ID temporal único negativo para evitar colisiones
-            Nombre = string.IsNullOrWhiteSpace(descripcionVarios) ? "Varios" : descripcionVarios,
+            Id = -Math.Abs(Guid.NewGuid().GetHashCode()),
+            Nombre = string.IsNullOrWhiteSpace(descripcionVarios) ? "VARIOS" : descripcionVarios.Trim().ToUpper(),
             PrecioVenta = precioVarios,
-            
         };
 
-        for (int i = 0; i < cantidadVarios; i++)
-        {
-            Carrito.Agregar(productoVarios, columnaPrecioActiva, true);
-        }
+        // el precio lo pone el vendedor: no se le aplica la lista de la noche ni ningún recargo
+        Carrito.AgregarConPrecio(productoVarios, precioVarios, cantidadVarios, esProductoVario: true);
 
         CerrarModales();
-        StateHasChanged();
     }
 
+    // ======================= VENTA RÁPIDA =======================
     private async Task AbrirModalCategorias()
     {
+        var off = VentaSinInternet.Actual;
+        if (off?.ModoLimitado == true)
+        {
+            listaCategorias = off.Categorias();   // sin internet: de la copia de la PC
+            CerrarModales();
+            mostrarModalCategorias = true;
+            return;
+        }
         try
         {
             var response = await SupaClient.From<CategoriaVentaRapida>()
+                .Where(x => x.KioscoId == State.KioscoId)
                 .Where(x => x.Habilitado == true)
                 .Order("orden", Ordering.Ascending)
                 .Get();
 
-            listaCategorias = response.Models;
+            listaCategorias = response.Models ?? new();
+            CerrarModales();
+            mostrarModalCategorias = true;
+        }
+        catch (Exception ex) when (off != null && VentaSinInternet.EsErrorDeRed(ex))
+        {
+            off.MarcarSinConexion();
+            listaCategorias = off.Categorias();
+            CerrarModales();
             mostrarModalCategorias = true;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error al cargar categorías de venta rápida: {ex.Message}");
+            await avisos.InformarAsync("No se pudieron cargar las categorías", ex.Message, "peligro");
         }
     }
 
     private async Task SeleccionarCategoria(CategoriaVentaRapida cat)
     {
         categoriaSeleccionada = cat;
-        mostrarModalCategorias = false;
         filtroBusquedaRapida = "";
 
+        var off = VentaSinInternet.Actual;
+        if (off?.ModoLimitado == true)
+        {
+            listaProductosRapidos = off.ProductosDeCategoria(cat.Id);   // sin internet: de la copia de la PC
+            mostrarModalCategorias = false;
+            mostrarModalProductos = true;
+            return;
+        }
         try
         {
+            long catId = cat.Id;
             var response = await SupaClient.From<Producto>()
-               .Where(x => x.CategoriaVentaRapidaId == cat.Id && x.MostrarEnVentaRapida == true)
+               .Where(x => x.KioscoId == State.KioscoId)
+               .Where(x => x.CategoriaVentaRapidaId == catId && x.MostrarEnVentaRapida == true)
                .Order("orden_venta_rapida", Ordering.Ascending)
                .Get();
 
-            listaProductosRapidos = response.Models;
+            listaProductosRapidos = response.Models ?? new();
+            mostrarModalCategorias = false;
+            mostrarModalProductos = true;
+        }
+        catch (Exception ex) when (off != null && VentaSinInternet.EsErrorDeRed(ex))
+        {
+            off.MarcarSinConexion();
+            listaProductosRapidos = off.ProductosDeCategoria(cat.Id);
+            mostrarModalCategorias = false;
             mostrarModalProductos = true;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error al cargar productos rápidos: {ex.Message}");
+            await avisos.InformarAsync("No se pudieron cargar los productos", ex.Message, "peligro");
         }
     }
 
@@ -510,50 +649,106 @@
         mostrarModalCategorias = true;
     }
 
-    private void SeleccionarProductoRapido(Producto prod)
+    private void SeleccionarProductoRapido(Producto prod) => AbrirModalCantidad(prod);
+
+    // ======================= MODAL DE CANTIDAD / PESO =======================
+    private void AbrirModalCantidad(Producto prod, ItemCarrito? editar = null)
     {
         productoSeleccionadoParaVenta = prod;
-        cantidadIngresada = 1;
-        importeIngresado = ObtenerPrecioProducto(prod);
-        modoIngreso = "cantidad";
+        itemEditando = editar;
+
+        if (EsProductoPesable(prod))
+        {
+            modoIngresoPesable = "peso";
+            unidadIngresada = "GR";
+            valorIngresadoPesable = editar != null ? editar.Cantidad : 0;
+        }
+        else
+        {
+            cantidadIngresada = 1;
+            importeIngresado = PrecioDe(prod);
+            modoIngreso = "cantidad";
+        }
+
+        mostrarModalCategorias = false;
         mostrarModalProductos = false;
         mostrarModalCantidad = true;
     }
 
-    private decimal ObtenerPrecioProducto(Producto prod)
+    private void EditarPeso(ItemCarrito item) => AbrirModalCantidad(item.Producto, item);
+
+    private void SeleccionarModoPesable(string modo)
     {
-        return columnaPrecioActiva switch
-        {
-            "precio_lista2" => prod.PrecioLista2 ?? prod.PrecioVenta ?? 0,
-            "precio_lista3" => prod.PrecioLista3 ?? prod.PrecioVenta ?? 0,
-            _ => prod.PrecioVenta ?? 0
-        };
+        modoIngresoPesable = modo;
+        valorIngresadoPesable = 0;
     }
+
+    private void PesoRapido(int gramos)
+    {
+        unidadIngresada = "GR";
+        valorIngresadoPesable = gramos;
+    }
+
+    private int CalcularGramosCalculados()
+    {
+        if (productoSeleccionadoParaVenta == null || !EsProductoPesable(productoSeleccionadoParaVenta)) return 0;
+
+        decimal precioKilo = PrecioDe(productoSeleccionadoParaVenta);
+        if (precioKilo <= 0 || valorIngresadoPesable <= 0) return 0;
+
+        if (modoIngresoPesable == "peso")
+        {
+            decimal gramos = unidadIngresada == "KG" ? (valorIngresadoPesable * 1000m) : valorIngresadoPesable;
+            return (int)Math.Round(gramos);
+        }
+
+        // "dinero": cuántos gramos se pueden dar con esa plata
+        return (int)Math.Round((valorIngresadoPesable / precioKilo) * 1000m);
+    }
+
+    private decimal CalcularSubtotalPesable()
+    {
+        if (productoSeleccionadoParaVenta == null) return 0;
+        if (modoIngresoPesable == "dinero") return valorIngresadoPesable;
+
+        decimal precioKilo = PrecioDe(productoSeleccionadoParaVenta);
+        return (int)Math.Round((CalcularGramosCalculados() / 1000m) * precioKilo);
+    }
+
+    private int UnidadesPorImporte()
+    {
+        if (productoSeleccionadoParaVenta == null) return 0;
+        var precio = PrecioDe(productoSeleccionadoParaVenta);
+        if (precio <= 0) return 1;
+        return Math.Max(1, (int)(importeIngresado / precio));
+    }
+
+    private static string FormatearCantidadPesable(int gramos) =>
+        gramos < 1000 ? $"{gramos} g" : $"{(gramos / 1000m).ToString("0.###", CultureInfo.GetCultureInfo("es-AR"))} kg";
 
     private void ConfirmarAgregarDesdeModal()
     {
         if (productoSeleccionadoParaVenta == null) return;
 
-        decimal precioUnitario = ObtenerPrecioProducto(productoSeleccionadoParaVenta);
-        int cantidadFinal = 1;
-
-        if (modoIngreso == "importe" && productoSeleccionadoParaVenta.AdmiteImporte && precioUnitario > 0)
+        if (EsProductoPesable(productoSeleccionadoParaVenta))
         {
-            cantidadFinal = (int)(importeIngresado / precioUnitario);
-            if (cantidadFinal < 1) cantidadFinal = 1;
+            int gramosTotal = CalcularGramosCalculados();
+            if (gramosTotal > 0)
+            {
+                if (itemEditando != null) Carrito.FijarCantidad(itemEditando, gramosTotal);   // se cambia el peso, no se suma
+                else Carrito.AgregarManual(productoSeleccionadoParaVenta, columnaPrecioActiva, false, gramosTotal);
+            }
         }
         else
         {
-            cantidadFinal = cantidadIngresada > 0 ? cantidadIngresada : 1;
-        }
+            int cantidadFinal = modoIngreso == "importe" && productoSeleccionadoParaVenta.AdmiteImporte
+                ? UnidadesPorImporte()
+                : (cantidadIngresada > 0 ? cantidadIngresada : 1);
 
-        for (int i = 0; i < cantidadFinal; i++)
-        {
-            Carrito.Agregar(productoSeleccionadoParaVenta, columnaPrecioActiva);
+            Carrito.AgregarManual(productoSeleccionadoParaVenta, columnaPrecioActiva, false, cantidadFinal);
         }
 
         CerrarModales();
-        StateHasChanged();
     }
 
     private void CerrarModales()
@@ -563,46 +758,39 @@
         mostrarModalCantidad = false;
         mostrarModalVarios = false;
         productoSeleccionadoParaVenta = null;
+        itemEditando = null;
+        valorIngresadoPesable = 0;
     }
 
-    private void AgregarAlCarrito(Producto prod)
-    {
-        Carrito.Agregar(prod, columnaPrecioActiva);
-        StateHasChanged();
-    }
-
+    // ======================= CARRITO =======================
     private void DecrementarCantidad(ItemCarrito item)
     {
         if (item.Cantidad > 1) item.Cantidad--;
-        else Carrito.Eliminar(item.Producto.Id);
+        else Carrito.Eliminar(item);
     }
+
+    /// <summary>La cantidad escrita a mano REEMPLAZA la que había (antes se sumaba).</summary>
     private void ActualizarCantidadManual(ItemCarrito item, object? value)
     {
         if (int.TryParse(value?.ToString(), out int nuevaCantidad) && nuevaCantidad > 0)
-        {
-            Carrito.AgregarManual(item.Producto, columnaPrecioActiva, false, nuevaCantidad);
-            StateHasChanged();
-        }
+            Carrito.FijarCantidad(item, nuevaCantidad);
     }
-    private void Volver() => Nav.NavigateTo("/productos");
+
+    private async Task VaciarCarritoAsync()
+    {
+        if (!await avisos.ConfirmarAsync("¿Vaciar la venta?", "Se quitan todos los productos cargados.", "Vaciar")) return;
+        Carrito.Vaciar();
+        buscadorRef?.LimpiarTodo();
+    }
 
     private void FinalizarVenta()
     {
-        if (Carrito == null || !Carrito.Items.Any()) return;
+        if (!Carrito.Items.Any()) return;
 
         State.TotalVentaActual = Carrito.Total;
         State.CarritoActual = Carrito.Items.ToList();
 
         if (!string.IsNullOrEmpty(RutaCobrar))
-        {
             Nav.NavigateTo(RutaCobrar);
-        }
-    }
-
-    private void VaciarCarrito()
-    {
-        Carrito.Vaciar();
-        buscadorRef?.LimpiarTodo();
-        StateHasChanged();
     }
 }

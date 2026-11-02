@@ -1,0 +1,71 @@
+﻿@* Un tema de la ayuda (Configuración → Ayuda y plan): título que se abre y muestra para qué sirve y cómo se usa. *@
+
+<div class="ta @(Abierto ? "is-open" : "") @(Bloqueado ? "is-lock" : "")">
+    <button type="button" class="ta-cab" @onclick="OnAlternar">
+        <span class="ta-ico"><i class="bi @Tema.Icono"></i></span>
+        <span class="ta-txt">
+            <b>@Tema.Titulo</b>
+            <small>@Tema.ParaQue</small>
+        </span>
+        @if (!string.IsNullOrEmpty(Etiqueta))
+        {
+            <span class="ta-tag"><i class="bi bi-lock-fill"></i> @Etiqueta</span>
+        }
+        <i class="bi @(Abierto ? "bi-chevron-up" : "bi-chevron-down") ta-flecha"></i>
+    </button>
+    @if (Abierto)
+    {
+        <div class="ta-cuerpo">
+            <div class="ta-donde"><i class="bi bi-signpost-2-fill"></i> @Tema.DondeEsta</div>
+            <ol>
+                @foreach (var p in Tema.Pasos)
+                {
+                    <li>@p</li>
+                }
+            </ol>
+            @if (Tema.Consejos?.Length > 0)
+            {
+                <div class="ta-consejos">
+                    @foreach (var c in Tema.Consejos)
+                    {
+                        <div><i class="bi bi-lightbulb-fill"></i> @c</div>
+                    }
+                </div>
+            }
+            @if (Bloqueado)
+            {
+                <div class="ta-lock"><i class="bi bi-lock-fill"></i> No está incluida en tu plan. Consultá para habilitarla.</div>
+            }
+        </div>
+    }
+</div>
+
+<style>
+    .ta { border: 1px solid var(--gp-line); border-radius: 14px; background: #fff; overflow: hidden; }
+    .ta.is-open { border-color: var(--gp-primary-line); }
+    .ta.is-lock { background: #fafbfd; }
+    .ta-cab { display: flex; align-items: center; gap: .7rem; width: 100%; padding: .65rem .8rem; border: 0; background: transparent; text-align: left; cursor: pointer; font: inherit; }
+    .ta-ico { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 2.3rem; height: 2.3rem; border-radius: 12px; background: var(--gp-primary-soft); color: var(--gp-primary); font-size: 1.1rem; }
+    .is-lock .ta-ico { background: #eef0f5; color: var(--gp-muted); }
+    .ta-txt { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+    .ta-txt b { font-weight: 800; }
+    .ta-txt small { color: var(--gp-muted); font-weight: 600; font-size: .8rem; }
+    .ta-tag { flex: none; padding: .2rem .55rem; border-radius: 999px; background: var(--gp-primary-soft); color: var(--gp-primary); font-size: .74rem; font-weight: 800; white-space: nowrap; }
+    .ta-flecha { flex: none; color: var(--gp-muted); }
+    .ta-cuerpo { padding: 0 1rem .9rem 3.8rem; }
+    .ta-donde { display: inline-flex; gap: .4rem; margin-bottom: .5rem; padding: .25rem .6rem; border-radius: 8px; background: #f3f5fa; font-size: .82rem; font-weight: 700; color: var(--gp-text); }
+    .ta-cuerpo ol { margin: 0 0 .5rem; padding-left: 1.2rem; }
+    .ta-cuerpo li { margin-bottom: .3rem; }
+    .ta-consejos { display: flex; flex-direction: column; gap: .3rem; padding: .5rem .7rem; border-radius: 10px; background: #fff8e1; color: #6b4e00; font-size: .85rem; font-weight: 600; }
+    .ta-consejos i { color: #e0a800; margin-right: .3rem; }
+    .ta-lock { margin-top: .5rem; color: var(--gp-primary); font-weight: 800; font-size: .85rem; }
+    @@media (max-width: 640px) { .ta-cuerpo { padding-left: 1rem; } .ta-tag { display: none; } }
+</style>
+
+@code {
+    [Parameter, EditorRequired] public AyudaSistema.Tema Tema { get; set; } = default!;
+    [Parameter] public bool Abierto { get; set; }
+    [Parameter] public bool Bloqueado { get; set; }
+    [Parameter] public string? Etiqueta { get; set; }
+    [Parameter] public EventCallback OnAlternar { get; set; }
+}

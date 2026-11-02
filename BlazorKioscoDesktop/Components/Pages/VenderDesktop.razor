@@ -1,35 +1,5 @@
-﻿@* @page "/vender-desktop"
-
-@using BlazorKioscoCompartido.Components
-<vender RutaCobrar="/producto/cobrar-desktop" /> *@
-
+﻿@page "/producto/vender"
 @page "/vender-desktop"
+@* Escritorio: usa las mismas direcciones que el celular (la vieja "/vender-desktop" sigue andando) *@
 
-<BlazorKioscoCompartido.Pages.VenderCompartido RutaCobrar="/producto/cobrar-desktop" />
-
-@inject BlazorKioscoCompartido.Services.AppState State
-@inject NavigationManager Nav
-@using BlazorKioscoCompartido.Components
-
-@* @if (State.KioscoId == 0)
-{
-    <div class="text-center p-5">
-        <p class="text-muted small fw-bold">Redireccionando al control de acceso...</p>
-    </div>
-}
-else
-{
-    <vender RutaCobrar="/producto/cobrar-desktop" />
-}
-
-@code {
-    protected override void OnInitialized()
-    {
-        // Si el usuario no pasó por el login, lo mandamos a loguearse
-        // para que no quede la pantalla colgada
-        if (State.KioscoId == 0)
-        {
-            Nav.NavigateTo("login");
-        }
-    }
-} *@
+<BlazorKioscoCompartido.Pages.VenderCompartido RutaCobrar="/producto/cobrar" />

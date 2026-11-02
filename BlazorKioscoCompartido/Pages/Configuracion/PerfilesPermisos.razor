@@ -1,0 +1,249 @@
+﻿@inject Supabase.Client Db
+@inject AppState State
+
+@* Configuración → Ayuda y plan → Perfiles: qué puede hacer cada perfil del negocio.
+   El dueño le puede sumar o sacar funciones al encargado y al vendedor (se guarda en kioscos.permisos_roles, script 38).
+   Lo que es solo del dueño (usuarios, redondeo, copia, perfiles) no se puede dar. Ver Services\Roles.cs. *@
+
+<AvisosPagina @ref="avisos" />
+
+@if (cargando)
+{
+    <div class="gp-empty"><span class="gp-spinner"></span> Cargando perfiles...</div>
+}
+else
+{
+    <p class="pp-intro">
+        Cada usuario entra con un <b>perfil</b> (se elige en Configuración → Usuarios). Acá ves qué puede hacer cada uno.
+        @if (EsDueno)
+        {
+            <span>Tocá los interruptores para darle o sacarle cosas al encargado o al vendedor: se guarda en el momento y vale desde que cada uno vuelve a entrar.</span>
+        }
+        else
+        {
+            <span>Solo el dueño puede cambiarlo.</span>
+        }
+    </p>
+
+    @if (faltaScript)
+    {
+        <div class="gp-banner is-danger"><i class="bi bi-exclamation-triangle-fill"></i><p>Para poder cambiar los permisos falta correr el script <b>38</b> (_sql\38.permisos_perfiles.sql). Mientras tanto se usan los de siempre.</p></div>
+    }
+
+    <div class="pp-grid">
+        @* ============ DUEÑO ============ *@
+        <div class="pp-card is-dueno">
+            <div class="pp-head">
+                <span class="pp-ico"><i class="bi bi-person-fill-gear"></i></span>
+                <div><h3>Administrador/a (dueño)</h3><small>Puede hacer todo</small></div>
+            </div>
+            <ul class="pp-lista">
+                @foreach (var s in Siempre) { <li><i class="bi bi-check-circle-fill pp-si"></i> @s</li> }
+                @foreach (var p in Visibles) { <li><i class="bi bi-check-circle-fill pp-si"></i> @p.Nombre</li> }
+                @foreach (var s in SoloDueno) { <li><i class="bi bi-shield-lock-fill pp-dueno"></i> @s <small>(solo el dueño)</small></li> }
+            </ul>
+        </div>
+
+        @foreach (var perfil in PerfilesEditables)
+        {
+            var permisos = elegidos[perfil];
+            <div class="pp-card @(perfil == Roles.Encargado ? "is-enc" : "is-ven")">
+                <div class="pp-head">
+                    <span class="pp-ico"><i class="bi @(perfil == Roles.Encargado ? "bi-person-badge-fill" : "bi-person-fill")"></i></span>
+                    <div>
+                        <h3>@Roles.Legible(perfil)</h3>
+                        <small>@(EsComoSiempre(perfil) ? "Como viene de fábrica" : "Cambiado por el dueño")</small>
+                    </div>
+                    @if (EsDueno && !EsComoSiempre(perfil))
+                    {
+                        <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm pp-reset" title="Volver a lo que trae de fábrica" disabled="@guardando" @onclick="() => VolverAFabrica(perfil)"><i class="bi bi-arrow-counterclockwise"></i> De fábrica</button>
+                    }
+                </div>
+
+                <div class="pp-sub">Siempre puede</div>
+                <ul class="pp-lista">
+                    @foreach (var s in Siempre) { <li><i class="bi bi-check-circle-fill pp-si"></i> @s</li> }
+                </ul>
+
+                <div class="pp-sub">@(EsDueno ? "Además, si lo activás" : "Además")</div>
+                <div class="pp-permisos">
+                    @foreach (var p in Visibles)
+                    {
+                        bool on = permisos.Contains(p.Clave);
+                        <label class="pp-permiso @(on ? "is-on" : "")" title="@p.Detalle">
+                            <span class="pp-p-ico"><i class="bi @p.Icono"></i></span>
+                            <span class="pp-p-txt"><b>@p.Nombre</b><small>@p.Detalle</small></span>
+                            @if (EsDueno)
+                            {
+                                <span class="gp-switch pp-switch">
+                                    <input type="checkbox" checked="@on" disabled="@(guardando || faltaScript)" @onchange="e => Cambiar(perfil, p.Clave, e)" />
+                                    <span class="gp-switch-track"></span>
+                                </span>
+                            }
+                            else
+                            {
+                                <i class="bi @(on ? "bi-check-circle-fill pp-si" : "bi-dash-circle pp-no")"></i>
+                            }
+                        </label>
+                    }
+                </div>
+
+                <div class="pp-sub">Nunca puede</div>
+                <ul class="pp-lista">
+                    @foreach (var s in SoloDueno) { <li><i class="bi bi-x-circle-fill pp-no"></i> @s</li> }
+                </ul>
+            </div>
+        }
+    </div>
+
+    @if (!State.Tiene(FuncionesPlan.Encargado))
+    {
+        <div class="gp-hint" style="margin-top:.8rem"><i class="bi bi-stars" style="color:var(--gp-primary)"></i> El perfil encargado/a no está incluido en tu plan: esos usuarios entran como vendedor/a.</div>
+    }
+}
+
+<style>
+    .pp-intro { margin: 0 0 .9rem; color: var(--gp-muted); font-weight: 600; font-size: .9rem; }
+    .pp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: .9rem; align-items: start; }
+    .pp-card { border: 1px solid var(--gp-line); border-radius: 16px; background: #fff; overflow: hidden; }
+    .pp-head { display: flex; align-items: center; gap: .7rem; padding: .8rem .9rem; color: #fff; }
+    .pp-head h3 { margin: 0; font-size: 1.02rem; font-weight: 900; }
+    .pp-head small { opacity: .9; font-weight: 600; }
+    .pp-ico { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 2.4rem; height: 2.4rem; border-radius: 12px; background: rgba(255,255,255,.22); font-size: 1.2rem; }
+    .is-dueno .pp-head { background: linear-gradient(135deg, #4f46e5, #7c3aed); }
+    .is-enc .pp-head { background: linear-gradient(135deg, #d97706, #f59e0b); }
+    .is-ven .pp-head { background: linear-gradient(135deg, #0891b2, #06b6d4); }
+    .pp-reset { margin-left: auto; color: #fff !important; background: rgba(255,255,255,.2) !important; border: 0 !important; }
+    .pp-sub { margin: .7rem .9rem .3rem; font-size: .7rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--gp-muted); }
+    .pp-lista { list-style: none; margin: 0; padding: 0 .9rem .3rem; display: flex; flex-direction: column; gap: .25rem; font-size: .88rem; font-weight: 600; }
+    .is-dueno .pp-lista { padding-top: .7rem; padding-bottom: .9rem; }
+    .pp-lista small { color: var(--gp-muted); }
+    .pp-si { color: var(--gp-ok); }
+    .pp-no { color: #c0c6d4; }
+    .pp-dueno { color: #7c3aed; }
+    .pp-permisos { display: flex; flex-direction: column; gap: .35rem; padding: 0 .9rem; }
+    .pp-permiso { display: flex; align-items: center; gap: .6rem; padding: .45rem .55rem; border: 1px solid var(--gp-line); border-radius: 12px; background: #fafbfd; cursor: pointer; }
+    .pp-permiso.is-on { border-color: var(--gp-ok-line); background: var(--gp-ok-soft); }
+    .pp-p-ico { flex: none; width: 1.9rem; height: 1.9rem; display: inline-flex; align-items: center; justify-content: center; border-radius: 10px; background: #fff; color: var(--gp-primary); }
+    .pp-p-txt { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }
+    .pp-p-txt b { font-size: .88rem; }
+    .pp-p-txt small { color: var(--gp-muted); font-size: .74rem; font-weight: 600; }
+    .pp-switch { flex: none; }
+    .pp-card > :last-child { margin-bottom: .9rem; }
+</style>
+
+@code {
+    [Parameter] public long KioscoId { get; set; }
+
+    private AvisosPagina avisos = default!;
+    private bool cargando = true, guardando, faltaScript;
+
+    // lo que tiene cada perfil hoy en este negocio
+    private Dictionary<string, HashSet<string>> elegidos = new();
+    // lo que había guardado en la base (null = nada: todo de fábrica)
+    private Dictionary<string, List<string>>? guardado;
+
+    private bool EsDueno => Roles.EsAdmin(State.UsuarioRol);
+    private bool EsMiNegocio => KioscoId == State.KioscoId;
+
+    private IEnumerable<string> PerfilesEditables =>
+        State.Tiene(FuncionesPlan.Encargado) ? new[] { Roles.Encargado, Roles.Vendedor } : new[] { Roles.Vendedor };
+
+    /// <summary>Lo que puede hacer cualquiera que entra.</summary>
+    private IEnumerable<string> Siempre
+    {
+        get
+        {
+            yield return "Vender y cobrar (también fiado, si el negocio fía)";
+            yield return "Ver productos, editarlos y cargar nuevos";
+            if (State.Tiene(FuncionesPlan.Carteles)) yield return "Imprimir carteles y códigos de barras";
+            if (State.Tiene(FuncionesPlan.Tareas)) yield return "Cargar sus tareas del día";
+        }
+    }
+
+    private static readonly string[] SoloDueno = { "Usuarios y contraseñas", "Redondeo de precios", "Copia de seguridad", "Cambiar los permisos de los perfiles" };
+
+    /// <summary>Solo lo que el plan del negocio incluye.</summary>
+    private IEnumerable<Roles.Permiso> Visibles => Roles.Configurables.Where(p => p.Clave switch
+    {
+        Roles.PRecaudacion => State.Tiene(FuncionesPlan.ReporteDia),
+        Roles.PFiado => State.Tiene(FuncionesPlan.Fiado),
+        Roles.PMercaderia => State.Tiene(FuncionesPlan.ComprasMayorista) || State.Tiene(FuncionesPlan.PedidosProveedores) || State.Tiene(FuncionesPlan.DeudasProveedores),
+        Roles.PPrecios => State.Tiene(FuncionesPlan.PreciosGrupo) || State.Tiene(FuncionesPlan.ImportarExcel),
+        Roles.PVentaRapida => State.Tiene(FuncionesPlan.VentaRapida),
+        Roles.PReportes => State.Tiene(FuncionesPlan.ReportesProductos),
+        Roles.PPersonal => State.Tiene(FuncionesPlan.Asistencia) || State.Tiene(FuncionesPlan.Tareas),
+        _ => true
+    });
+
+    private bool EsComoSiempre(string perfil) =>
+        elegidos[perfil].SetEquals(Roles.PorDefecto.TryGetValue(perfil, out var d) ? d : Array.Empty<string>());
+
+    protected override async Task OnParametersSetAsync()
+    {
+        cargando = true;
+        try
+        {
+            long id = KioscoId;
+            var k = await Db.From<Kiosco>().Select("id, permisos_roles").Where(x => x.Id == id).Single();
+            guardado = k?.PermisosRoles;
+            faltaScript = false;
+        }
+        catch { guardado = null; faltaScript = true; }
+        Armar();
+        cargando = false;
+    }
+
+    private void Armar()
+    {
+        elegidos = new();
+        foreach (var perfil in new[] { Roles.Encargado, Roles.Vendedor })
+        {
+            if (guardado != null && guardado.TryGetValue(perfil, out var lista))
+                elegidos[perfil] = new HashSet<string>(lista ?? new());
+            else
+                elegidos[perfil] = new HashSet<string>(Roles.PorDefecto.TryGetValue(perfil, out var d) ? d : Array.Empty<string>());
+        }
+    }
+
+    private async Task Cambiar(string perfil, string permiso, ChangeEventArgs e)
+    {
+        bool on = e.Value is bool b && b;
+        if (on) elegidos[perfil].Add(permiso); else elegidos[perfil].Remove(permiso);
+
+        var nombre = Roles.BuscarPermiso(permiso)?.Nombre ?? permiso;
+        await GuardarAsync($"{Roles.Legible(perfil)}: {(on ? "ahora puede" : "ya no puede")} {nombre.ToLower()}");
+    }
+
+    private async Task VolverAFabrica(string perfil)
+    {
+        elegidos[perfil] = new HashSet<string>(Roles.PorDefecto.TryGetValue(perfil, out var d) ? d : Array.Empty<string>());
+        await GuardarAsync($"{Roles.Legible(perfil)}: volvió a lo de fábrica");
+    }
+
+    private async Task GuardarAsync(string mensaje)
+    {
+        guardando = true;
+        try
+        {
+            // se guardan los dos perfiles (así queda claro qué tiene cada uno)
+            var nuevo = elegidos.ToDictionary(x => x.Key, x => x.Value.OrderBy(v => v).ToList());
+            long id = KioscoId;
+            await Db.From<Kiosco>().Where(x => x.Id == id).Set(x => x.PermisosRoles!, nuevo).Update();
+            guardado = nuevo;
+            if (EsMiNegocio)
+            {
+                Roles.CargarPermisos(nuevo);
+                State.NotifyStateChanged();   // el menú se actualiza
+            }
+            avisos.Toast(mensaje, "exito", 2500);
+        }
+        catch (Exception ex)
+        {
+            Armar();   // vuelve a lo que estaba guardado
+            var msg = ex.Message.Contains("permisos_roles") ? "Falta correr el script 38 (_sql\\38.permisos_perfiles.sql)." : ConfiguracionService.MensajeError(ex);
+            await avisos.InformarAsync("No se pudo guardar", msg, "peligro");
+        }
+        finally { guardando = false; }
+    }
+}

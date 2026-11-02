@@ -1,163 +1,306 @@
 ﻿@using BlazorKioscoCompartido.Services
 @using BlazorKioscoCompartido.Models
 @using BlazorKioscoCompartido.Models.DTO
+@using BlazorKioscoCompartido.Components
 @inject AppState State
 @inject Supabase.Client SupaClient
 @inject NavigationManager Nav
 
-<div class="container py-3">
-    <div class="card shadow-sm border-0 rounded-4 max-width-card mx-auto">
+<PedidosEstilos />
+<VentasEstilos />
+<AvisosPagina @ref="avisos" />
 
-        @* === ENCABEZADO === *@
-        <div class="card-header bg-danger text-white text-center py-3 rounded-top-4">
-            <h5 class="mb-0 fw-bold">
-                <i class="bi bi-person-exclamation me-2"></i>Estado de Cuentas Corrientes (Deudores)
-            </h5>
+<div class="container-fluid px-3 py-2 min-vh-100 style-notebook gp-scope gp-page">
+    <EncabezadoPagina Titulo="Deudas (fiado)"
+                      Subtitulo="Quién te debe, cuánto, y cuánto sería a precios de hoy"
+                      IconoClass="bi-people-fill"
+                      ColorBorde="danger"
+                      ColorIcono="danger"
+                      MostrarBotonAyuda="false"
+                      RutaVolver="/productos" />
+
+    <div class="vt-wrap" style="display:flex; flex-direction:column; gap:1rem">
+
+        <div class="gp-seg dd-solapas" role="tablist">
+            <button type="button" class="@(solapa == "deudores" ? "is-active" : "")" @onclick='() => solapa = "deudores"'><i class="bi bi-person-exclamation"></i> Deudores</button>
+            <button type="button" class="@(solapa == "historial" ? "is-active" : "")" @onclick="() => AbrirHistorial(0)"><i class="bi bi-journal-text"></i> Historial y comprobante</button>
         </div>
 
-        <div class="card-body p-3 p-md-4">
-
-            @* === BOTÓN DE ACTUALIZAR / BUSCAR === *@
-            <div class="row g-3 align-items-end mb-3">
-                <div class="col-12">
-                    <button class="btn btn-outline-danger w-100 py-2 fw-bold rounded-3 shadow-sm d-flex align-items-center justify-content-center gap-2"
-                            @onclick="CargarDeudores"
-                            disabled="@cargando">
-                        @if (cargando)
-                        {
-                            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                            <span>Cargando deudores...</span>
-                        }
-                        else
-                        {
-                            <i class="bi bi-arrow-clockwise"></i>
-                            <span>Actualizar Lista de Deudores</span>
-                        }
-                    </button>
-                </div>
+        @if (solapa == "historial")
+        {
+            <HistorialFiado @key="historialDe" PersonaInicial="historialDe" />
+        }
+        else
+        {
+        @* ================= TOTALES ================= *@
+        <div class="vt-caja dd-totales">
+            <div>
+                <span class="vt-caja-label">Te deben (precio de cuando lo sacaron)</span>
+                <div class="vt-caja-total" style="color:#fff">$ @TotalSaldoHistorico.ToString("N2")</div>
             </div>
+            <div class="dd-totales-hoy">
+                <span class="vt-caja-label">A precios de hoy</span>
+                <strong style="color:@(TotalDiferencia > 0 ? "#ffd27a" : "#fff")">$ @TotalSaldoHoy.ToString("N2")</strong>
+                @if (TotalDiferencia > 0)
+                {
+                    <small>+ $ @TotalDiferencia.ToString("N2") por aumentos</small>
+                }
+            </div>
+        </div>
 
-            @* === RESULTADOS (TOTAL ADEUDADO Y LISTA DE DEUDORES) === *@
-            @if (busquedaRealizada)
-            {
-                <div class="mt-4">
-
-                    @* Tarjeta Destacada de Total General Adeudado *@
-                    <div class="bg-danger text-white rounded-4 p-3 text-center mb-4 shadow-sm">
-                        <span class="d-block text-white-50 text-uppercase fw-bold small mb-1">
-                            Total General Pendiente de Cobro
-                        </span>
-                        <h2 class="display-6 fw-bold mb-0">
-                            $ @totalDeudaGeneralPrecioActual.ToString("N2")
-                        </h2>
-                    </div>
-
-                    @* Listado de Deudores *@
-                    <h6 class="fw-bold text-secondary mb-3 d-flex align-items-center gap-2">
-                        <i class="bi bi-people-fill text-danger"></i>
-                        <span>Detalle por Deudor:</span>
-                    </h6>
-
-                    @if (listaDeudores != null && listaDeudores.Any())
+        <section class="gp-card gp-card-pad">
+            <div class="gp-card-head">
+                <span class="gp-bubble" style="background:var(--gp-danger-soft); color:var(--gp-danger)"><i class="bi bi-person-exclamation"></i></span>
+                <div class="vt-head-text">
+                    <h2>Deudores</h2>
+                    <p>@listaDeudores.Count(d => SaldoHistorico(d) > 0) con saldo pendiente</p>
+                </div>
+                <button type="button" class="gp-btn gp-btn-soft gp-btn-sm vt-head-right" disabled="@cargando" @onclick="CargarDeudores">
+                    @if (cargando)
                     {
-                        <div class="list-group list-group-flush border rounded-3 overflow-hidden shadow-sm">
-                            @foreach (var deudor in listaDeudores)
-                            {
-                                <div class="list-group-item d-flex justify-content-between align-items-center py-3 px-3">
-
-                                    @* Nombre e Ícono del Deudor *@
-                                    <div class="d-flex align-items-center gap-2">
-                                        <i class="bi bi-person-circle text-danger fs-4"></i>
-                                        <div>
-                                            <span class="fw-bold text-dark d-block fs-6">@deudor.NombrePersona</span>
-                                            <small class="text-muted d-block" style="font-size: 0.75rem;">
-                                                Cuenta Corriente Activa
-                                            </small>
-                                        </div>
-                                    </div>
-
-                                    @* Monto + Botón Saldar Deuda *@
-                                    <div class="d-flex align-items-center gap-2">
-                                        @* === DEUDA HISTÓRICA (GRIS) === *@
-                                        <span class="badge bg-secondary bg-opacity-10 text-secondary fw-bold fs-6 px-3 py-2 rounded-pill border border-secondary border-opacity-25">
-                                            $ @deudor.DeudaPrecioHistorico.ToString("N2")
-                                        </span>
-
-                                        @* === DEUDA ACTUALIZADA (ROJO) === *@
-                                        <span class="badge bg-danger bg-opacity-10 text-danger fw-bold fs-6 px-3 py-2 rounded-pill border border-danger border-opacity-25">
-                                            $ @deudor.DeudaPrecioActual.ToString("N2")
-                                        </span>
-                                        <button class="btn btn-sm btn-success rounded-3 px-2 py-1 shadow-sm d-flex align-items-center gap-1"
-                                                title="Saldar o cobrar deuda"
-                                                @onclick="() => SaldarDeuda(deudor.PersonaId)">
-                                            <i class="bi bi-cash-coin"></i>
-                                            <span class="d-none d-sm-inline">Saldar</span>
-                                        </button>
-                                    </div>
-
-                                </div>
-                            }
-                        </div>
+                        <span class="gp-spinner" style="width:1rem;height:1rem;border-width:2px"></span>
                     }
                     else
                     {
-                        <div class="alert alert-success text-center border rounded-3 py-3 text-success mb-0">
-                            <i class="bi bi-check-circle-fill me-2"></i> ¡Excelente! No hay clientes ni empleados con deudas pendientes.
-                        </div>
+                        <i class="bi bi-arrow-clockwise"></i>
                     }
+                    <span>Actualizar</span>
+                </button>
+            </div>
 
+            @if (listaDeudores.Count > 5)
+            {
+                <div class="gp-toolbar">
+                    <div class="gp-search">
+                        <i class="bi bi-search"></i>
+                        <input type="text" class="gp-control" placeholder="Buscar por nombre..." @bind="busqueda" @bind:event="oninput" />
+                    </div>
                 </div>
             }
 
-        </div>
+            @if (cargando && !busquedaRealizada)
+            {
+                <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>Cargando deudores...</p></div>
+            }
+            else if (busquedaRealizada && !DeudoresFiltrados.Any())
+            {
+                <div class="gp-empty">
+                    <span class="gp-bubble" style="background:var(--gp-ok-soft); color:var(--gp-ok)"><i class="bi bi-check2-circle"></i></span>
+                    <strong>@(listaDeudores.Any() ? "No hay nadie con ese nombre" : "¡Nadie te debe!")</strong>
+                    <span>@(listaDeudores.Any() ? "Probá con otra búsqueda." : "No hay clientes ni empleados con deudas pendientes.")</span>
+                </div>
+            }
+            else
+            {
+                <div class="dd-lista">
+                    @foreach (var deudor in DeudoresFiltrados)
+                    {
+                        var abonado = Abonado(deudor);
+                        var saldoHist = SaldoHistorico(deudor);
+                        var saldoHoy = SaldoHoy(deudor);
+                        var dif = saldoHoy - saldoHist;
+                        var abierto = abiertoId == deudor.PersonaId;
+
+                        <article class="dd-item @(abierto ? "is-open" : "")">
+                            <div class="dd-head">
+                                <span class="dd-avatar">@Iniciales(deudor.NombrePersona)</span>
+                                <div class="dd-nombre">
+                                    <b>@deudor.NombrePersona</b>
+                                    <small>Sacó $ @deudor.DeudaPrecioHistorico.ToString("N2")@(abonado > 0 ? $" · entregó $ {abonado:N2}" : "")</small>
+                                </div>
+                                <button type="button" class="gp-btn gp-btn-ok gp-btn-sm dd-cobrar" @onclick="() => SaldarDeuda(deudor.PersonaId)">
+                                    <i class="bi bi-cash-coin"></i> Cobrar
+                                </button>
+                            </div>
+
+                            <div class="dd-saldos">
+                                <div class="dd-saldo">
+                                    <span>Debe (precio de cuando lo sacó)</span>
+                                    <b>$ @saldoHist.ToString("N2")</b>
+                                </div>
+                                <div class="dd-saldo @(dif > 0 ? "is-sube" : "")">
+                                    <span>A precios de hoy</span>
+                                    <b>$ @saldoHoy.ToString("N2")</b>
+                                    @if (dif > 0)
+                                    {
+                                        <em><i class="bi bi-arrow-up-right"></i> + $ @dif.ToString("N2")@(saldoHist > 0 ? $" ({dif / saldoHist * 100m:0.#}%)" : "")</em>
+                                    }
+                                    else if (dif < 0)
+                                    {
+                                        <em class="baja"><i class="bi bi-arrow-down-right"></i> $ @Math.Abs(dif).ToString("N2") menos</em>
+                                    }
+                                    else
+                                    {
+                                        <em class="igual">Sin cambios de precio</em>
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="dd-links">
+                                <button type="button" class="dd-ver" @onclick="() => AlternarDetalle(deudor.PersonaId)">
+                                    <i class="bi @(abierto ? "bi-chevron-up" : "bi-list-ul")"></i> @(abierto ? "Ocultar" : "Ver qué debe y qué aumentó")
+                                </button>
+                                <button type="button" class="dd-ver" @onclick="() => AbrirHistorial(deudor.PersonaId)">
+                                    <i class="bi bi-journal-text"></i> Historial y comprobante
+                                </button>
+                            </div>
+
+                            @if (abierto)
+                            {
+                                @if (cargandoDetalle)
+                                {
+                                    <div class="gp-banner is-neutral" style="margin-top:.6rem"><span class="gp-spinner"></span><p>Cargando...</p></div>
+                                }
+                                else if (!detalleAbierto.Any())
+                                {
+                                    <div class="gp-hint" style="margin-top:.6rem"><i class="bi bi-info-circle"></i> No hay productos pendientes para mostrar.</div>
+                                }
+                                else
+                                {
+                                    <ul class="dd-det">
+                                        @foreach (var it in detalleAbierto)
+                                        {
+                                            var subio = it.SubtotalActual > it.SubtotalHistorico;
+                                            <li class="@(subio ? "is-sube" : "")">
+                                                <div class="dd-det-nom">
+                                                    <b>@(it.Producto ?? ("Producto #" + it.ProductoId))</b>
+                                                    <small>@it.Fecha.ToString("dd/MM/yyyy")</small>
+                                                </div>
+                                                <div class="dd-det-montos">
+                                                    <span class="hist">$ @it.SubtotalHistorico.ToString("N2")</span>
+                                                    @if (it.SubtotalActual != it.SubtotalHistorico)
+                                                    {
+                                                        <i class="bi bi-arrow-right"></i>
+                                                        <span class="hoy">$ @it.SubtotalActual.ToString("N2")</span>
+                                                    }
+                                                </div>
+                                            </li>
+                                        }
+                                    </ul>
+                                    <div class="gp-hint" style="margin-top:.5rem; font-size:.78rem"><i class="bi bi-info-circle" style="color:var(--gp-primary)"></i> A la izquierda, lo que valía cuando lo sacó; a la derecha, lo que vale hoy.</div>
+                                }
+                            }
+                        </article>
+                    }
+                </div>
+            }
+        </section>
+        }
     </div>
 </div>
 
 <style>
-    .max-width-card {
-        max-width: 550px;
+    .dd-solapas { align-self: flex-start; }
+    .dd-solapas button { display: inline-flex; align-items: center; gap: .4rem; }
+    .dd-links { display: flex; flex-wrap: wrap; gap: .3rem 1.2rem; }
+    .dd-totales { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 1rem; }
+    .dd-totales-hoy { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+    .dd-totales-hoy strong { font-size: 1.5rem; font-weight: 900; }
+    .dd-totales-hoy small { color: #ffd27a; font-weight: 800; font-size: .8rem; }
+
+    .dd-lista { display: flex; flex-direction: column; gap: .7rem; }
+    .dd-item { padding: .85rem; border: 1px solid var(--gp-line); border-radius: 16px; background: #fff; }
+    .dd-item.is-open { border-color: var(--gp-primary-line); box-shadow: var(--gp-shadow); }
+    .dd-head { display: flex; align-items: center; gap: .7rem; }
+    .dd-avatar { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 2.7rem; height: 2.7rem; border-radius: 50%; background: var(--gp-danger-soft); color: var(--gp-danger); font-weight: 900; font-size: .95rem; }
+    .dd-nombre { flex: 1 1 auto; min-width: 0; }
+    .dd-nombre b { display: block; font-weight: 900; font-size: 1rem; text-transform: uppercase; }
+    .dd-nombre small { color: var(--gp-muted); font-weight: 600; font-size: .78rem; }
+    .dd-cobrar { flex: none; }
+
+    .dd-saldos { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin-top: .75rem; }
+    .dd-saldo { display: flex; flex-direction: column; padding: .55rem .7rem; border-radius: 12px; background: #f6f7fb; border: 1px solid transparent; }
+    .dd-saldo span { color: var(--gp-muted); font-size: .72rem; font-weight: 700; }
+    .dd-saldo b { font-size: 1.15rem; font-weight: 900; color: var(--gp-text); }
+    .dd-saldo em { font-style: normal; font-size: .74rem; font-weight: 800; color: var(--gp-warn); }
+    .dd-saldo em.baja { color: var(--gp-ok); }
+    .dd-saldo em.igual { color: var(--gp-muted); font-weight: 600; }
+    .dd-saldo.is-sube { background: var(--gp-warn-soft); border-color: var(--gp-warn-line); }
+    .dd-saldo.is-sube b { color: var(--gp-warn); }
+
+    .dd-ver { display: inline-flex; align-items: center; gap: .4rem; margin-top: .6rem; padding: 0; border: 0; background: none; color: var(--gp-primary); font: inherit; font-size: .84rem; font-weight: 800; cursor: pointer; }
+    .dd-det { display: flex; flex-direction: column; gap: .3rem; margin: .6rem 0 0; padding: 0; list-style: none; max-height: 340px; overflow: auto; }
+    .dd-det li { display: flex; align-items: center; gap: .6rem; padding: .45rem .6rem; border: 1px solid var(--gp-line); border-radius: 10px; }
+    .dd-det li.is-sube { border-color: var(--gp-warn-line); background: #fffaf0; }
+    .dd-det-nom { flex: 1 1 auto; min-width: 0; }
+    .dd-det-nom b { display: block; font-weight: 800; font-size: .84rem; text-transform: uppercase; }
+    .dd-det-nom small { color: var(--gp-muted); font-weight: 600; font-size: .72rem; }
+    .dd-det-montos { flex: none; display: flex; align-items: center; gap: .35rem; font-weight: 800; font-size: .85rem; }
+    .dd-det-montos .hist { color: var(--gp-muted); }
+    .dd-det-montos i { color: var(--gp-muted); font-size: .75rem; }
+    .dd-det-montos .hoy { color: var(--gp-warn); }
+
+    @@media (max-width: 575.98px) {
+        .dd-head { flex-wrap: wrap; }
+        .dd-nombre { flex-basis: calc(100% - 3.5rem); }
+        .dd-cobrar { width: 100%; justify-content: center; order: 3; }
+        .dd-saldos { order: 2; }
+        .dd-saldo b { font-size: 1rem; }
+        .dd-totales-hoy { align-items: flex-start; text-align: left; }
     }
 </style>
 
 @code {
-    private decimal totalDeudaGeneralPrecioActual = 0m;
-    private decimal totalDeudaGeneralPrecioHistorico = 0m;
+    private AvisosPagina avisos = default!;
+    private string solapa = "deudores";
+    private long historialDe;
+
+    /// <summary>Abre la solapa Historial (con ese cliente ya elegido, si viene de un deudor).</summary>
+    private void AbrirHistorial(long personaId)
+    {
+        historialDe = personaId;
+        solapa = "historial";
+    }
     private List<DeudorDto> listaDeudores = new();
     private bool cargando = false;
     private bool busquedaRealizada = false;
+    private string busqueda = "";
+
+    private long abiertoId = 0;
+    private bool cargandoDetalle = false;
+    private List<DeudasPendientesDetalladoDTO> detalleAbierto = new();
+
+    // Lo entregado viene en negativo desde la vista
+    private static decimal Abonado(DeudorDto d) => Math.Abs(d.TotalPagoEntregado);
+    private static decimal SaldoHistorico(DeudorDto d) => Math.Max(0, d.DeudaPrecioHistorico - Abonado(d));
+    private static decimal SaldoHoy(DeudorDto d) => Math.Max(0, d.DeudaPrecioActual - Abonado(d));
+
+    // antes el total de arriba sumaba la deuda a precio actual SIN restar lo que ya entregaron
+    private decimal TotalSaldoHistorico => listaDeudores.Sum(d => SaldoHistorico(d));
+    private decimal TotalSaldoHoy => listaDeudores.Sum(d => SaldoHoy(d));
+    private decimal TotalDiferencia => TotalSaldoHoy - TotalSaldoHistorico;
+
+    private IEnumerable<DeudorDto> DeudoresFiltrados => listaDeudores
+        .Where(d => string.IsNullOrWhiteSpace(busqueda) || d.NombrePersona.Contains(busqueda, StringComparison.OrdinalIgnoreCase))
+        .OrderByDescending(d => SaldoHistorico(d));
 
     protected override async Task OnInitializedAsync()
     {
+        // solo el dueño y los perfiles con permiso de fiado (aunque escriban la dirección a mano)
+        if (!Roles.VeFiado(State.UsuarioRol))
+        { Nav.NavigateTo("/productos"); return; }
         await CargarDeudores();
     }
 
     private async Task CargarDeudores()
     {
         cargando = true;
-        busquedaRealizada = false;
-
         try
         {
             long kioscoId = State.KioscoId;
-            if (kioscoId == 0) kioscoId = 1;
-
-            // Consultamos la vista de deudores en Supabase filtrando por Kiosco
             var respuesta = await SupaClient
                 .From<DeudorDto>()
                 .Where(x => x.KioscoId == kioscoId)
                 .Get();
 
             listaDeudores = respuesta.Models ?? new List<DeudorDto>();
-
-            // Calculamos el Total General de la suma de todas las deudas
-            totalDeudaGeneralPrecioActual = listaDeudores.Sum(x => x.DeudaPrecioActual);
-            totalDeudaGeneralPrecioHistorico = listaDeudores.Sum(x => x.DeudaPrecioHistorico);
-
             busquedaRealizada = true;
+
+            if (abiertoId > 0) await CargarDetalleAsync(abiertoId);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error al cargar el listado de deudores: {ex.Message}");
+            await avisos.InformarAsync("No se pudo cargar el listado de deudores", ex.Message, "peligro");
         }
         finally
         {
@@ -165,9 +308,45 @@
         }
     }
 
+    private async Task AlternarDetalle(long personaId)
+    {
+        if (abiertoId == personaId) { abiertoId = 0; return; }
+        abiertoId = personaId;
+        await CargarDetalleAsync(personaId);
+    }
+
+    private async Task CargarDetalleAsync(long personaId)
+    {
+        cargandoDetalle = true;
+        detalleAbierto = new();
+        try
+        {
+            long kioscoId = State.KioscoId;
+            var res = await SupaClient.From<DeudasPendientesDetalladoDTO>()
+                .Where(x => x.KioscoId == kioscoId)
+                .Where(x => x.PersonaId == personaId)
+                .Get();
+            detalleAbierto = (res.Models ?? new()).OrderBy(x => x.Fecha).ToList();
+        }
+        catch (Exception ex)
+        {
+            avisos.Toast("No se pudo cargar el detalle: " + ex.Message, "peligro", 5000);
+        }
+        finally
+        {
+            cargandoDetalle = false;
+        }
+    }
+
+    private static string Iniciales(string nombre)
+    {
+        var partes = (nombre ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (partes.Length == 0) return "?";
+        return partes.Length == 1 ? partes[0][..1].ToUpper() : (partes[0][..1] + partes[1][..1]).ToUpper();
+    }
+
     private void SaldarDeuda(long personaId)
     {
-        // Redirige a la pantalla de cobro enviando el ID del deudor
         Nav.NavigateTo($"/cobrar-deuda/{personaId}");
     }
 }

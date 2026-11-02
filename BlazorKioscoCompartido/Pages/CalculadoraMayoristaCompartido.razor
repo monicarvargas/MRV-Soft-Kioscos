@@ -1,0 +1,696 @@
+﻿@using BlazorKioscoCompartido.Components
+@using BlazorKioscoCompartido.Models
+@using BlazorKioscoCompartido.Models.DTO
+@using BlazorKioscoCompartido.Services
+@using System.Globalization
+@using Supabase
+@inject Client SupaClient
+@inject AppState State
+<link href="_content/BlazorKioscoCompartido/css/barra-fija.css" rel="stylesheet" />
+
+<AvisosPagina @ref="avisos" />
+
+<div class="cm-wrap con-barra-fija gp-scope" style="padding-bottom: 7rem;">
+
+    @if (cargandoInicio)
+    {
+        <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>Verificando listas pendientes...</p></div>
+    }
+
+    <!-- RECUPERACIÓN DE UNA LISTA PENDIENTE -->
+    @if (!cargandoInicio && listaPendienteEncontrada && !listaCargada)
+    {
+        <section class="gp-card gp-card-pad mb-3" style="border-color: var(--gp-warn-line); background: var(--gp-warn-soft);">
+            <div class="gp-card-head">
+                <span class="gp-bubble" style="background:#fff; color: var(--gp-warn);"><i class="bi bi-exclamation-triangle-fill"></i></span>
+                <h2>Tenés una compra sin cerrar</h2>
+            </div>
+            <p class="gp-muted" style="margin:0 0 1rem;">
+                Encontramos una lista con <b>@detallesPendientesTemp.Count productos</b> por
+                <b style="color: var(--gp-ok)">$@((compraActiva?.TotalCompra ?? 0).ToString("N2", cultura))</b>.
+            </p>
+            <div class="gp-btn-group">
+                <button type="button" class="gp-btn gp-btn-ok" @onclick="ContinuarListaPendiente"><i class="bi bi-play-circle-fill"></i> Continuar lista</button>
+                <button type="button" class="gp-btn gp-btn-danger-soft" @onclick="DescartarListaPendienteAsync"><i class="bi bi-trash"></i> Descartar</button>
+            </div>
+        </section>
+    }
+
+    <!-- ESCÁNER -->
+    <section class="gp-card gp-card-pad mb-3">
+        <label class="gp-field-label" for="cmScan"><i class="bi bi-upc-scan"></i> Escaneá o tipeá el código de barras</label>
+        <div class="cm-scan">
+            <input id="cmScan" @ref="inputEscaner" type="text" class="gp-control" autocomplete="off"
+                   placeholder="Escaneá un producto..."
+                   @bind="codigoInput" @bind:event="oninput" @onkeyup="OnCodigoKeyUp" />
+            <button type="button" class="gp-btn gp-btn-primary" disabled="@buscando" @onclick="BuscarOEscanearCodigo">
+                @if (buscando) { <span class="gp-spinner" style="width:1rem;height:1rem;border-width:2px;border-color:rgba(255,255,255,.4);border-top-color:#fff"></span> }
+                else { <i class="bi bi-search"></i> }
+                <span class="d-none d-sm-inline">Buscar</span>
+            </button>
+        </div>
+    </section>
+
+    <!-- LISTA DE LO QUE SE VA LLEVANDO -->
+    <section class="gp-card gp-card-pad">
+        <div class="gp-card-head" style="margin-bottom:.9rem">
+            <span class="gp-bubble gp-bubble-sm"><i class="bi bi-cart3"></i></span>
+            <h2 style="font-size:1.1rem">Productos cargados (@listaCompra.Count)</h2>
+            @if (listaCompra.Any())
+            {
+                <span class="gp-pill is-env" style="margin-left:auto">Guardado</span>
+            }
+        </div>
+
+        @if (!listaCompra.Any())
+        {
+            <div class="gp-empty">
+                <span class="gp-bubble"><i class="bi bi-basket"></i></span>
+                <strong>Todavía no cargaste nada</strong>
+                <span>Escaneá un código de barras para empezar. Te va a preguntar la cantidad y el costo.</span>
+            </div>
+        }
+        else
+        {
+            <ul class="cm-list">
+                @foreach (var item in listaCompra)
+                {
+                    <li>
+                        <div class="cm-item" role="button" tabindex="0" title="Tocá para cambiar cantidad o costo"
+                             @onclick="() => AbrirModal(item, ModoEditar)" @onkeydown="e => OnItemKey(e, item)">
+                            <span class="cm-item-qty">@item.Cantidad</span>
+                            <div class="cm-item-info">
+                                <div class="cm-item-name">@item.Nombre</div>
+                                <div class="cm-item-sub">
+                                    @item.Cantidad x $@item.PrecioCosto.ToString("N2", cultura)
+                                    @if (item.EsNuevoEnBD) { <span class="cm-tag">Nuevo</span> }
+                                </div>
+                            </div>
+                            <span class="cm-item-total">$@item.Subtotal.ToString("N2", cultura)</span>
+                            <button type="button" class="gp-btn gp-btn-danger-soft gp-btn-sm gp-btn-icon" title="Quitar de la lista" aria-label="Quitar"
+                                    @onclick="() => EliminarItemAsync(item)" @onclick:stopPropagation="true" @onkeydown:stopPropagation="true">
+                                <i class="bi bi-trash3-fill"></i>
+                            </button>
+                        </div>
+                    </li>
+                }
+            </ul>
+        }
+    </section>
+</div>
+
+<!-- BARRA INFERIOR FIJA CON EL TOTAL -->
+<div class="barra-fija-inferior bg-white border-top shadow-lg p-2 gp-scope">
+    <div class="cm-total-inner">
+        <div>
+            <span class="cm-total-label">Total mayorista</span>
+            <span class="cm-total-num">$@TotalCompra.ToString("N2", cultura)</span>
+        </div>
+        <button type="button" class="gp-btn gp-btn-ok" disabled="@(!listaCompra.Any())" @onclick="CerrarListaAsync">
+            <i class="bi bi-check-circle-fill"></i> Cerrar lista
+        </button>
+    </div>
+</div>
+
+<!-- VENTANA: CANTIDAD Y COSTO -->
+@if (modalAbierto && modalItem != null)
+{
+    <div class="gp-scope gp-modal-backdrop" @onclick="CerrarModal">
+        <div class="gp-modal" role="dialog" aria-modal="true" aria-labelledby="cmModalTitulo" style="max-width: 28rem;"
+             @onclick:stopPropagation="true" @onkeydown="OnModalKey">
+            <div class="gp-modal-head">
+                <span class="gp-bubble gp-bubble-sm"><i class="bi @(modalModo == ModoEditar ? "bi-pencil-square" : "bi-cart-plus")"></i></span>
+                <div style="min-width:0; flex:1 1 auto">
+                    @if (modalItem.EsNuevoEnBD && modalModo == ModoAgregar)
+                    {
+                        <span class="cm-tag" style="margin:0 0 .3rem">Producto nuevo</span>
+                        <input id="cmModalTitulo" type="text" class="gp-control cm-modal-name-input" placeholder="Nombre del producto..." maxlength="120"
+                               @bind="modalNombre" @bind:event="oninput" @ref="inputNombreModal" />
+                    }
+                    else
+                    {
+                        <h3 id="cmModalTitulo" class="cm-modal-name">@modalItem.Nombre</h3>
+                    }
+                    <p style="margin:.2rem 0 0">
+                        @if (!string.IsNullOrEmpty(modalItem.CodigoBarras)) { <span>Cód. @modalItem.CodigoBarras</span> }
+                        @if (modalModo == ModoSumar) { <span> · Ya tenés <b>@modalItem.Cantidad</b> en la lista</span> }
+                    </p>
+                </div>
+                <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm gp-btn-icon gp-modal-x" aria-label="Cerrar" @onclick="CerrarModal"><i class="bi bi-x-lg"></i></button>
+            </div>
+
+            <div class="gp-modal-body">
+                <div class="cm-modal-grid">
+                    <div class="gp-field">
+                        <label class="gp-field-label" for="cmCant"><i class="bi bi-hash"></i> @(modalModo == ModoSumar ? "Cantidad a sumar" : "Cantidad")</label>
+                        <div class="cm-stepper">
+                            <button type="button" class="gp-btn gp-btn-outline" aria-label="Menos" @onclick="() => CambiarCantidadModal(-1)">−</button>
+                            <input id="cmCant" type="number" min="1" step="1" class="gp-control" @ref="inputCantidadModal"
+                                   @bind="modalCantidad" @bind:event="oninput" onclick="this.select();" />
+                            <button type="button" class="gp-btn gp-btn-outline" aria-label="Más" @onclick="() => CambiarCantidadModal(1)">+</button>
+                        </div>
+                    </div>
+                    <div class="gp-field">
+                        <label class="gp-field-label" for="cmCosto"><i class="bi bi-currency-dollar"></i> Precio de costo</label>
+                        <div class="cm-money">
+                            <span>$</span>
+                            <InputMonto id="cmCosto" class="gp-control" Placeholder="0,00" Value="modalCosto" ValueChanged="v => modalCosto = v ?? 0" />
+                        </div>
+                        @if (modalCostoAnterior > 0 && modalCosto > 0 && modalCosto != modalCostoAnterior)
+                        {
+                            var dif = (modalCosto - modalCostoAnterior) / modalCostoAnterior * 100m;
+                            <span class="cm-delta @(dif > 0 ? "up" : "down")">
+                                <i class="bi @(dif > 0 ? "bi-arrow-up-right" : "bi-arrow-down-right")"></i>
+                                @(dif > 0 ? "+" : "")@dif.ToString("0.#", cultura)% (antes $@modalCostoAnterior.ToString("N2", cultura))
+                            </span>
+                        }
+                        else if (modalCostoAnterior > 0)
+                        {
+                            <span class="gp-muted" style="display:block; margin-top:.45rem; font-size:.78rem">Costo anterior: $@modalCostoAnterior.ToString("N2", cultura)</span>
+                        }
+                    </div>
+                </div>
+
+                <div class="cm-modal-sub">
+                    <span>Subtotal</span>
+                    <strong>$@((modalCantidad * modalCosto).ToString("N2", cultura))</strong>
+                </div>
+            </div>
+
+            <div class="gp-modal-foot">
+                <button type="button" class="gp-btn gp-btn-ghost" @onclick="CerrarModal">Cancelar</button>
+                <button type="button" class="gp-btn gp-btn-ok" disabled="@cargandoGuardado" @onclick="GuardarModalAsync">
+                    @if (cargandoGuardado)
+                    {
+                        <span class="gp-spinner" style="width:1rem;height:1rem;border-width:2px;border-color:rgba(255,255,255,.4);border-top-color:#fff"></span> <span>Guardando...</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-check2-circle"></i> <span>@(modalModo == ModoEditar ? "Guardar cambios" : "Agregar a la lista")</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private const string ModoAgregar = "agregar";   // producto que todavía no está en la lista
+    private const string ModoSumar = "sumar";       // ya está en la lista: se suma cantidad
+    private const string ModoEditar = "editar";     // se toca un renglón para corregirlo
+
+    /// <summary>Se cerró la lista: la página principal pasa a "Procesar compras" con esta compra seleccionada.</summary>
+    [Parameter] public EventCallback<long> OnListaCerrada { get; set; }
+    /// <summary>Cambió algo que afecta al contador de compras pendientes.</summary>
+    [Parameter] public EventCallback OnCambioPendientes { get; set; }
+
+    private AvisosPagina avisos = default!;
+    private readonly CultureInfo cultura = CultureInfo.GetCultureInfo("es-AR");
+
+    private ElementReference? inputEscaner;
+    private ElementReference inputCantidadModal;
+    private ElementReference inputNombreModal;
+    private string codigoInput = "";
+    private List<ItemCompraMayorista> listaCompra = new();
+    private List<CompraMayoristaDetalle> detallesPendientesTemp = new();
+    private CompraMayorista? compraActiva;
+    private bool cargandoInicio = true;
+    private bool cargandoGuardado = false;
+    private bool buscando = false;
+    private bool listaPendienteEncontrada = false;
+    private bool listaCargada = false;
+    private bool primeraCargaRealizada = false;
+    private decimal TotalCompra => listaCompra.Sum(x => x.Subtotal);
+
+    // Ventana de cantidad / costo
+    private bool modalAbierto;
+    private bool enfocarModal;
+    private string modalModo = ModoAgregar;
+    private ItemCompraMayorista? modalItem;
+    private string modalNombre = "";
+    private int modalCantidad = 1;
+    private decimal modalCosto;
+    private decimal modalCostoAnterior;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !primeraCargaRealizada)
+        {
+            primeraCargaRealizada = true;
+            await VerificarListaPendiente();
+            return;
+        }
+
+        if (enfocarModal && modalAbierto)
+        {
+            enfocarModal = false;
+            try
+            {
+                // Producto nuevo: primero el nombre; si no, directo a la cantidad (lista para escribir y Enter)
+                if (modalItem != null && modalItem.EsNuevoEnBD && modalModo == ModoAgregar)
+                    await inputNombreModal.FocusAsync();
+                else
+                    await inputCantidadModal.FocusAsync();
+            }
+            catch { /* sin foco no pasa nada */ }
+        }
+    }
+
+    private async Task EnfocarEscanerAsync()
+    {
+        try
+        {
+            await Task.Delay(100);
+            if (inputEscaner.HasValue && !modalAbierto)
+                await inputEscaner.Value.FocusAsync();
+        }
+        catch (Exception) { }
+    }
+
+    // ======================= LISTA PENDIENTE =======================
+
+    private async Task VerificarListaPendiente()
+    {
+        try
+        {
+            cargandoInicio = true;
+
+            if (State == null || SupaClient == null) return;
+            long kioscoIdActual = State.KioscoId;
+            if (kioscoIdActual == 0) return;
+
+            var resHeader = await SupaClient
+                .From<CompraMayorista>()
+                .Where(c => c.KioscoId == kioscoIdActual && c.Estado == CompraEstado.EnCurso)
+                .Order("fecha", Supabase.Postgrest.Constants.Ordering.Descending)
+                .Get();
+
+            compraActiva = resHeader?.Models?.FirstOrDefault();
+
+            if (compraActiva != null)
+            {
+                var resDetalles = await SupaClient
+                    .From<CompraMayoristaDetalle>()
+                    .Where(d => d.CompraId == compraActiva.Id)
+                    .Order("id", Supabase.Postgrest.Constants.Ordering.Descending)
+                    .Get();
+
+                detallesPendientesTemp = resDetalles?.Models ?? new List<CompraMayoristaDetalle>();
+
+                if (detallesPendientesTemp.Any())
+                    listaPendienteEncontrada = true;
+                else
+                    compraActiva = null;   // cabecera vacía: se arranca de cero
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error al verificar lista pendiente: {ex}");
+        }
+        finally
+        {
+            cargandoInicio = false;
+            StateHasChanged();
+            await EnfocarEscanerAsync();
+        }
+    }
+
+    private void ContinuarListaPendiente()
+    {
+        if (detallesPendientesTemp != null && detallesPendientesTemp.Any())
+        {
+            listaCompra = detallesPendientesTemp.Select(d => new ItemCompraMayorista
+            {
+                DetalleIdBD = d.Id,
+                ProductoId = d.ProductoId,
+                CodigoBarras = d.CodigoBarras ?? "",
+                Nombre = d.NombreProducto ?? "SIN NOMBRE",
+                PrecioCosto = d.PrecioCosto,
+                Cantidad = d.Cantidad,
+                EsNuevoEnBD = d.EsNuevo
+            }).ToList();
+
+            listaCargada = true;
+            listaPendienteEncontrada = false;
+            _ = EnfocarEscanerAsync();
+        }
+    }
+
+    /// <summary>Descarta la lista pendiente de verdad: borra la compra y sus renglones.</summary>
+    private async Task DescartarListaPendienteAsync()
+    {
+        if (!await avisos.ConfirmarAsync("¿Descartar la lista?",
+                $"Se van a eliminar los {detallesPendientesTemp.Count} productos cargados. No se puede deshacer.", "Descartar")) return;
+
+        try
+        {
+            if (compraActiva != null)
+            {
+                var id = compraActiva.Id;
+                await SupaClient.From<CompraMayoristaDetalle>().Where(d => d.CompraId == id).Delete();
+                await SupaClient.From<CompraMayorista>().Where(c => c.Id == id).Delete();
+            }
+
+            LimpiarEstado();
+            avisos.Toast("Lista descartada", "exito");
+            await OnCambioPendientes.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudo descartar la lista", ex.Message, "peligro");
+        }
+        await EnfocarEscanerAsync();
+    }
+
+    private void LimpiarEstado()
+    {
+        compraActiva = null;
+        listaCompra = new();
+        detallesPendientesTemp = new();
+        modalAbierto = false;
+        modalItem = null;
+        codigoInput = "";
+        listaPendienteEncontrada = false;
+        listaCargada = false;
+    }
+
+    private async Task<CompraMayorista> ObtenerOCrearCabeceraActivaAsync()
+    {
+        if (compraActiva != null) return compraActiva;
+
+        var nuevaCompra = new CompraMayorista
+        {
+            KioscoId = State?.KioscoId ?? 0,
+            Fecha = DateTime.UtcNow,
+            TotalCompra = 0,
+            Procesado = false,
+            Origen = CompraOrigen.Calculadora,
+            Estado = CompraEstado.EnCurso
+        };
+
+        var res = await SupaClient.From<CompraMayorista>().Insert(nuevaCompra);
+        compraActiva = res.Models.First();
+        await OnCambioPendientes.InvokeAsync();
+        return compraActiva;
+    }
+
+    // ======================= ESCANEO =======================
+
+    private async Task OnCodigoKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await BuscarOEscanearCodigo();
+    }
+
+    /// <summary>Busca el código y abre directamente la ventana de cantidad y costo (sin botón "agregar" intermedio).</summary>
+    private async Task BuscarOEscanearCodigo()
+    {
+        if (string.IsNullOrWhiteSpace(codigoInput) || buscando || modalAbierto) return;
+
+        string codigoLimpio = codigoInput.Trim();
+        buscando = true;
+
+        try
+        {
+            // ¿Ya está en la lista? Se ofrece sumar cantidad
+            var enLista = listaCompra.FirstOrDefault(x => x.CodigoBarras == codigoLimpio);
+            if (enLista != null)
+            {
+                AbrirModal(enLista, ModoSumar);
+                return;
+            }
+
+            long kioscoIdActual = State?.KioscoId ?? 0;
+            var response = await SupaClient
+                .From<Producto>()
+                .Where(p => p.CodigoBarras == codigoLimpio && p.KioscoId == kioscoIdActual)
+                .Get();
+
+            var prodExistente = response.Models?.FirstOrDefault();
+
+            var item = prodExistente != null
+                ? new ItemCompraMayorista
+                {
+                    ProductoId = prodExistente.Id,
+                    CodigoBarras = prodExistente.CodigoBarras ?? codigoLimpio,
+                    Nombre = (prodExistente.Nombre ?? "").ToUpper().Trim(),
+                    PrecioCosto = prodExistente.PrecioCosto ?? 0m,
+                    CostoAnteriorBD = prodExistente.PrecioCosto ?? 0m,
+                    Cantidad = 1,
+                    EsNuevoEnBD = false
+                }
+                : new ItemCompraMayorista
+                {
+                    CodigoBarras = codigoLimpio,
+                    Nombre = "",
+                    PrecioCosto = 0m,
+                    CostoAnteriorBD = 0m,
+                    Cantidad = 1,
+                    EsNuevoEnBD = true
+                };
+
+            AbrirModal(item, ModoAgregar);
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudo buscar el producto", ex.Message, "peligro");
+        }
+        finally
+        {
+            buscando = false;
+        }
+    }
+
+    // ======================= VENTANA DE CANTIDAD / COSTO =======================
+
+    private void AbrirModal(ItemCompraMayorista item, string modo)
+    {
+        modalItem = item;
+        modalModo = modo;
+        modalNombre = item.Nombre;
+        modalCosto = item.PrecioCosto;
+        modalCostoAnterior = item.CostoAnteriorBD;
+        modalCantidad = modo == ModoEditar ? item.Cantidad : 1;
+        codigoInput = "";
+        modalAbierto = true;
+        enfocarModal = true;
+    }
+
+    private async Task CerrarModal()
+    {
+        modalAbierto = false;
+        modalItem = null;
+        await EnfocarEscanerAsync();
+    }
+
+    private void CambiarCantidadModal(int delta)
+    {
+        var nueva = modalCantidad + delta;
+        modalCantidad = nueva < 1 ? 1 : nueva;
+    }
+
+    private async Task OnModalKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !cargandoGuardado) await GuardarModalAsync();
+        else if (e.Key == "Escape") await CerrarModal();
+    }
+
+    private async Task OnItemKey(KeyboardEventArgs e, ItemCompraMayorista item)
+    {
+        if (e.Key == "Enter" || e.Key == " ") AbrirModal(item, ModoEditar);
+        await Task.CompletedTask;
+    }
+
+    private async Task GuardarModalAsync()
+    {
+        if (modalItem == null || cargandoGuardado) return;
+
+        var nombre = (modalItem.EsNuevoEnBD && modalModo == ModoAgregar ? modalNombre : modalItem.Nombre)?.ToUpper().Trim() ?? "";
+        if (string.IsNullOrWhiteSpace(nombre))
+        {
+            await avisos.InformarAsync("Falta el nombre", "Escribí el nombre del producto nuevo.", "aviso");
+            return;
+        }
+        if (modalCantidad < 1)
+        {
+            await avisos.InformarAsync("Cantidad incorrecta", "La cantidad tiene que ser 1 o más.", "aviso");
+            return;
+        }
+        if (modalCosto <= 0)
+        {
+            await avisos.InformarAsync("Falta el costo", "Poné el precio de costo (mayor a 0).", "aviso");
+            return;
+        }
+
+        try
+        {
+            cargandoGuardado = true;
+            var cabecera = await ObtenerOCrearCabeceraActivaAsync();
+            var item = modalItem;
+
+            if (modalModo == ModoAgregar)
+            {
+                item.Nombre = nombre;
+                item.Cantidad = modalCantidad;
+                item.PrecioCosto = modalCosto;
+
+                if (item.EsNuevoEnBD)
+                {
+                    long kioscoIdActual = State?.KioscoId ?? 0;
+                    long idFamiliaCalculada = (kioscoIdActual == 5) ? 11 : 1;
+
+                    // El stock arranca en 0: se suma recién al procesar la compra (si no, se contaría dos veces)
+                    var nuevoProducto = new Producto
+                    {
+                        KioscoId = kioscoIdActual,
+                        CodigoBarras = string.IsNullOrWhiteSpace(item.CodigoBarras) ? null : item.CodigoBarras,
+                        Nombre = item.Nombre,
+                        PrecioCosto = item.PrecioCosto,
+                        StockActual = 0,
+                        FamiliaId = idFamiliaCalculada,
+                        Activo = true,
+                        UnidadMedida = "UNIDAD",
+                        FechaActualizacion = DateTime.UtcNow
+                    };
+
+                    var resProd = await SupaClient.From<Producto>().Insert(nuevoProducto);
+                    var prodCreado = resProd.Models?.FirstOrDefault();
+                    if (prodCreado != null) item.ProductoId = prodCreado.Id;
+                }
+
+                var nuevoDetalle = new CompraMayoristaDetalle
+                {
+                    CompraId = cabecera.Id,
+                    ProductoId = item.ProductoId,
+                    CodigoBarras = item.CodigoBarras,
+                    NombreProducto = item.Nombre,
+                    PrecioCosto = item.PrecioCosto,
+                    Cantidad = item.Cantidad,
+                    Subtotal = item.Subtotal,
+                    EsNuevo = item.EsNuevoEnBD,
+                    Procesado = false
+                };
+
+                var resDetalle = await SupaClient.From<CompraMayoristaDetalle>().Insert(nuevoDetalle);
+                var detalleGuardado = resDetalle.Models?.FirstOrDefault();
+                if (detalleGuardado != null) item.DetalleIdBD = detalleGuardado.Id;
+
+                listaCompra.Insert(0, item);
+            }
+            else
+            {
+                if (modalModo == ModoSumar) item.Cantidad += modalCantidad;
+                else item.Cantidad = modalCantidad;
+
+                item.PrecioCosto = modalCosto;
+
+                if (item.DetalleIdBD.HasValue)
+                {
+                    var detalleActualizar = new CompraMayoristaDetalle
+                    {
+                        Id = item.DetalleIdBD.Value,
+                        CompraId = cabecera.Id,
+                        ProductoId = item.ProductoId,
+                        CodigoBarras = item.CodigoBarras,
+                        NombreProducto = item.Nombre,
+                        PrecioCosto = item.PrecioCosto,
+                        Cantidad = item.Cantidad,
+                        Subtotal = item.Subtotal,
+                        EsNuevo = item.EsNuevoEnBD,
+                        Procesado = false
+                    };
+
+                    await SupaClient.From<CompraMayoristaDetalle>().Update(detalleActualizar);
+                }
+
+                // Quita el renglón de su lugar y lo sube arriba, así se ve lo último que se tocó
+                listaCompra.Remove(item);
+                listaCompra.Insert(0, item);
+            }
+
+            cabecera.TotalCompra = TotalCompra;
+            await SupaClient.From<CompraMayorista>().Update(cabecera);
+
+            listaCargada = true;
+            modalAbierto = false;
+            modalItem = null;
+            avisos.Toast($"{nombre}: {listaCompra.First().Cantidad} en la lista", "exito", 1800);
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudo guardar el producto", ex.Message, "peligro");
+        }
+        finally
+        {
+            cargandoGuardado = false;
+            StateHasChanged();
+            if (!modalAbierto) await EnfocarEscanerAsync();
+        }
+    }
+
+    // ======================= QUITAR / CERRAR =======================
+
+    private async Task EliminarItemAsync(ItemCompraMayorista item)
+    {
+        if (!await avisos.ConfirmarAsync("¿Quitar de la lista?", $"Se va a quitar '{item.Nombre}' de la compra.", "Quitar")) return;
+
+        try
+        {
+            if (item.DetalleIdBD.HasValue)
+            {
+                await SupaClient
+                    .From<CompraMayoristaDetalle>()
+                    .Where(d => d.Id == item.DetalleIdBD.Value)
+                    .Delete();
+            }
+
+            listaCompra.Remove(item);
+
+            if (compraActiva != null)
+            {
+                compraActiva.TotalCompra = TotalCompra;
+                await SupaClient.From<CompraMayorista>().Update(compraActiva);
+            }
+
+            avisos.Toast("Producto quitado", "exito", 1800);
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudo quitar el producto", ex.Message, "peligro");
+        }
+        finally
+        {
+            StateHasChanged();
+            await EnfocarEscanerAsync();
+        }
+    }
+
+    /// <summary>Termina de comprar: la lista queda lista para procesar (stock y precios).</summary>
+    private async Task CerrarListaAsync()
+    {
+        if (!listaCompra.Any()) return;
+
+        var mensaje = $"Son {listaCompra.Count} productos por ${TotalCompra.ToString("N2", cultura)}. " +
+                      "Después actualizás stock y precios en \"Procesar compras\".";
+        if (!await avisos.ConfirmarAsync("¿Cerrar la lista?", mensaje, "Cerrar lista", "exito")) return;
+
+        try
+        {
+            if (compraActiva != null)
+            {
+                compraActiva.TotalCompra = TotalCompra;
+                compraActiva.Estado = CompraEstado.Cerrada;
+                await SupaClient.From<CompraMayorista>().Update(compraActiva);
+            }
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudo cerrar la lista", ex.Message, "peligro");
+            return;
+        }
+
+        var id = compraActiva?.Id ?? 0;
+        LimpiarEstado();
+        await OnListaCerrada.InvokeAsync(id);
+        await EnfocarEscanerAsync();
+    }
+}

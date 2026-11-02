@@ -1,241 +1,210 @@
 ﻿@inject BlazorKioscoCompartido.Services.AppState State
 @inject NavigationManager Nav
 @inject Supabase.Client SupaClient
+@inject BlazorKioscoCompartido.Services.PrecioService PrecioServ
 @using BlazorKioscoCompartido.Models
+@using BlazorKioscoCompartido.Models.DTO
+@using BlazorKioscoCompartido.Components
+@using System.Globalization
+@using BlazorKioscoCompartido.Services
 
-<div class="container-fluid px-3 py-2 bg-light min-vh-100 animate__animated animate__fadeIn style-notebook mb-5">
+<PedidosEstilos />
+<ConfigEstilos />
+<ProductoEstilos />
+<VentasEstilos />
+<AvisosPagina @ref="avisos" />
 
-    @* === ENCABEZADO ESTILO CUADERNO === *@
-    <div class="d-flex justify-content-between align-items-center mb-2 bg-white p-2 rounded-3 shadow-sm border-start border-danger border-4">
-        <div class="d-flex align-items-center">
-            <div class="bg-danger text-white p-2 rounded-3 me-2 d-flex align-items-center justify-content-center" style="width: 35px; height: 35px;">
-                <i class="bi bi-journal-bookmark-fill fs-5"></i>
-            </div>
-            <div>
-                <h5 class="mb-0 fw-bold text-dark-custom">Cobro de Cuentas Corrientes / Fiados</h5>
-            </div>
-        </div>
-        <button type="button" class="btn btn-sm btn-outline-secondary d-none d-md-flex align-items-center gap-1 rounded-3 fw-bold" @onclick="Volver">
-            <i class="bi bi-arrow-left"></i> Volver
-        </button>
-    </div>
+<div class="container-fluid px-3 py-2 min-vh-100 style-notebook gp-scope gp-page">
+    <EncabezadoPagina Titulo="Cobrar fiado"
+                      Subtitulo="Cuenta corriente: entregas a cuenta y saldo"
+                      IconoClass="bi-journal-bookmark-fill"
+                      ColorBorde="danger"
+                      ColorIcono="danger"
+                      MostrarBotonAyuda="false"
+                      RutaVolver="@RutaOrigenReporte" />
 
-    <div class="row g-2">
-        @* ============================================================================= *@
-        @* COLUMNA IZQUIERDA: SELECCIÓN DE DEUDOR Y DETALLE DE LO QUE DEBE              *@
-        @* ============================================================================= *@
-        <div class="col-12 col-lg-7">
-
-            @* SELECTOR DE PERSONA / DEUDOR *@
-            <div class="card shadow-sm border-0 rounded-3 mb-2 p-2 bg-white">
-                <label class="form-label text-danger fw-bold x-small-text text-uppercase mb-1">
-                    <i class="bi bi-person-fill me-1"></i> Seleccionar Cliente Deudor
-                </label>
-                <select class="form-select form-select-sm rounded-3 border-secondary fw-bold" @onchange="OnPersonaChanged" value="@personaSeleccionadaId">
-                    <option value="0">-- Seleccione una persona --</option>
-                    @foreach (var persona in listaPersonas)
+    <div class="vt-wrap vt-cols">
+        @* ================= IZQUIERDA ================= *@
+        <div class="vt-col">
+            <section class="gp-card gp-card-pad">
+                <div class="gp-card-head" style="margin-bottom:.7rem">
+                    <span class="gp-bubble gp-bubble-sm" style="background:var(--gp-danger-soft); color:var(--gp-danger)"><i class="bi bi-person-fill"></i></span>
+                    <div class="vt-head-text"><h2 style="font-size:1.05rem">Cliente</h2></div>
+                </div>
+                <select class="gp-control" @onchange="OnPersonaChanged" value="@personaSeleccionadaId">
+                    <option value="0">-- Elegí a quién le cobrás --</option>
+                    @foreach (var persona in listaPersonas.Where(p => p.Habilitado))
                     {
-                        if (persona.Habilitado)
-                        {
-                            <option value="@persona.Id">@persona.Nombre</option>
-                        }
+                        <option value="@persona.Id">@persona.Nombre</option>
                     }
                 </select>
-            </div>
+            </section>
 
             @if (personaSeleccionadaId == 0)
             {
-                <div class="alert alert-info text-center border-0 shadow-sm rounded-3 p-4 my-2">
-                    <i class="bi bi-info-circle-fill text-primary fs-3 d-block mb-2"></i>
-                    <h6 class="fw-bold mb-0">Seleccione un cliente para ver las ventas pendientes de pago y sus productos fiados.</h6>
-                </div>
+                <section class="gp-card gp-card-pad">
+                    <div class="gp-empty">
+                        <span class="gp-bubble"><i class="bi bi-person-check"></i></span>
+                        <strong>Elegí un cliente</strong>
+                        <span>Vas a ver lo que debe, las entregas que ya hizo y el saldo.</span>
+                    </div>
+                </section>
             }
             else if (cargando)
             {
-                <div class="text-center py-4">
-                    <div class="spinner-border text-primary" role="status"></div>
-                    <p class="mt-2 text-muted small fw-bold">Cargando cuenta corriente...</p>
-                </div>
+                <div class="gp-banner is-neutral"><span class="gp-spinner"></span><p>Cargando la cuenta corriente...</p></div>
             }
             else
             {
-                @* TARJETA: PRODUCTOS DEBIDOS *@
-                <div class="card shadow-sm border-0 rounded-3 mb-2">
-                    <div class="card-header bg-white py-2 border-bottom d-flex align-items-center justify-content-between">
-                        <div class="d-flex align-items-center">
-                            <i class="bi bi-box-seam text-danger me-2"></i>
-                            <span class="fw-bold text-dark-custom small">Detalle de Productos Fiados</span>
+                <section class="gp-card gp-card-pad">
+                    <div class="gp-card-head">
+                        <span class="gp-bubble"><i class="bi bi-wallet2"></i></span>
+                        <div class="vt-head-text">
+                            <h2>Registrar una entrega</h2>
+                            <p>Puede pagar todo o una parte. "Descontar" es para descontarle de lo que cobra (empleados).</p>
                         </div>
-                        <span class="badge bg-danger rounded-pill">@listaProductosFiados.Count ítems</span>
                     </div>
-                    <div class="card-body p-0" style="max-height: 220px; overflow-y: auto;">
-                        @if (!listaProductosFiados.Any())
+                    <MediosDePago ModoFiado="true" Restante="@Math.Max(0, saldoPendienteActual)" OnPagoCargado="AgregarPago" />
+                </section>
+
+                <section class="gp-card gp-card-pad">
+                    <div class="gp-card-head">
+                        <span class="gp-bubble" style="background:var(--gp-danger-soft); color:var(--gp-danger)"><i class="bi bi-box-seam"></i></span>
+                        <div class="vt-head-text">
+                            <h2>Lo que debe</h2>
+                            <p>@listaProductosFiados.Count producto(s) fiado(s)</p>
+                        </div>
+                    </div>
+                    <DetalleArticulos Filas="FilasFiadas" AltoMaximo="320px" TextoVacio="No tiene productos fiados" />
+
+                    @if (listaProductosFiados.Any(item => item.EsCombo == true))
+                    {
+                        <div class="cf-section"><i class="bi bi-boxes"></i> Contenido de los combos</div>
+                        @foreach (var item in listaProductosFiados.Where(i => i.EsCombo == true))
                         {
-                            <div class="text-center text-success py-3 small fw-bold">
-                                <i class="bi bi-check-circle-fill me-1"></i> Este cliente no registra deudas pendientes.
+                            <div style="margin:0 0 .6rem; padding-left:.7rem; border-left:3px solid var(--gp-ok-line)">
+                                <div class="gp-muted" style="margin-bottom:.2rem">@item.NombreProducto</div>
+                                <DetalleComboView ComboId="@item.ProductoId" />
                             </div>
                         }
-                        else
-                        {
-                            <table class="table table-sm table-hover align-middle mb-0" style="font-size: 0.85rem;">
-                                <thead class="table-light sticky-top">
-                                    <tr class="text-muted small">
-                                        <th class="ps-3">Producto</th>
-                                        <th class="text-center">Cant.</th>
-                                        <th class="text-end">P. Unit.</th>
-                                        <th class="text-end pe-3">Subtotal</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach (var prod in listaProductosFiados)
-                                    {
-                                        <tr>
-                                            <td class="ps-3 fw-semibold text-uppercase text-dark-custom text-truncate" style="max-width: 180px;">
-                                                @prod.NombreProducto
-                                            </td>
-                                            <td class="text-center fw-bold text-secondary">@prod.Cantidad</td>
-                                            <td class="text-end text-muted">$ @prod.PrecioUnitario.ToString("N2")</td>
-                                            <td class="text-end pe-3 text-danger fw-bold">$ @prod.Subtotal.ToString("N2")</td>
-                                        </tr>
-                                    }
-                                </tbody>
-                            </table>
-                        }
-                    </div>
-                </div>
-
-                @* TARJETA: SELECCIÓN DE FORMA DE PAGO Y PAGO A REGISTRAR *@
-                <div class="card shadow-sm border-0 rounded-3 p-3 mb-2 bg-white">
-                    <span class="text-primary fw-bold x-small-text text-uppercase d-block mb-2">
-                        <i class="bi bi-wallet2 me-1"></i> Seleccione Medio para Recibir el Entrega / Pago
-                    </span>
-
-                    <div class="row row-cols-3 g-1 mb-3">
-                        <div class="col">
-                            <button type="button" class="btn btn-sm w-100 py-2 px-0 d-flex flex-column align-items-center border rounded-3 @(formaPagoSeleccionada == 1 ? "active-efectivo" : "btn-medio-custom")" @onclick='() => SeleccionarMedio(1, "Efectivo")'>
-                                <i class="bi bi-cash fs-5"></i>
-                                <span class="small-font fw-semibold">Efectivo</span>
-                            </button>
-                        </div>
-                        <div class="col">
-                            <button type="button" class="btn btn-sm w-100 py-2 px-0 d-flex flex-column align-items-center border rounded-3 @(formaPagoSeleccionada == 2 ? "active-mercado" : "btn-medio-custom")" @onclick='() => SeleccionarMedio(2, "Mercado Pago")'>
-                                <i class="bi bi-qr-code fs-5"></i>
-                                <span class="small-font fw-semibold">MP</span>
-                            </button>
-                        </div>
-                        <div class="col">
-                            <button type="button" class="btn btn-sm w-100 py-2 px-0 d-flex flex-column align-items-center border rounded-3 @(formaPagoSeleccionada == 3 ? "active-transferencia" : "btn-medio-custom")" @onclick='() => SeleccionarMedio(3, "Transferencia")'>
-                                <i class="bi bi-bank fs-5"></i>
-                                <span class="small-font fw-semibold">Transf.</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    <span class="text-primary fw-bold x-small-text text-uppercase d-block mb-1">
-                        Monto Entregado en: @nombreFormaPagoSeleccionada.ToUpper()
-                    </span>
-                    <div class="row g-2 align-items-center mb-2">
-                        <div class="col-8 col-md-9">
-                            <div class="input-group input-group-sm border rounded-3 overflow-hidden border-secondary shadow-sm">
-                                <span class="input-group-text bg-light text-dark-custom border-0 fw-bold">$</span>
-                                <input type="number" class="form-control border-0 fw-black fs-5 text-end pe-3 text-dark-custom" @bind-value="montoEntregado" @bind-value:event="oninput" placeholder="0,00" />
-                            </div>
-                        </div>
-                        <div class="col-4 col-md-3">
-                            <button type="button" class="btn btn-primary btn-sm w-100 py-2 fw-black rounded-3 text-uppercase shadow-sm" @onclick="CargarSaldoTotal">
-                                Total
-                            </button>
-                        </div>
-                    </div>
-
-                    @* Montos Rápidos *@
-                    <div class="d-flex flex-wrap gap-1 mt-1">
-                        <button type="button" class="btn btn-sm btn-outline-secondary px-2 rounded-3 text-dark-custom bg-white" @onclick="() => CargarMontoRapido(1000)">$ 1.000</button>
-                        <button type="button" class="btn btn-sm btn-outline-secondary px-2 rounded-3 text-dark-custom bg-white" @onclick="() => CargarMontoRapido(5000)">$ 5.000</button>
-                        <button type="button" class="btn btn-sm btn-outline-secondary px-2 rounded-3 text-dark-custom bg-white" @onclick="() => CargarMontoRapido(10000)">$ 10.000</button>
-                        <button type="button" class="btn btn-sm btn-outline-danger px-2 rounded-3 text-danger border-danger bg-white fw-bold" @onclick="CargarSaldoTotal">Pagar Todo</button>
-                    </div>
-                </div>
+                    }
+                </section>
             }
         </div>
 
-        @* ============================================================================= *@
-        @* COLUMNA DERECHA: RESUMEN DE SALDOS Y REGISTRO DE COBRO                         *@
-        @* ============================================================================= *@
-        <div class="col-12 col-lg-5">
+        @* ================= DERECHA ================= *@
+        <div class="vt-col">
             @if (personaSeleccionadaId > 0 && !cargando)
             {
-                @* TARJETA: HISTORIAL DE ENTREGAS / PAGOS PARCIALES PREVIOS *@
-                <div class="card shadow-sm border-0 rounded-3 mb-2">
-                    <div class="card-header bg-white py-2 border-bottom d-flex align-items-center justify-content-between">
-                        <div class="d-flex align-items-center">
-                            <i class="bi bi-clock-history text-primary me-2"></i>
-                            <span class="fw-bold text-dark-custom small">Entregas Parciales Registradas</span>
-                        </div>
+                <section class="gp-card gp-card-pad">
+                    <div class="gp-card-head" style="margin-bottom:.8rem">
+                        <span class="gp-bubble gp-bubble-sm"><i class="bi bi-clock-history"></i></span>
+                        <div class="vt-head-text"><h2 style="font-size:1.05rem">Entregas</h2><p>Las anteriores y las que cargás ahora.</p></div>
                     </div>
-                    <div class="card-body p-0" style="max-height: 120px; overflow-y: auto;">
-                        @if (!historialEntregas.Any())
-                        {
-                            <div class="text-center text-muted py-3 small">
-                                <i class="bi bi-info-circle me-1"></i> No registra entregas parciales previas.
-                            </div>
-                        }
-                        else
-                        {
-                            <table class="table table-sm align-middle mb-0" style="font-size: 0.85rem;">
-                                <tbody>
-                                    @foreach (var entrega in historialEntregas)
+                    @if (!pagosAgregados.Any())
+                    {
+                        <div class="gp-hint"><i class="bi bi-info-circle" style="color:var(--gp-primary)"></i> No hizo entregas a cuenta todavía.</div>
+                    }
+                    else
+                    {
+                        <ul class="vt-pagos">
+                            @foreach (var entrega in pagosAgregados)
+                            {
+                                bool esNueva = entrega.NumeroUnicoIdentificatorio == 0;
+                                <li class="vt-pago @(esNueva ? "" : "is-hist")">
+                                    <i class="bi @(esNueva ? "bi-plus-circle-fill" : "bi-check-circle-fill")" style="@(esNueva ? "" : "color:var(--gp-ok)")"></i>
+                                    <div class="vt-pago-info">
+                                        <b>@entrega.NombreFormaPago</b>
+                                        <small>@(esNueva ? "Nueva · se guarda al confirmar" : entrega.Fecha.ToString("dd/MM/yyyy"))</small>
+                                    </div>
+                                    <span class="vt-pago-monto">$ @entrega.Monto.ToString("N2")</span>
+                                    @if (esNueva)
                                     {
-                                        <tr>
-                                            <td class="ps-3 text-muted">@entrega.Fecha.ToString("dd/MM/yyyy")</td>
-                                            <td class="fw-semibold text-dark-custom">@entrega.NombreFormaPago</td>
-                                            <td class="text-end pe-3 fw-bold text-success">$ @entrega.Monto.ToString("N2")</td>
-                                        </tr>
+                                        <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm gp-btn-icon" title="Quitar" @onclick="() => RemoverPago(entrega)"><i class="bi bi-x-lg"></i></button>
                                     }
-                                </tbody>
-                            </table>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </section>
+
+                @if (difHorario > 0 || difDia > 0)
+                {
+                    <section class="gp-card gp-card-pad">
+                        <div class="gp-card-head" style="margin-bottom:.7rem">
+                            <span class="gp-bubble gp-bubble-sm" style="background:var(--gp-warn-soft); color:var(--gp-warn)"><i class="bi bi-graph-up-arrow"></i></span>
+                            <div class="vt-head-text"><h2 style="font-size:1.05rem">Aumentaron los precios</h2><p>Elegí cómo le cobrás lo que debe.</p></div>
+                        </div>
+                        <div class="cfp-opciones @(HayOpcionDia ? "is-tres" : "")">
+                            <button type="button" class="cfp-op @(!cobrarActualizado ? "is-active" : "")" @onclick='() => ElegirPrecio("")'>
+                                <span>Precio de cuando lo sacó</span>
+                                <b>$ @totalDeudaOriginal.ToString("N2")</b>
+                            </button>
+                            @if (difHorario > 0)
+                            {
+                                <button type="button" class="cfp-op is-hoy @(cobrarActualizado && modoPrecioHoy == "horario" ? "is-active" : "")" @onclick='() => ElegirPrecio("horario")'
+                                        title="Cada cosa con la lista del horario en que la sacó (ej: lo de la noche, a precio noche de hoy)">
+                                    <span>Hoy, según el horario en que lo sacó</span>
+                                    <b>$ @((totalDeudaOriginal + difHorario).ToString("N2"))</b>
+                                    <small>+ $ @difHorario.ToString("N2")</small>
+                                </button>
+                            }
+                            @if (HayOpcionDia)
+                            {
+                                <button type="button" class="cfp-op is-hoy @(cobrarActualizado && modoPrecioHoy == "dia" ? "is-active" : "")" @onclick='() => ElegirPrecio("dia")'
+                                        title="Todo con el precio de venta de hoy (el de día, el más barato)">
+                                    <span>Hoy, todo a precio de día</span>
+                                    <b>$ @((totalDeudaOriginal + difDia).ToString("N2"))</b>
+                                    <small>+ $ @difDia.ToString("N2")</small>
+                                </button>
+                            }
+                        </div>
+                        @if (cobrarActualizado)
+                        {
+                            <div class="gp-hint" style="margin-top:.6rem; font-size:.8rem"><i class="bi bi-info-circle-fill" style="color:var(--gp-primary)"></i> Al registrar el cobro se suma a su cuenta un "ajuste por aumento" de $ @diferenciaAumento.ToString("N2"). Las ventas viejas no se modifican.</div>
                         }
-                    </div>
-                </div>
+                    </section>
+                }
 
-                @* TARJETA CENTRAL NEGRA: CONTROL DE SALDO Y GUARDADO *@
-                <div class="card shadow border-0 rounded-3 bg-dark text-white p-3">
-                    <span class="text-white-50 text-uppercase x-small-text fw-bold d-block">Deuda Original Acumulada</span>
-                    <h3 class="fw-black text-white mb-2 font-monospace">$ @totalDeudaOriginal.ToString("N2")</h3>
+                <div class="vt-caja">
+                    <span class="vt-caja-label">Deuda acumulada@(cobrarActualizado && diferenciaAumento > 0 ? " (a precio de hoy)" : "")</span>
+                    <div class="vt-caja-total" style="color:#fff">$ @TotalACobrar.ToString("N2")</div>
 
-                    <div class="rounded-3 p-2 mb-2" style="background-color: rgba(255,255,255,0.07); font-size: 0.85rem;">
-                        <div class="d-flex justify-content-between mb-1">
-                            <span class="text-white-50">Entregado Previamente:</span>
-                            <span class="fw-bold text-info font-monospace">$ @totalEntregadoPreviamente.ToString("N2")</span>
-                        </div>
-                        <div class="d-flex justify-content-between mb-0">
-                            <span class="text-white-50">Saldo Restante Actual:</span>
-                            <span class="fw-bold text-warning font-monospace">$ @saldoPendienteActual.ToString("N2")</span>
-                        </div>
+                    <div class="vt-caja-filas">
+                        <div class="vt-caja-fila"><span>Entregas anteriores</span><b>$ @TotalEntregasAnteriores.ToString("N2")</b></div>
+                        <div class="vt-caja-fila"><span>Entrega de hoy</span><b class="is-ok">$ @TotalEntregaHoy.ToString("N2")</b></div>
                     </div>
 
-                    <div class="mb-3">
-                        <span class="text-white-50 x-small-text d-block">Nuevo Saldo Tras Esta Entrega</span>
-                        <h3 class="fw-black @(nuevoSaldo < 0 ? "text-danger" : (nuevoSaldo == 0 ? "text-success" : "text-warning")) mb-0 font-monospace">
-                            $ @(nuevoSaldo < 0 ? "0,00 (Excedente: " + Math.Abs(nuevoSaldo).ToString("N2") + ")" : nuevoSaldo.ToString("N2"))
-                        </h3>
+                    <div class="vt-caja-vuelto">
+                        <span class="vt-caja-label">@(saldoPendienteActual < 0 ? "Pagó de más" : "Saldo que queda")</span>
+                        <strong style="color:@(saldoPendienteActual < 0 ? "#ff8a9a" : saldoPendienteActual == 0 ? "#7ee2b8" : "#ffd27a")">
+                            $ @Math.Abs(saldoPendienteActual).ToString("N2")
+                        </strong>
+                        @if (saldoPendienteActual == 0 && TotalACobrar > 0)
+                        {
+                            <small style="color:#7ee2b8; font-weight:800">¡Deuda saldada!</small>
+                        }
                     </div>
 
                     @if (!string.IsNullOrEmpty(mensajeError))
                     {
-                        <div class="alert alert-danger alert-dismissible fade show shadow-sm my-2 fw-bold align-items-center d-flex gap-2" role="alert">
-                            <i class="bi bi-exclamation-triangle-fill fs-5"></i>
-                            <div>@mensajeError</div>
-                            <button type="button" class="btn-close" @onclick="() => mensajeError = null" aria-label="Close"></button>
-                        </div>
+                        <div class="gp-banner is-danger"><i class="bi bi-exclamation-octagon-fill"></i><p>@mensajeError</p></div>
                     }
 
-                    <button type="button" class="btn btn-success w-100 py-3 fw-black rounded-3 shadow fs-5 d-flex align-items-center justify-content-center gap-2 @(montoEntregado > 0 ? "" : "disabled")"
-                            style="background-color: #00875a; border: none;"
-                            @onclick="ProcesarCobroFiado">
-                        <span>REGISTRAR COBRO</span>
-                        <i class="bi bi-check-circle-fill"></i>
+                    <button type="button" class="gp-btn gp-btn-ok" disabled="@(guardando || TotalEntregaHoy <= 0)" @onclick="ProcesarCobroFiado">
+                        @if (guardando)
+                        {
+                            <span class="gp-spinner" style="width:1.1rem;height:1.1rem;border-width:2px"></span> <span>Guardando...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-check-circle-fill"></i> <span>Registrar cobro</span>
+                        }
                     </button>
+                    @if (TotalEntregaHoy <= 0)
+                    {
+                        <div style="margin-top:.6rem; color:rgba(255,255,255,.7); font-size:.82rem; font-weight:600">Cargá primero la entrega de hoy (forma de pago + monto + "Cargar").</div>
+                    }
                 </div>
             }
         </div>
@@ -243,105 +212,117 @@
 </div>
 
 <style>
-    .style-notebook {
-        font-size: 0.95rem;
-        color: #111111;
-        padding-bottom: 25px;
-    }
-
-    .x-small-text {
-        font-size: 0.82rem;
-    }
-
-    .small-font {
-        font-size: 0.75rem;
-    }
-
-    .fw-black {
-        font-weight: 850;
-    }
-
-    .text-dark-custom {
-        color: #111111 !important;
-    }
-
-    .btn-medio-custom {
-        background-color: #ffffff;
-        color: #111111;
-        border-color: #ced4da !important;
-    }
-
-        .btn-medio-custom:hover {
-            background-color: #f8f9fa;
-        }
-
-    .active-efectivo {
-        background-color: #e8f5e9;
-        color: #2e7d32;
-        border-color: #2e7d32 !important;
-        font-weight: bold;
-    }
-
-    .active-mercado {
-        background-color: #e3f2fd;
-        color: #0d6efd;
-        border-color: #0d6efd !important;
-        font-weight: bold;
-    }
-
-    .active-transferencia {
-        background-color: #f3e5f5;
-        color: #7b1fa2;
-        border-color: #7b1fa2 !important;
-        font-weight: bold;
-    }
-
-    .style-notebook input:focus, .style-notebook select:focus {
-        border-color: #000000 !important;
-        box-shadow: 0 0 0 0.2rem rgba(0,0,0,0.1) !important;
-    }
+    .cfp-opciones { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+    .cfp-opciones.is-tres { grid-template-columns: repeat(3, 1fr); }
+    @@media (max-width: 575.98px) { .cfp-opciones.is-tres { grid-template-columns: 1fr; } }
+    .cfp-op { display: flex; flex-direction: column; align-items: flex-start; gap: .1rem; padding: .65rem .75rem; border: 2px solid var(--gp-line); border-radius: 14px; background: #fff; color: var(--gp-text); font: inherit; text-align: left; cursor: pointer; }
+    .cfp-op span { color: var(--gp-muted); font-size: .74rem; font-weight: 800; }
+    .cfp-op b { font-size: 1.1rem; font-weight: 900; }
+    .cfp-op small { color: var(--gp-warn); font-weight: 800; font-size: .74rem; }
+    .cfp-op.is-active { border-color: var(--gp-primary); background: var(--gp-primary-soft); }
+    .cfp-op.is-hoy.is-active { border-color: var(--gp-warn); background: var(--gp-warn-soft); }
+    .cfp-op.is-hoy.is-active b { color: var(--gp-warn); }
 </style>
 
 @code {
-    [Parameter] public string RutaOrigenVentas { get; set; } = "/vender-desktop";
+    [Parameter] public string RutaOrigenReporte { get; set; } = "/reportedeudores";
     [Parameter] public long PersonaId { get; set; } = 0;
 
-    private bool cargando = false;
+    private AvisosPagina avisos = default!;
     private string mensajeError = "";
+    private bool guardando;
 
+    public class PagoTemporal
+    {
+        public long NumeroUnicoIdentificatorio { get; set; }   // > 0: ya está guardado en la base (entrega anterior)
+        public DateTime Fecha { get; set; }
+        public long FormaPagoId { get; set; }
+        public string NombreFormaPago { get; set; } = "";
+        public decimal Monto { get; set; }
+    }
+
+    private List<PagoTemporal> pagosAgregados = new List<PagoTemporal>();
     private List<Persona> listaPersonas = new List<Persona>();
     private long personaSeleccionadaId = 0;
+    private bool cargando = false;
 
-    private long formaPagoSeleccionada = 1;
-    private string nombreFormaPagoSeleccionada = "Efectivo";
-    private decimal montoEntregado = 0;
-
-    // Clases auxiliares para estructurar los datos recuperados
     public class ProductoFiadoItem
     {
         public string NombreProducto { get; set; } = "";
         public decimal Cantidad { get; set; }
         public decimal PrecioUnitario { get; set; }
         public decimal Subtotal { get; set; }
-    }
-
-    public class EntregaParcialItem
-    {
+        public string UnidadMedida { get; set; } = "unidad";
+        public bool? EsCombo { get; set; } = false;
+        public long ProductoId { get; set; }
         public DateTime Fecha { get; set; }
-        public string NombreFormaPago { get; set; } = "";
-        public decimal Monto { get; set; }
+        public bool EsVario { get; set; }
+        public decimal SubtotalHoy { get; set; }
     }
 
     private List<ProductoFiadoItem> listaProductosFiados = new List<ProductoFiadoItem>();
-    private List<EntregaParcialItem> historialEntregas = new List<EntregaParcialItem>();
-
     private decimal totalDeudaOriginal = 0;
-    private decimal totalEntregadoPreviamente = 0;
-    private decimal saldoPendienteActual => totalDeudaOriginal - totalEntregadoPreviamente;
-    private decimal nuevoSaldo => saldoPendienteActual - montoEntregado;
+
+    // ----- precios actualizados -----
+    // totalDeudaOriginal = lo que figura en sus fiados (precio de cuando lo sacó + ajustes que ya se hicieron)
+    // deudaPrecioHoy     = esos mismos fiados recalculados a precio de hoy
+    private decimal deudaPrecioHoy = 0;
+    private decimal diferenciaAumento = 0;     // solo si aumentó
+    private bool cobrarActualizado = false;    // lo elige el dueño
+    // Precio de hoy: "horario" = cada fiado con la lista del horario en que se sacó (noche → precio noche de hoy)
+    //                "dia"     = todo con el precio de venta de hoy (el de día)
+    private string modoPrecioHoy = "horario";
+    private decimal difHorario, difDia;
+    private bool HayOpcionDia => difDia > 0 && Math.Abs(difDia - difHorario) >= 1;
+
+    private void ElegirPrecio(string modo)
+    {
+        cobrarActualizado = modo != "";
+        if (modo != "") modoPrecioHoy = modo;
+        diferenciaAumento = !cobrarActualizado ? (difHorario > 0 ? difHorario : difDia)
+                          : modoPrecioHoy == "dia" ? difDia : difHorario;
+    }
+
+    /// <summary>Lista de precios que correspondía cuando se sacó ese fiado (según la hora de la venta).</summary>
+    private string ColumnaDeLaVenta(long mov)
+    {
+        var v = ventasFiadas.FirstOrDefault(x => x.NumeroUnicoIdentificatorioMovimiento == mov && x.HoraVenta != null);
+        if (v?.HoraVenta is not DateTime h) return "precio_venta";
+        var local = h.Kind == DateTimeKind.Utc ? h.ToLocalTime() : h;
+        return BlazorKioscoCompartido.Services.PrecioService.ColumnaSegunMomento(State.KioscoId, local) ?? "precio_venta";
+    }
+    private decimal TotalACobrar => totalDeudaOriginal + (cobrarActualizado ? diferenciaAumento : 0);
+
+    private decimal totalEntregadoPreviamente => pagosAgregados.Sum(p => p.Monto);
+    private decimal saldoPendienteActual => TotalACobrar - totalEntregadoPreviamente;
+    private decimal TotalEntregasAnteriores => pagosAgregados.Where(p => p.NumeroUnicoIdentificatorio > 0).Sum(p => p.Monto);
+    private decimal TotalEntregaHoy => pagosAgregados.Where(p => p.NumeroUnicoIdentificatorio == 0).Sum(p => p.Monto);
+
+    private List<PagosParcialesxDeudasDTO> ListPagosParcialesEnDB = new();
+    private List<Venta> ventasFiadas = new();
+
+    private List<DetalleArticulos.FilaArticulo> FilasFiadas => listaProductosFiados.Select(i => new DetalleArticulos.FilaArticulo
+    {
+        ProductoId = i.ProductoId,
+        Nombre = i.NombreProducto,
+        UnidadMedida = i.UnidadMedida,
+        Cantidad = i.Cantidad,
+        PrecioUnitario = i.PrecioUnitario,
+        Subtotal = i.Subtotal,
+        EsCombo = i.EsCombo == true,
+        EsVario = i.EsVario,
+        Extra = string.Join(" · ", new[]
+        {
+            i.Fecha > DateTime.MinValue ? "Fiado el " + i.Fecha.ToString("dd/MM/yyyy") : null,
+            i.SubtotalHoy > i.Subtotal ? $"hoy vale $ {i.SubtotalHoy:N2}" : null
+        }.Where(t => t != null))
+    }).ToList();
 
     protected override async Task OnInitializedAsync()
     {
+        // solo el dueño cobra / ve deudas (ni encargado ni vendedor, aunque escriban la dirección a mano)
+        if (!Roles.VeFiado(State.UsuarioRol)) { Nav.NavigateTo("/productos"); return; }
+
         await CargarPersonas();
 
         if (PersonaId > 0)
@@ -355,11 +336,8 @@
     {
         try
         {
-            var res = await SupaClient.From<Persona>().Get();
-            if (res.Models != null)
-            {
-                listaPersonas = res.Models.OrderBy(p => p.Nombre).ToList();
-            }
+            var res = await SupaClient.From<Persona>().Where(f => f.KioscoId == State.KioscoId).Get();
+            listaPersonas = (res.Models ?? new()).OrderBy(p => p.Nombre).ToList();
         }
         catch (Exception ex)
         {
@@ -381,36 +359,53 @@
         if (personaSeleccionadaId == 0) return;
 
         cargando = true;
+        await PrecioServ.AsegurarReglasAsync(State.KioscoId);   // horarios de las listas (precio noche)
         mensajeError = "";
         listaProductosFiados.Clear();
-        historialEntregas.Clear();
+        pagosAgregados.Clear();
         totalDeudaOriginal = 0;
-        totalEntregadoPreviamente = 0;
+        deudaPrecioHoy = 0;
+        diferenciaAumento = 0;
+        difHorario = 0; difDia = 0; modoPrecioHoy = "horario";
+        cobrarActualizado = false;
 
         try
         {
+            long kioscoId = State.KioscoId;
             // 1. Obtener todas las ventas registradas a nombre de la persona
             var resVentas = await SupaClient.From<Venta>()
-                                .Where(v => v.PersonaId == personaSeleccionadaId)
-                                .Get();
+                                        .Where(v => v.KioscoId == kioscoId)
+                                        .Where(v => v.PersonaId == personaSeleccionadaId)
+                                        .Get();
 
             var ventasPersona = resVentas.Models ?? new List<Venta>();
 
-            // Separar las que son Deudas (FormaPagoId == 6 / Fiado) de los Pagos Parciales/Entregas (FormaPagoId != 6)
-            var ventasFiadas = ventasPersona.Where(v => v.FormaPagoId == 6).ToList();
-            var entregasRealizadas = ventasPersona.Where(v => v.FormaPagoId != 6 && (v.Pagado == false)).ToList();
+
+            // cuando el monto de la venta es negativo, significa que es un pago parcial/entrega de dinero que reduce la deuda
+            ventasFiadas = ventasPersona.Where(v => v.Pagado == false).ToList();
+
+            var respuesta_pp = await SupaClient
+                .From<PagosParcialesxDeudasDTO>()
+                .Where(x => x.KioscoId == kioscoId)
+                .Where(x => x.PersonaId == personaSeleccionadaId)
+                .Get();
+
+            ListPagosParcialesEnDB = respuesta_pp.Models ?? new List<PagosParcialesxDeudasDTO>();
+
 
             totalDeudaOriginal = ventasFiadas.Sum(v => v.Total);
-            totalEntregadoPreviamente = entregasRealizadas.Sum(v => v.Total);
 
             // Cargar Historial de Entregas Parciales
-            foreach (var e in entregasRealizadas)
+            foreach (var e in ListPagosParcialesEnDB)
             {
-                historialEntregas.Add(new EntregaParcialItem
+                var nombrePagoEntregado = e.FormaPagoNombre.Equals("Fiado", StringComparison.OrdinalIgnoreCase) ? "Descontado" : e.FormaPagoNombre;
+                pagosAgregados.Add(new PagoTemporal
                 {
                     Fecha = e.Fecha,
-                    NombreFormaPago = ObtenerNombreMedio(e.FormaPagoId),
-                    Monto = e.Total
+                    NombreFormaPago = nombrePagoEntregado, // <-- Obtener el nombre de la forma de pago desde la venta
+                    Monto = Math.Abs(e.TotalPagoEntregado),
+                    NumeroUnicoIdentificatorio = e.NumeroUnicoIdentificatorioMovimiento, // <-- Asignar el NumeroUnicoIdentificatorio para identificar que ya está registrado en la BD
+                    FormaPagoId = e.FormaPagoId
                 });
             }
 
@@ -419,28 +414,145 @@
             {
                 var movsFiados = ventasFiadas.Select(v => v.NumeroUnicoIdentificatorioMovimiento).Distinct().ToList();
 
-                var resDetalles = await SupaClient.From<VentaDetalle>().Get();
-                var detallesFiados = resDetalles.Models
-                                        .Where(d => movsFiados.Contains(d.NumeroUnicoIdentificatorioMovimiento))
-                                        .ToList();
+                // Solo los renglones de ESAS ventas (antes se traían todos los de la base y Supabase corta en 1000 filas)
+                var detallesFiados = new List<VentaDetalle>();
+                foreach (var tanda in movsFiados.Chunk(100))
+                {
+                    var criterio = tanda.Cast<object>().ToList();
+                    var resDet = await SupaClient.From<VentaDetalle>()
+                        .Filter(x => x.NumeroUnicoIdentificatorioMovimiento, Supabase.Postgrest.Constants.Operator.In, criterio)
+                        .Get();
+                    detallesFiados.AddRange(resDet.Models ?? new List<VentaDetalle>());
+                }
 
                 var productosIds = detallesFiados.Select(d => d.ProductoId).Distinct().ToList();
-                var resProductos = await SupaClient.From<Producto>().Get();
-                var dictProductos = resProductos.Models.ToDictionary(p => p.Id, p => p.Nombre);
+
+                // Solo los productos involucrados en la deuda que pertenezcan al kiosco
+                var dictProductos = new Dictionary<long, Producto>();
+                foreach (var tanda in productosIds.Chunk(100))
+                {
+                    var criterio = tanda.Cast<object>().ToList();
+                    var resProd = await SupaClient.From<Producto>()
+                        .Where(x => x.KioscoId == State.KioscoId)
+                        .Filter(x => x.Id, Supabase.Postgrest.Constants.Operator.In, criterio)
+                        .Get();
+                    foreach (var p in resProd.Models ?? new List<Producto>()) dictProductos[p.Id] = p;
+                }
 
                 foreach (var d in detallesFiados)
                 {
+                    var existeProducto = dictProductos.TryGetValue(d.ProductoId, out var prod);
+
+                    string nombreProd = existeProducto ? prod.Nombre : "Producto #" + d.ProductoId;
+
+                    // Si la unidad de medida es nula o vacía, toma "unidad" por defecto
+                    string unidadProd = (existeProducto && !string.IsNullOrWhiteSpace(prod.UnidadMedida))
+                                        ? prod.UnidadMedida
+                                        : "unidad";
+
                     listaProductosFiados.Add(new ProductoFiadoItem
                     {
-                        NombreProducto = dictProductos.ContainsKey(d.ProductoId) ? dictProductos[d.ProductoId] : "Producto #" + d.ProductoId,
+                        NombreProducto = nombreProd,
+                        UnidadMedida = unidadProd, // <-- Asignación de la Unidad de Medida
                         Cantidad = d.Cantidad,
                         PrecioUnitario = d.PrecioUnitario,
-                        Subtotal = d.Subtotal
+                        Subtotal = d.Subtotal,
+                        EsCombo = prod != null ? prod.EsCombo : false,
+                        ProductoId = prod != null ? prod.Id : 0,
+                        Fecha = d.FechaCreacion,
+                        SubtotalHoy = existeProducto ? Math.Max(d.Subtotal, SubtotalPrecioHoy(prod!, d.Cantidad, ColumnaDeLaVenta(d.NumeroUnicoIdentificatorioMovimiento))) : d.Subtotal
                     });
                 }
+
+                // Productos "varios" fiados (no tienen precio en la lista: valen lo mismo hoy)
+                var varios = new List<ProductoVarioVenta>();
+                foreach (var tanda in movsFiados.Chunk(100))
+                {
+                    var criterio = tanda.Cast<object>().ToList();
+                    var resVar = await SupaClient.From<ProductoVarioVenta>()
+                        .Where(x => x.KioscoId == kioscoId)
+                        .Filter(x => x.NumeroUnicoIdentificatorioMovimiento, Supabase.Postgrest.Constants.Operator.In, criterio)
+                        .Get();
+                    varios.AddRange(resVar.Models ?? new List<ProductoVarioVenta>());
+                }
+                foreach (var v in varios)
+                {
+                    listaProductosFiados.Add(new ProductoFiadoItem
+                    {
+                        NombreProducto = v.NombreProducto ?? "Varios",
+                        UnidadMedida = "unidad",
+                        Cantidad = v.Cantidad,
+                        PrecioUnitario = v.PrecioUnitario,
+                        Subtotal = v.Subtotal,
+                        SubtotalHoy = v.Subtotal,
+                        EsVario = true,
+                        Fecha = v.FechaCreacion
+                    });
+                }
+
+                // Cada fiado se recalcula en proporción a cuánto subieron sus productos.
+                // (Si en esa compra pagó una parte en efectivo, solo se actualiza la parte fiada.)
+                // Es la misma cuenta que hace la vista vw_resumen_deudores.
+                var hist = new Dictionary<long, decimal>();
+                var hoy = new Dictionary<long, decimal>();      // según el horario en que lo sacó
+                var hoyDia = new Dictionary<long, decimal>();   // todo a precio de día
+                foreach (var d in detallesFiados)
+                {
+                    dictProductos.TryGetValue(d.ProductoId, out var prod);
+                    long mv = d.NumeroUnicoIdentificatorioMovimiento;
+                    decimal sh = prod != null ? Math.Max(d.Subtotal, SubtotalPrecioHoy(prod, d.Cantidad, ColumnaDeLaVenta(mv))) : d.Subtotal;
+                    decimal sd = prod != null ? Math.Max(d.Subtotal, SubtotalPrecioHoy(prod, d.Cantidad, "precio_venta")) : d.Subtotal;
+                    hist[mv] = hist.GetValueOrDefault(mv) + d.Subtotal;
+                    hoy[mv] = hoy.GetValueOrDefault(mv) + sh;
+                    hoyDia[mv] = hoyDia.GetValueOrDefault(mv) + sd;
+                }
+                foreach (var v in varios)
+                {
+                    long mv = v.NumeroUnicoIdentificatorioMovimiento;
+                    hist[mv] = hist.GetValueOrDefault(mv) + v.Subtotal;
+                    hoy[mv] = hoy.GetValueOrDefault(mv) + v.Subtotal;
+                    hoyDia[mv] = hoyDia.GetValueOrDefault(mv) + v.Subtotal;
+                }
+
+                // Lo que ya se entregó a cada deuda (lo reparte la base, FIFO): eso no se actualiza;
+                // solo lo que falta pagar se lleva a precio de hoy.
+                var aplicado = new Dictionary<long, decimal>();
+                try
+                {
+                    var ids = ventasFiadas.Select(v => v.Id).Cast<object>().ToList();
+                    foreach (var tanda in ids.Chunk(100))
+                    {
+                        var resApl = await SupaClient.From<FiadoAplicacion>()
+                            .Filter(x => x.DeudaVentaId, Supabase.Postgrest.Constants.Operator.In, tanda.ToList())
+                            .Get();
+                        foreach (var ap in resApl.Models ?? new())
+                            aplicado[ap.DeudaVentaId] = aplicado.GetValueOrDefault(ap.DeudaVentaId) + ap.Monto;
+                    }
+                }
+                catch { /* sin el SQL 22 se calcula como antes */ }
+
+                decimal deudaHoyDia = 0;
+                foreach (var venta in ventasFiadas)
+                {
+                    decimal ya = Math.Min(aplicado.GetValueOrDefault(venta.Id), venta.Total);
+                    // un ajuste ya está "a precio de hoy" (el aumento se cuenta en las otras deudas): solo suma lo entregado
+                    if (venta.EsAjustePrecio == true) { deudaPrecioHoy += ya; deudaHoyDia += ya; continue; }
+                    decimal h = hist.GetValueOrDefault(venta.NumeroUnicoIdentificatorioMovimiento);
+                    decimal a = hoy.GetValueOrDefault(venta.NumeroUnicoIdentificatorioMovimiento);
+                    decimal ad = hoyDia.GetValueOrDefault(venta.NumeroUnicoIdentificatorioMovimiento);
+                    decimal falta = venta.Total - ya;
+                    deudaPrecioHoy += ya + (h > 0 ? falta * a / h : falta);
+                    deudaHoyDia += ya + (h > 0 ? falta * ad / h : falta);
+                }
+                deudaPrecioHoy = Math.Round(deudaPrecioHoy, 2);
+                difHorario = Math.Max(0, deudaPrecioHoy - totalDeudaOriginal);
+                difDia = Math.Max(0, Math.Round(deudaHoyDia, 2) - totalDeudaOriginal);
+                if (difHorario < 1) difHorario = 0;   // centavos: no vale la pena
+                if (difDia < 1) difDia = 0;
+                modoPrecioHoy = difHorario > 0 ? "horario" : "dia";
+                ElegirPrecio("");
             }
 
-            montoEntregado = saldoPendienteActual > 0 ? saldoPendienteActual : 0;
         }
         catch (Exception ex)
         {
@@ -451,91 +563,148 @@
             cargando = false;
         }
     }
-
-    private string ObtenerNombreMedio(long formaPagoId)
-    {
-        return formaPagoId switch
-        {
-            1 => "Efectivo",
-            2 => "Mercado Pago",
-            3 => "Transferencia",
-            _ => "Otro"
-        };
-    }
-
-    private void SeleccionarMedio(long id, string nombre)
-    {
-        formaPagoSeleccionada = id;
-        nombreFormaPagoSeleccionada = nombre;
-    }
-
-    private void CargarMontoRapido(decimal monto)
-    {
-        montoEntregado = monto;
-    }
-
-    private void CargarSaldoTotal()
-    {
-        montoEntregado = saldoPendienteActual > 0 ? saldoPendienteActual : 0;
-    }
-
     private async Task ProcesarCobroFiado()
     {
-        if (montoEntregado <= 0)
-        {
-            mensajeError = "Ingrese un monto válido a cobrar.";
-            return;
-        }
+        if (guardando) return;                                  // evita guardar dos veces con un doble toque
+        if (!pagosAgregados.Any(p => p.NumeroUnicoIdentificatorio == 0)) return;   // sin un pago nuevo no hay nada que registrar
+        guardando = true;
+        mensajeError = "";
 
         try
         {
-            // Obtener número de movimiento unificado
-            var respuestaRpc = await SupaClient.Rpc("obtener_proximo_movimiento", null);
-            long numeroMovimientoUnico = Convert.ToInt64(respuestaRpc.Content);
 
-            // Se registra el ingreso del dinero abonado/entregado parcial o totalmente
-            var filaCobro = new Venta
+            long kioscoId = State.KioscoId;
+            long? personaId = personaSeleccionadaId > 0 ? personaSeleccionadaId : null;
+
+            // ==========================================
+            // 0. COBRAR A PRECIO DE HOY: se agrega un fiado de "ajuste por aumento"
+            //    (las ventas viejas no se tocan; el ajuste entra en el FIFO como una deuda más)
+            // ==========================================
+            if (cobrarActualizado && diferenciaAumento > 0)
             {
-                NumeroUnicoIdentificatorioMovimiento = numeroMovimientoUnico,
-                Fecha = DateTime.Today,
-                Total = montoEntregado,
-                FormaPagoId = formaPagoSeleccionada,
-                KioscoId = State.KioscoId,
-                UsuarioOperadorId = State.UsuarioId,
-                PersonaId = personaSeleccionadaId,
-                Pagado = true // El pago parcial/total entregado hoy ya ingresó
-            };
-
-            await SupaClient.From<Venta>().Insert(filaCobro);
-
-            // Si la entrega salda la totalidad del saldo pendiente, se marcan las ventas de fiado como pagadas
-            if (montoEntregado >= saldoPendienteActual)
-            {
-                var resVentasFiadas = await SupaClient.From<Venta>()
-                                        .Where(v => v.PersonaId == personaSeleccionadaId && v.Pagado == false)
-                                        .Get();
-
-                if (resVentasFiadas.Models != null)
+                if (!await avisos.ConfirmarAsync("¿Cobrar a precio de hoy?",
+                        $"Se suma $ {diferenciaAumento:N2} a la deuda por aumento de precios.", "Sí, actualizar", "aviso"))
                 {
-                    foreach (var v in resVentasFiadas.Models)
-                    {
-                        v.Pagado = true;
-                        await SupaClient.From<Venta>().Update(v);
-                    }
+                    return;
                 }
+
+                var rpcAjuste = await SupaClient.Rpc("obtener_proximo_movimiento", null);
+                long movAjuste = Convert.ToInt64(rpcAjuste.Content);
+                long formaPagoFiado = await FormaPagoFiadoIdAsync();
+
+                var resAjuste = await SupaClient.From<Venta>().Insert(new Venta
+                {
+                    NumeroUnicoIdentificatorioMovimiento = movAjuste,
+                    Fecha = DateTime.Today,
+                    Total = diferenciaAumento,
+                    FormaPagoId = formaPagoFiado,
+                    KioscoId = kioscoId,
+                    UsuarioOperadorId = State.UsuarioId,
+                    PersonaId = personaId,
+                    Pagado = false,
+                    EsAjustePrecio = true
+                });
+                var ajuste = resAjuste.Models.FirstOrDefault();
+                if (ajuste != null) ventasFiadas.Add(ajuste);
+                totalDeudaOriginal += diferenciaAumento;
+                diferenciaAumento = 0;
+                cobrarActualizado = false;
             }
 
-            // Recargar la pantalla de la persona para refrescar los nuevos saldos
-            await CargarCuentaCorrientePersona();
+            // ==========================================
+            // 1. REGISTRAR PAGOS NUEVOS (Si existen)
+            // ==========================================
+            var pagosNuevos = pagosAgregados.Where(p => p.NumeroUnicoIdentificatorio == 0).ToList();
+
+            if (pagosNuevos.Any())
+            {
+                var respuestaRpc = await SupaClient.Rpc("obtener_proximo_movimiento", null);
+                long numeroMovimientoUnico = Convert.ToInt64(respuestaRpc.Content);
+
+                var nuevasVentasPago = pagosNuevos.Select(pago => new Venta
+                {
+                    NumeroUnicoIdentificatorioMovimiento = numeroMovimientoUnico,
+                    Fecha = DateTime.Today,
+                    Total = Math.Abs(pago.Monto) * (-1), // Ingreso de dinero (negativo)
+                    FormaPagoId = pago.FormaPagoId,
+                    KioscoId = kioscoId,
+                    UsuarioOperadorId = State.UsuarioId,
+                    PersonaId = personaId,
+                    Pagado = true
+                }).ToList();
+
+                // Inserción masiva de los pagos nuevos
+                await SupaClient.From<Venta>().Insert(nuevasVentasPago);
+            }
+
+            // ==========================================
+            // 2. APLICAR LAS ENTREGAS A LAS DEUDAS (FIFO)
+            //    Lo hace la base, todo junto o nada (_sql\22.fiado_fifo.sql): una entrega puede saldar
+            //    varias deudas y una deuda puede necesitar varias entregas. Al cargar la entrega se
+            //    recalcula sola; se llama igual por las dudas. No se agregan renglones en ventas.
+            // ==========================================
+            if (personaId is long idPersona)
+                await SupaClient.Rpc("recalcular_fiado", new Dictionary<string, object> { { "p_persona", idPersona } });
+
+            Nav.NavigateTo(RutaOrigenReporte);
         }
         catch (Exception ex)
         {
-            mensajeError = "Error al registrar el cobro del fiado: " + ex.Message;
+            var msg = ex.Message ?? "";
+            mensajeError = msg.Contains("recalcular_fiado") || msg.Contains("PGRST202")
+                ? "La entrega se guardó, pero falta preparar la base: hay que correr el script 22.fiado_fifo.sql en Supabase."
+                : "Error al guardar el cobro: " + msg;
+        }
+        finally
+        {
+            guardando = false;
         }
     }
-
-    private void Volver()
+    private void AgregarPago(MediosDePago.PagoCargado p)
     {
-        Nav.NavigateTo(RutaOrigenVentas);
+        mensajeError = "";
+        pagosAgregados.Add(new PagoTemporal
+        {
+            FormaPagoId = p.FormaPagoId,
+            Fecha = DateTime.Today,
+            NombreFormaPago = p.NombreMostrar,
+            Monto = p.Monto
+        });
+    }
+
+    /// <summary>
+    /// Lo que vale hoy esa cantidad (en los productos por peso la cantidad está en gramos y el precio es por kilo).
+    /// Si la cantidad llega al mínimo por mayor, se usa el precio por mayor de hoy (si no, una compra
+    /// por mayor parecía un "aumento"). Es la misma cuenta que la vista vw_resumen_deudores (SQL 21).
+    /// </summary>
+    private decimal SubtotalPrecioHoy(Producto prod, decimal cantidad, string columna = "precio_venta")
+    {
+        // precio de hoy de la lista que corresponde (día o noche); por kilo en los productos por peso
+        decimal precio = BlazorKioscoCompartido.Services.PrecioService.PrecioSegunLista(prod, columna, State.KioscoId);
+        if (prod.EsVentaPorPeso()) return precio / 1000m * cantidad;
+
+        int minimo = prod.CantxMayor ?? 0;
+        decimal porMayor = prod.PrecioVentaxMayor ?? 0;
+        if (minimo > 1 && porMayor > 0 && cantidad >= minimo) precio = porMayor;
+        return precio * cantidad;
+    }
+
+    /// <summary>La forma de pago "Fiado" del negocio (si no existe, la del último fiado).</summary>
+    private async Task<long> FormaPagoFiadoIdAsync()
+    {
+        try
+        {
+            var res = await SupaClient.From<FormaPago>().Where(f => f.KioscoId == State.KioscoId).Get();
+            var fiado = (res.Models ?? new()).FirstOrDefault(f => string.Equals(f.Nombre?.Trim(), "FIADO", StringComparison.OrdinalIgnoreCase));
+            if (fiado != null) return fiado.Id;
+        }
+        catch { }
+        return ventasFiadas.OrderByDescending(v => v.NumeroUnicoIdentificatorioMovimiento).Select(v => v.FormaPagoId).FirstOrDefault();
+    }
+
+    /// <summary>Solo se pueden quitar las entregas nuevas: las anteriores ya están guardadas y entran en la cuenta.</summary>
+    private void RemoverPago(PagoTemporal pago)
+    {
+        if (pago.NumeroUnicoIdentificatorio == 0) pagosAgregados.Remove(pago);
     }
 }

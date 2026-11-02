@@ -1,0 +1,359 @@
+﻿@using BlazorKioscoCompartido.Models
+@inject Supabase.Client Db
+@inject AppState State
+@inject IJSRuntime JS
+
+@* =====================================================================
+   Etiquetas con código de barras para imprimir y pegar (potes de gomitas, frascos, bolsitas...).
+   Va como solapa "Códigos de barras" en la página Carteles (/carteles?tab=codigos).
+   Si el producto no tiene código, se le puede crear uno propio (empieza con 29) y queda guardado.
+   ===================================================================== *@
+
+<AvisosPagina @ref="avisos" />
+
+<div class="vt-wrap" style="display:flex; flex-direction:column; gap:1rem">
+
+    @* ================= ELEGIR PRODUCTOS ================= *@
+    <section class="gp-card gp-card-pad">
+        <div class="gp-card-head">
+            <span class="gp-bubble"><i class="bi bi-upc-scan"></i></span>
+            <div class="vt-head-text">
+                <h2>¿De qué productos?</h2>
+                <p>Buscá y tildá los productos. Si alguno no tiene código, te ofrezco crearle uno.</p>
+            </div>
+        </div>
+        <BuscadorMultiple EstaElegido="@(id => items.Any(i => i.Producto.Id == id))" OnAlternar="Alternar" OnAgregarTodos="AgregarVarios" />
+    </section>
+
+    @* ================= LISTA Y OPCIONES ================= *@
+    <section class="gp-card gp-card-pad">
+        <div class="gp-card-head">
+            <span class="gp-bubble"><i class="bi bi-sliders"></i></span>
+            <div class="vt-head-text">
+                <h2>Cuántas de cada uno</h2>
+                <p>@TotalEtiquetas() @(TotalEtiquetas() == 1 ? "etiqueta" : "etiquetas") en total.</p>
+            </div>
+            @if (items.Any())
+            {
+                <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm vt-head-right" @onclick="Vaciar"><i class="bi bi-trash3"></i> Vaciar</button>
+            }
+        </div>
+
+        <div class="cb-opciones">
+            <div class="gp-seg" role="group">
+                <button type="button" class="@(tamano == "chica" ? "is-active" : "")" @onclick='() => tamano = "chica"'>Chicas 38×21 mm (5 por fila)</button>
+                <button type="button" class="@(tamano == "grande" ? "is-active" : "")" @onclick='() => tamano = "grande"'>Grandes 63×30 mm (3 por fila)</button>
+            </div>
+            <label class="gp-switch">
+                <input type="checkbox" @bind="conNombre" />
+                <span class="gp-switch-track"></span>
+                <span class="gp-switch-text">Nombre</span>
+            </label>
+            <label class="gp-switch">
+                <input type="checkbox" @bind="conPrecio" />
+                <span class="gp-switch-track"></span>
+                <span class="gp-switch-text">Precio</span>
+            </label>
+        </div>
+
+        @if (!items.Any())
+        {
+            <div class="gp-empty" style="margin-top:.8rem">
+                <span class="gp-bubble"><i class="bi bi-upc"></i></span>
+                <strong>Todavía no elegiste productos</strong>
+                <span>Buscalos arriba y tildalos.</span>
+            </div>
+        }
+        else
+        {
+            <ul class="cb-lista">
+                @foreach (var it in items)
+                {
+                    var sinCodigo = CodigoBarras.Armar(it.Producto.CodigoBarras) == null;
+                    <li class="@(sinCodigo ? "is-sin" : "")">
+                        <div class="cb-info">
+                            <b>@it.Producto.Nombre</b>
+                            @if (sinCodigo)
+                            {
+                                <small class="cb-falta"><i class="bi bi-exclamation-triangle-fill"></i> No tiene código de barras</small>
+                            }
+                            else
+                            {
+                                <small>@it.Producto.CodigoBarras</small>
+                            }
+                        </div>
+                        @if (sinCodigo)
+                        {
+                            if (PuedeCrear)
+                            {
+                                <button type="button" class="gp-btn gp-btn-soft gp-btn-sm" disabled="@(creando == it.Producto.Id)" @onclick="() => CrearCodigo(it)">
+                                    <i class="bi bi-magic"></i> @(creando == it.Producto.Id ? "Creando..." : "Crear código")
+                                </button>
+                            }
+                            else
+                            {
+                                <small class="cb-falta">Pedile al encargado que le cree uno</small>
+                            }
+                        }
+                        else
+                        {
+                            <div class="cb-cant">
+                                <button type="button" title="Una menos" @onclick="() => it.Cantidad = Math.Max(1, it.Cantidad - 1)"><i class="bi bi-dash-lg"></i></button>
+                                <input type="number" min="1" max="500" value="@it.Cantidad" @onchange="e => CambiarCantidad(it, e.Value)" />
+                                <button type="button" title="Una más" @onclick="() => it.Cantidad = Math.Min(500, it.Cantidad + 1)"><i class="bi bi-plus-lg"></i></button>
+                            </div>
+                        }
+                        <button type="button" class="gp-btn gp-btn-ghost gp-btn-sm gp-btn-icon" title="Sacar" @onclick="() => items.Remove(it)"><i class="bi bi-x-lg"></i></button>
+                    </li>
+                }
+            </ul>
+            <div class="cb-todas">
+                <span>Poner a todos</span>
+                @foreach (var n in new[] { 1, PorFila, PorFila * 2, PorHoja })
+                {
+                    <button type="button" class="gp-btn gp-btn-soft gp-btn-sm" @onclick="() => TodosIgual(n)">@n @(n == PorFila ? "(una fila)" : n == PorHoja ? "(hoja entera)" : "")</button>
+                }
+            </div>
+        }
+    </section>
+
+    @* ================= VISTA PREVIA ================= *@
+    <section class="gp-card gp-card-pad">
+        <div class="gp-card-head">
+            <span class="gp-bubble"><i class="bi bi-printer-fill"></i></span>
+            <div class="vt-head-text">
+                <h2>Vista previa</h2>
+                <p>Así se van a imprimir (hoja A4). Antes de pegar muchas, probá leer una con el lector.</p>
+            </div>
+            <div class="vt-head-right cb-botones">
+                <button type="button" class="gp-btn gp-btn-soft gp-btn-sm" title="Descargar en Word para modificarlo" disabled="@(TotalEtiquetas() == 0 || descargando)" @onclick="DescargarWord"><i class="bi bi-file-earmark-word-fill" style="color:#2b579a"></i> Word</button>
+                <button type="button" class="gp-btn gp-btn-soft gp-btn-sm" title="Descargar en PDF" disabled="@(TotalEtiquetas() == 0 || descargando)" @onclick="DescargarPdf"><i class="bi bi-file-earmark-pdf-fill" style="color:#d93025"></i> PDF</button>
+                <button type="button" class="gp-btn gp-btn-primary gp-btn-sm" disabled="@(TotalEtiquetas() == 0)" @onclick="Imprimir"><i class="bi bi-printer-fill"></i> Imprimir</button>
+            </div>
+        </div>
+    </section>
+</div>
+
+@* ===== HOJA: es lo único que sale en la impresión ===== *@
+@if (TotalEtiquetas() > 0)
+{
+    <div class="cb-hoja @(tamano == "grande" ? "is-grande" : "")">
+        @foreach (var it in items.Where(i => CodigoBarras.Armar(i.Producto.CodigoBarras) != null))
+        {
+            var svg = CodigoBarras.Svg(it.Producto.CodigoBarras)!;
+            var texto = CodigoBarras.TextoDebajo(it.Producto.CodigoBarras);
+            for (int n = 0; n < it.Cantidad; n++)
+            {
+                <div class="cb-etiqueta">
+                    @if (conNombre) { <div class="cb-nombre">@it.Producto.Nombre</div> }
+                    <div class="cb-barras">@((MarkupString)svg)</div>
+                    <div class="cb-pie">
+                        <span class="cb-num">@texto</span>
+                        @if (conPrecio) { <span class="cb-precio">$ @Monto(it.Producto.PrecioVenta ?? 0)@(it.Producto.EsVentaPorPeso() ? " kg" : "")</span> }
+                    </div>
+                </div>
+            }
+        }
+    </div>
+}
+
+<style>
+    .cb-botones { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .4rem; }
+    .cb-opciones { display: flex; flex-wrap: wrap; align-items: center; gap: .9rem 1.4rem; }
+    .cb-lista { list-style: none; margin: .9rem 0 0; padding: 0; display: flex; flex-direction: column; gap: .4rem; }
+    .cb-lista li { display: flex; align-items: center; gap: .7rem; padding: .5rem .7rem; border: 1px solid var(--gp-line); border-radius: 12px; }
+    .cb-lista li.is-sin { border-color: var(--gp-warn-line); background: var(--gp-warn-soft); }
+    .cb-info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+    .cb-info b { font-weight: 800; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cb-info small { color: var(--gp-muted); font-family: Consolas, monospace; font-weight: 700; }
+    .cb-falta { color: var(--gp-warn) !important; font-family: inherit !important; font-weight: 700; }
+    .cb-cant { flex: none; display: inline-flex; align-items: center; border: 1px solid var(--gp-line); border-radius: 10px; overflow: hidden; }
+    .cb-cant button { border: 0; background: #f3f5fa; width: 2.1rem; height: 2.1rem; cursor: pointer; }
+    .cb-cant input { width: 3.4rem; height: 2.1rem; border: 0; text-align: center; font-weight: 800; }
+    .cb-todas { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; margin-top: .8rem; }
+    .cb-todas > span { color: var(--gp-muted); font-weight: 700; font-size: .85rem; margin-right: .2rem; }
+
+    /* ---- hoja (en pantalla: vista previa) ---- */
+    .cb-hoja { display: grid; grid-template-columns: repeat(5, 38mm); gap: 0; justify-content: center; padding: 1rem 0 5rem; }
+    .cb-hoja.is-grande { grid-template-columns: repeat(3, 63mm); }
+    .cb-etiqueta { display: flex; flex-direction: column; justify-content: center; width: 38mm; height: 21mm; padding: 1.2mm 1.5mm; border: .2mm dashed #bbb; background: #fff; color: #000; font-family: Arial, sans-serif; overflow: hidden; break-inside: avoid; page-break-inside: avoid; }
+    .is-grande .cb-etiqueta { width: 63mm; height: 30mm; padding: 2mm 3mm; }
+    .cb-nombre { font-size: 6.5pt; font-weight: 700; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
+    .cb-barras { flex: 1 1 auto; min-height: 0; height: 9mm; margin: .4mm 0; }
+    .cb-pie { display: flex; justify-content: center; align-items: baseline; gap: 2mm; white-space: nowrap; }
+    .cb-num { font-family: Consolas, "Courier New", monospace; font-size: 6.5pt; letter-spacing: .3pt; }
+    .cb-precio { font-size: 8pt; font-weight: 900; }
+    .is-grande .cb-nombre { font-size: 8.5pt; }
+    .is-grande .cb-num { font-size: 8pt; }
+    .is-grande .cb-precio { font-size: 11pt; }
+
+    @@media (max-width: 767.98px) {
+        .cb-hoja { grid-template-columns: repeat(2, 38mm); }
+        .cb-hoja.is-grande { grid-template-columns: 63mm; }
+    }
+
+    /* ---- impresión: solo las etiquetas ---- */
+    @@media print {
+        @@page { size: A4; margin: 8mm; }
+        body * { visibility: hidden !important; }
+        .cb-hoja, .cb-hoja * { visibility: visible !important; }
+        .cb-hoja { position: absolute; left: 0; top: 0; width: 100%; padding: 0 !important; grid-template-columns: repeat(5, 38mm) !important; }
+        .cb-hoja.is-grande { grid-template-columns: repeat(3, 63mm) !important; }
+        .cb-etiqueta { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+</style>
+
+@code {
+    public sealed class ItemEtiqueta
+    {
+        public Producto Producto { get; set; } = new();
+        public int Cantidad { get; set; } = 1;
+    }
+
+    // se recuerda mientras la app está abierta (si sale y vuelve, sigue armada)
+    private static List<ItemEtiqueta> items = new();
+    private static string tamano = "chica";
+    private static bool conNombre = true;
+    private static bool conPrecio = false;
+
+    private AvisosPagina avisos = default!;
+    private long creando;
+
+    private bool PuedeCrear => Roles.Gestiona(State.UsuarioRol);
+    private int PorFila => tamano == "grande" ? 3 : 5;
+    private int PorHoja => tamano == "grande" ? 27 : 65;   // A4 con márgenes de 8 mm
+
+    private int TotalEtiquetas() => items.Where(i => CodigoBarras.Armar(i.Producto.CodigoBarras) != null).Sum(i => i.Cantidad);
+
+    protected override void OnInitialized()
+    {
+        if (items.Any(i => i.Producto.KioscoId != State.KioscoId)) items.Clear();   // otro negocio
+    }
+
+    /// <summary>Desde otra pantalla (ej: Editar producto → "Imprimir etiqueta"): deja el producto listo.</summary>
+    public static void Precargar(Producto p, int cantidad = 1)
+    {
+        var ya = items.FirstOrDefault(i => i.Producto.Id == p.Id);
+        if (ya != null) ya.Producto = p;
+        else items.Add(new ItemEtiqueta { Producto = p, Cantidad = cantidad });
+    }
+
+    private void Alternar(Producto p)
+    {
+        var ya = items.FirstOrDefault(i => i.Producto.Id == p.Id);
+        if (ya != null) { items.Remove(ya); return; }
+        items.Add(new ItemEtiqueta { Producto = p });
+    }
+
+    private void AgregarVarios(List<Producto> productos)
+    {
+        int antes = items.Count;
+        foreach (var p in productos)
+            if (!items.Any(i => i.Producto.Id == p.Id)) items.Add(new ItemEtiqueta { Producto = p });
+        int nuevos = items.Count - antes;
+        if (nuevos > 0) avisos.Toast($"Se agregaron {nuevos} productos", "exito", 1800);
+    }
+
+    private static void CambiarCantidad(ItemEtiqueta it, object? valor)
+    {
+        if (int.TryParse(valor?.ToString(), out var n)) it.Cantidad = Math.Clamp(n, 1, 500);
+    }
+
+    private void TodosIgual(int n)
+    {
+        foreach (var i in items) i.Cantidad = n;
+    }
+
+    private async Task Vaciar()
+    {
+        if (await avisos.ConfirmarAsync("¿Vaciar la lista?", "Se sacan todos los productos.", "Vaciar", "aviso"))
+            items.Clear();
+    }
+
+    /// <summary>Le crea un código propio (empieza con 29) y lo guarda en el producto.</summary>
+    private async Task CrearCodigo(ItemEtiqueta it)
+    {
+        if (!await avisos.ConfirmarAsync("¿Crear un código para este producto?",
+                $"A \"{it.Producto.Nombre}\" se le guarda un código de barras propio. Desde ahí lo podés vender pasando el lector por la etiqueta.",
+                "Crear código", "info")) return;
+
+        creando = it.Producto.Id;
+        try
+        {
+            long k = State.KioscoId, id = it.Producto.Id;
+            var codigo = await CodigoBarras.CrearCodigoPropioAsync(Db, k);
+            await Db.From<Producto>().Where(p => p.Id == id && p.KioscoId == k).Set(p => p.CodigoBarras!, codigo).Update();
+            it.Producto.CodigoBarras = codigo;
+            avisos.Toast($"Código creado: {codigo}", "exito");
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudo crear el código", ex.Message, "peligro");
+        }
+        finally { creando = 0; }
+    }
+
+    private static string Monto(decimal v)
+    {
+        var c = System.Globalization.CultureInfo.GetCultureInfo("es-AR");
+        return v == Math.Truncate(v) ? v.ToString("N0", c) : v.ToString("N2", c);
+    }
+
+    // ===================== DESCARGAR (Word / PDF) =====================
+    private bool descargando;
+
+    /// <summary>Lo que necesita el JS para dibujar las mismas etiquetas: barras, texto, nombre, precio y cuántas de cada una.</summary>
+    private object DatosDescarga(string extension) => new
+    {
+        archivo = $"Codigos de barras {DateTime.Now:yyyy-MM-dd HH.mm}.{extension}",
+        grande = tamano == "grande",
+        conNombre,
+        conPrecio,
+        etiquetas = items
+            .Select(i => (Item: i, Dib: CodigoBarras.Armar(i.Producto.CodigoBarras)))
+            .Where(x => x.Dib != null)
+            .Select(x => new
+            {
+                nombre = (x.Item.Producto.Nombre ?? "").ToUpper(),
+                texto = x.Dib!.Texto,
+                precio = "$ " + Monto(x.Item.Producto.PrecioVenta ?? 0) + (x.Item.Producto.EsVentaPorPeso() ? " kg" : ""),
+                modulos = x.Dib.Modulos,
+                barras = x.Dib.Barras.Select(b => new[] { b.Desde, b.Ancho }).ToList(),
+                cantidad = x.Item.Cantidad
+            }).ToList()
+    };
+
+    private async Task<IJSObjectReference> ModuloDescargas() =>
+        await JS.InvokeAsync<IJSObjectReference>("import", "./_content/BlazorKioscoCompartido/js/descargas.js?v=6");
+
+    private async Task DescargarWord()
+    {
+        descargando = true;
+        try
+        {
+            var js = await ModuloDescargas();
+            await js.InvokeVoidAsync("generarEtiquetasWord", DatosDescarga("doc"));
+            avisos.Toast("Word descargado: lo podés abrir y modificar antes de imprimir.", "exito", 3000);
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo descargar el Word", ex.Message, "peligro"); }
+        finally { descargando = false; }
+    }
+
+    private async Task DescargarPdf()
+    {
+        descargando = true;
+        try
+        {
+            var js = await ModuloDescargas();
+            await js.InvokeVoidAsync("generarEtiquetasPdf", DatosDescarga("pdf"));
+        }
+        catch (Exception ex) { await avisos.InformarAsync("No se pudo armar el PDF", ex.Message, "peligro"); }
+        finally { descargando = false; }
+    }
+
+    private async Task Imprimir()
+    {
+        try { await JS.InvokeVoidAsync("print"); }
+        catch { await avisos.InformarAsync("No se pudo abrir la impresión", "Probá con Ctrl+P.", "aviso"); }
+    }
+}

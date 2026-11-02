@@ -1,6 +1,8 @@
 ﻿
 using Supabase.Postgrest.Attributes;
 using Supabase.Postgrest.Models;
+using static Supabase.Postgrest.Attributes.ReferenceAttribute;
+
 
 namespace BlazorKioscoCompartido.Models
 {
@@ -10,9 +12,9 @@ namespace BlazorKioscoCompartido.Models
         [PrimaryKey("id", false)]
         public long Id { get; set; }
         [Column("kiosco_id")]
-        public long KioscoId { get; set; }
+        public long? KioscoId { get; set; }
         [Column("familia_id")]
-        public long FamiliaId { get; set; }
+        public long? FamiliaId { get; set; }
         [Column("proveedor_id")]
         public long? ProveedorId { get; set; }
         [Column("codigo_barras")]
@@ -66,7 +68,7 @@ namespace BlazorKioscoCompartido.Models
         [Column("fecha_actualizacion")]
         public DateTime? FechaActualizacion { get; set; } = DateTime.UtcNow.ToLocalTime();
         [Column("activo")]
-        public bool Activo { get; set; }
+        public bool Activo { get; set; } = true;
         [Column("es_combo")]
         public bool? EsCombo { get; set; } 
         [Column("fecha_vigencia_desde_combo")]
@@ -89,6 +91,29 @@ namespace BlazorKioscoCompartido.Models
         [Column("admite_importe")]
         public bool AdmiteImporte { get; set; } = false;
 
+        /// <summary>true = este producto NO usa el redondeo del negocio (cosas chicas: gomitas a $30, caramelos...). Script 26.</summary>
+        [Column("sin_redondeo", Newtonsoft.Json.NullValueHandling.Ignore)]
+        public bool? SinRedondeo { get; set; }
 
+        /// <summary>Subfamilia dentro de la familia (ej: GOLOSINAS → GOMITAS). Opcional. Script 26.</summary>
+        [Column("subfamilia_id", Newtonsoft.Json.NullValueHandling.Ignore)]
+        public long? SubfamiliaId { get; set; }
+
+        // Último bulto cargado en "Lo compro por bulto" (para ver si aumentó). Script 32.
+        [Column("bulto_precio", Newtonsoft.Json.NullValueHandling.Ignore)]
+        public decimal? BultoPrecio { get; set; }
+
+        [Column("bulto_unidades", Newtonsoft.Json.NullValueHandling.Ignore)]
+        public int? BultoUnidades { get; set; }
+
+        [Column("bulto_fecha", Newtonsoft.Json.NullValueHandling.Ignore)]
+        public DateTime? BultoFecha { get; set; }
+
+        /// <summary>¿A este producto se le aplica el redondeo del negocio?</summary>
+        public bool UsaRedondeo(BlazorKioscoCompartido.Services.AppState? state) =>
+            state != null && state.UsarRedondeo && SinRedondeo != true;
+
+        [Reference(typeof(Familia), foreignKey: "fk_familia_producto", joinType: JoinType.Left)]
+        public Familia? Familia { get; set; }
     }
 }
