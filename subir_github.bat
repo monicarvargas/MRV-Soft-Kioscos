@@ -13,13 +13,15 @@ setlocal EnableExtensions
 cd /d "%~dp0"
 
 rem ---- buscar git ----
-set "GIT=git"
-where git >nul 2>&1
-if errorlevel 1 (
-    set "GIT="
-    for %%E in (Enterprise Professional Community) do (
-        if exist "C:\Program Files\Microsoft Visual Studio\2022\%%E\Common7\IDE\CommonExtensions\Microsoft\TeamFoundation\Team Explorer\Git\cmd\git.exe" set "GIT=C:\Program Files\Microsoft Visual Studio\2022\%%E\Common7\IDE\CommonExtensions\Microsoft\TeamFoundation\Team Explorer\Git\cmd\git.exe"
-    )
+rem Primero el Git que trae Visual Studio (el mismo que usa el boton de Git del Visual),
+rem si no, el Git instalado aparte (C:\Program Files\Git).
+set "GIT="
+for %%V in (18 2022) do for %%E in (Enterprise Professional Community) do (
+    if not defined GIT if exist "C:\Program Files\Microsoft Visual Studio\%%V\%%E\Common7\IDE\CommonExtensions\Microsoft\TeamFoundation\Team Explorer\Git\cmd\git.exe" set "GIT=C:\Program Files\Microsoft Visual Studio\%%V\%%E\Common7\IDE\CommonExtensions\Microsoft\TeamFoundation\Team Explorer\Git\cmd\git.exe"
+)
+if not defined GIT (
+    where git >nul 2>&1
+    if not errorlevel 1 set "GIT=git"
 )
 if not defined GIT (
     echo.
@@ -28,6 +30,7 @@ if not defined GIT (
     exit /b 1
 )
 
+echo Usando Git: %GIT%
 for /f "delims=" %%B in ('""%GIT%" rev-parse --abbrev-ref HEAD"') do set "RAMA=%%B"
 echo.
 echo === Rama: %RAMA% ===
@@ -87,6 +90,8 @@ if errorlevel 1 (
     if errorlevel 1 (
         echo.
         echo *** No se pudo subir. Mira el mensaje de arriba ^(internet, usuario de GitHub...^).
+        echo *** Si aparecio una ventana de error de git-remote-https o libidn2: el Git de esta compu esta roto,
+        echo *** hay que reinstalarlo desde https://git-scm.com ^(tus cambios ya quedaron guardados, se suben despues^).
         pause
         exit /b 1
     )
