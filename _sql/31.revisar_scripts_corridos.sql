@@ -26,6 +26,8 @@ from (values
   ('35 historial cuenta proveedores', exists (select 1 from information_schema.columns where table_name = 'proveedores_cuenta' and column_name = 'anulado')),
   ('36 domingos y feriados',       to_regclass('public.listas_dias') is not null),
   ('37 utilidad por familia',      exists (select 1 from information_schema.columns where table_schema='public' and table_name='familias' and column_name='utilidad')),
-  ('38 permisos de los perfiles',  exists (select 1 from information_schema.columns where table_schema='public' and table_name='kioscos' and column_name='permisos_roles'))
+  ('38 permisos de los perfiles',  exists (select 1 from information_schema.columns where table_schema='public' and table_name='kioscos' and column_name='permisos_roles')),
+  ('39 usuario único por negocio', to_regprocedure('public.usuario_existe_en_negocio(bigint, text, uuid)') is not null),
+  ('40 importar de a 200',        to_regprocedure('public.importar_actualizar_productos(jsonb)') is not null)
 ) as t(script, ok)
 order by 1;

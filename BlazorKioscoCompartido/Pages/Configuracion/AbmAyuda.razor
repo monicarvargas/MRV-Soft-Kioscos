@@ -39,7 +39,7 @@
     <div class="ay-lista">
         @foreach (var t in Filtrar(Habilitados))
         {
-            <TemaAyuda Tema="t" Abierto="abierto == t.Titulo" OnAlternar="() => Alternar(t.Titulo)" />
+            <TemaAyuda Tema="t" Textos="Nombres" Abierto="abierto == t.Titulo" OnAlternar="() => Alternar(t.Titulo)" />
         }
     </div>
 
@@ -49,7 +49,7 @@
         <div class="ay-lista">
             @foreach (var t in Filtrar(Faltantes))
             {
-                <TemaAyuda Tema="t" Bloqueado="true" Etiqueta="@PlanQueLaTrae(t.Clave)" Abierto="abierto == t.Titulo" OnAlternar="() => Alternar(t.Titulo)" />
+                <TemaAyuda Tema="t" Textos="Nombres" Bloqueado="true" Etiqueta="@PlanQueLaTrae(t.Clave)" Abierto="abierto == t.Titulo" OnAlternar="() => Alternar(t.Titulo)" />
             }
         </div>
         <div class="gp-hint" style="margin-top:.8rem">
@@ -124,8 +124,23 @@
     private List<AyudaSistema.Tema> Habilitados => AyudaSistema.Temas.Where(t => Tiene(t.Clave)).ToList();
     private List<AyudaSistema.Tema> Faltantes => AyudaSistema.Temas.Where(t => !Tiene(t.Clave)).ToList();
 
+    // nombre de cada lista en este negocio (cada kiosco las llama distinto: "Precio de día", "Lista 1"...)
+    private string l1 = "Precio Venta", l2 = "Precio Noche", l3 = "Precio Feriado";
+    private string Nombres(string texto) => AyudaSistema.ConNombres(texto, l1, l2, l3);
+
     protected override async Task OnParametersSetAsync()
     {
+        try
+        {
+            long kl = KioscoId;
+            var listas = (await Db.From<ListaPrecio>().Where(x => x.KioscoId == kl).Get()).Models ?? new();
+            string N(string col, string def) => listas.FirstOrDefault(x => x.NombreColumnaProductos == col)?.NombreLista is string n && n.Trim() != "" ? n.Trim() : def;
+            l1 = N("precio_venta", "Precio Venta");
+            l2 = N("precio_lista2", "Precio Noche");
+            l3 = N("precio_lista3", "Precio Feriado");
+        }
+        catch { /* sin listas: quedan los nombres de fábrica */ }
+
         try
         {
             planes = ((await Db.From<Plan>().Get()).Models ?? new()).OrderBy(p => p.Orden).ToList();
@@ -152,7 +167,7 @@
         var palabras = f.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         return temas.Where(t =>
         {
-            var texto = Normalizar(t.Titulo + " " + t.ParaQue + " " + t.DondeEsta + " " + string.Join(" ", t.Pasos) + " " + string.Join(" ", t.Consejos ?? Array.Empty<string>()));
+            var texto = Normalizar(Nombres(t.Titulo + " " + t.ParaQue + " " + t.DondeEsta + " " + string.Join(" ", t.Pasos) + " " + string.Join(" ", t.Consejos ?? Array.Empty<string>())));
             return palabras.All(p => texto.Contains(p));
         });
     }

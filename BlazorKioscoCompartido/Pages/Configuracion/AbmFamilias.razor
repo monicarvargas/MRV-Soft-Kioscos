@@ -76,7 +76,7 @@
                     @foreach (var f in lista)
                     {
                         var esDefault = ConfiguracionService.EsFamiliaDefault(f);
-                        <tr class="@(editando.Id == f.Id ? "is-selected" : "")">
+                        <tr class="@(editando.Id == f.Id ? "is-selected" : "") @(abierta == f.Id ? "sf-fam-abierta" : "")">
                             <td class="gp-td-main" data-label="Nombre">
                                 <span class="gp-product">@f.Nombre</span>
                                 @if (esDefault) { <span class="cf-tag">por defecto</span> }
@@ -108,12 +108,18 @@
                             <tr class="sf-row">
                                 <td colspan="4">
                                     <div class="sf-panel">
-                                        <div class="sf-tit"><i class="bi bi-diagram-3"></i> Subfamilias de <b>@f.Nombre</b></div>
                                         @{ var subs = subfamilias.Where(s => s.FamiliaId == f.Id).OrderBy(s => s.Nombre).ToList(); }
-                                        @if (!subs.Any())
-                                        {
-                                            <div class="gp-hint">Todavía no tiene subfamilias. Cargá la primera abajo.</div>
-                                        }
+                                        <div class="sf-cab">
+                                            <span class="sf-cab-ico"><i class="bi bi-diagram-3-fill"></i></span>
+                                            <div class="sf-cab-txt">
+                                                <h3>Subfamilias de @f.Nombre</h3>
+                                                <p>
+                                                    @if (!subs.Any()) { <span>Todavía no tiene subfamilias. Cargá la primera abajo.</span> }
+                                                    else { <span>@subs.Count @(subs.Count == 1 ? "subfamilia" : "subfamilias") · el % es su utilidad (vacío = la de la familia)</span> }
+                                                </p>
+                                            </div>
+                                            <button type="button" class="sf-cerrar" title="Cerrar subfamilias" @onclick="() => AbrirSub(f.Id)"><i class="bi bi-x-lg"></i></button>
+                                        </div>
                                         <ul class="sf-lista">
                                             @foreach (var s in subs)
                                             {
@@ -145,7 +151,7 @@
                                         </ul>
                                         <div class="sf-nueva">
                                             <input class="gp-control" placeholder="Nueva subfamilia (ej: GOMITAS)" @bind="nuevaSub" @bind:event="oninput" @onkeyup="e => TeclaNueva(e, f)" />
-                                            <button type="button" class="gp-btn gp-btn-ok gp-btn-sm" disabled="@(string.IsNullOrWhiteSpace(nuevaSub))" @onclick="() => CrearSub(f)"><i class="bi bi-plus-lg"></i> Agregar</button>
+                                            <button type="button" class="gp-btn gp-btn-primary sf-agregar" disabled="@(string.IsNullOrWhiteSpace(nuevaSub))" @onclick="() => CrearSub(f)"><i class="bi bi-plus-lg"></i> Agregar subfamilia</button>
                                         </div>
                                     </div>
                                 </td>
@@ -159,18 +165,36 @@
 </section>
 
 <style>
-    .sf-row > td { background: #f7f9fd; }
-    .sf-panel { display: flex; flex-direction: column; gap: .6rem; padding: .4rem .2rem; }
-    .sf-tit { font-weight: 700; color: var(--gp-muted); }
-    .sf-tit b { color: var(--gp-text); }
-    .sf-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .45rem; }
-    .sf-lista li { display: inline-flex; align-items: center; gap: .35rem; padding: .3rem .4rem .3rem .75rem; border: 1px solid var(--gp-line); border-radius: 999px; background: #fff; }
+    /* familia abierta: la fila queda marcada y el panel de subfamilias "cuelga" de ella */
+    tr.sf-fam-abierta > td { background: var(--gp-primary-soft) !important; }
+    tr.sf-fam-abierta > td:first-child { box-shadow: inset 4px 0 0 var(--gp-primary); }
+    tr.sf-fam-abierta > td { border-bottom-color: transparent !important; }
+    .sf-row > td { background: var(--gp-primary-soft) !important; padding: 0 .6rem .8rem !important; }
+    .sf-panel { display: flex; flex-direction: column; gap: .8rem; padding: 1rem 1.1rem 1.1rem; border: 1px solid var(--gp-primary-line);
+                border-top: 4px solid var(--gp-primary); border-radius: 16px; background: #fffbf2;
+                box-shadow: 0 10px 24px rgba(22,33,72,.10); animation: sf-entrar .18s ease-out; }
+    @@keyframes sf-entrar { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+    .sf-cab { display: flex; align-items: center; gap: .7rem; }
+    .sf-cab-ico { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 2.5rem; height: 2.5rem; border-radius: 12px;
+                  background: var(--gp-primary); color: #fff; font-size: 1.2rem; }
+    .sf-cab-txt { flex: 1 1 auto; min-width: 0; }
+    .sf-cab-txt h3 { margin: 0; font-size: 1.15rem; font-weight: 900; color: var(--gp-text); }
+    .sf-cab-txt p { margin: .1rem 0 0; color: var(--gp-muted); font-size: .85rem; font-weight: 600; }
+    .sf-cerrar { flex: none; width: 2.1rem; height: 2.1rem; border: 0; border-radius: 10px; background: rgba(22,33,72,.06); color: var(--gp-muted); cursor: pointer; }
+    .sf-cerrar:hover { background: rgba(22,33,72,.12); color: var(--gp-text); }
+    .sf-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .5rem; }
+    .sf-lista:empty { display: none; }
+    .sf-lista li { display: inline-flex; align-items: center; gap: .35rem; padding: .35rem .45rem .35rem .85rem; border: 1px solid var(--gp-primary-line); border-radius: 999px; background: #fff; box-shadow: 0 2px 6px rgba(22,33,72,.06); }
     .sf-lista li .gp-control { width: 13rem; padding: .3rem .6rem; }
     .sf-nom { font-weight: 800; }
     .sf-util { display: inline-flex; align-items: center; gap: .15rem; font-weight: 800; color: var(--gp-muted); }
     .sf-util input { width: 4.2rem; height: 1.9rem; padding: 0 .3rem; border: 1px solid var(--gp-line); border-radius: 8px; text-align: center; font: inherit; font-weight: 800; }
     .fu-pill { display: inline-block; padding: .1rem .55rem; border-radius: 999px; background: #f1ebff; color: #6d28d9; font-weight: 900; }
-    .sf-nueva { display: flex; gap: .45rem; max-width: 28rem; }
+    .sf-nueva { display: flex; gap: .55rem; max-width: 36rem; padding-top: .8rem; border-top: 1px dashed var(--gp-primary-line); }
+    .sf-nueva .gp-control { flex: 1 1 auto; min-height: 2.8rem; border: 2px solid #d6dbe8; border-radius: 12px; font-weight: 700; background: #fff; }
+    .sf-nueva .gp-control:focus { border-color: var(--gp-primary); box-shadow: 0 0 0 4px color-mix(in srgb, var(--gp-primary) 18%, transparent); }
+    .sf-agregar { flex: none; height: 2.8rem; border-radius: 12px; font-weight: 800; box-shadow: 0 6px 16px color-mix(in srgb, var(--gp-primary) 30%, transparent); }
+    @@media (max-width: 575.98px) { .sf-nueva { flex-direction: column; } .sf-agregar { width: 100%; justify-content: center; } }
 </style>
 
 @code {

@@ -1,0 +1,64 @@
+﻿@using Microsoft.JSInterop
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+@* =====================================================================
+   BotonCamara: botón para leer un código de barras con la cámara del celular.
+   Abre una ventana con la cámara (methodsJS.escanearEnVentana, en index.html) y,
+   cuando lee el código, avisa con OnCodigo y se cierra sola.
+   El lector de códigos USB no lo necesita: escribe en el campo y manda Enter.
+   ===================================================================== *@
+
+<button type="button" class="@Clase" style="@Estilo" title="@Titulo" aria-label="@Titulo" disabled="@Deshabilitado" @onclick="AbrirAsync">
+    <i class="bi bi-camera-fill"></i>
+    @if (!string.IsNullOrEmpty(Texto))
+    {
+        <span>@Texto</span>
+    }
+</button>
+
+@code {
+    /// <summary>Se llama con el código leído (sin espacios).</summary>
+    [Parameter] public EventCallback<string> OnCodigo { get; set; }
+    [Parameter] public string Clase { get; set; } = "gp-btn gp-btn-soft gp-btn-icon";
+    [Parameter] public string? Estilo { get; set; }
+    [Parameter] public string? Texto { get; set; }
+    [Parameter] public string Titulo { get; set; } = "Escanear con la cámara del celular";
+    [Parameter] public bool Deshabilitado { get; set; }
+
+    private DotNetObjectReference<BotonCamara>? refJs;
+
+    private async Task AbrirAsync()
+    {
+        try
+        {
+            refJs ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("methodsJS.escanearEnVentana", refJs, nameof(CodigoDeCamara));
+        }
+        catch
+        {
+            // sin cámara o sin el script: se sigue usando el campo (lector o teclado)
+        }
+    }
+
+    [JSInvokable]
+    public async Task CodigoDeCamara(string codigo)
+    {
+        var c = (codigo ?? "").Trim();
+        if (c.Length == 0) return;
+        await InvokeAsync(async () =>
+        {
+            await OnCodigo.InvokeAsync(c);
+            StateHasChanged();
+        });
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (refJs != null)
+        {
+            try { await JS.InvokeVoidAsync("methodsJS.cerrarVentanaEscaneo"); } catch { }
+            refJs.Dispose();
+        }
+    }
+}

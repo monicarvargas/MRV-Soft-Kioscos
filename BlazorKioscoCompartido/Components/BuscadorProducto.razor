@@ -17,16 +17,14 @@
             <i class="bi bi-search text-muted"></i>
         </span>
         <input type="text" class="form-control border-0 py-2"
-               placeholder="Buscar artículo..."
+               placeholder="@Placeholder"
                @bind-value="textoActual"
                @oninput="OnInputChanged" 
                @onkeyup="ManejarKeyUp" 
                @ref="txtBuscar" />
 
-        @* BOTÓN DEL ESCÁNER *@
-        <button class="btn btn-white border-0 text-primary" @onclick="AbrirScanner" title="Escanear código">
-            <i class="bi bi-qr-code-scan"></i>
-        </button>
+        @* CÁMARA DEL CELULAR: abre una ventana con la cámara y el botón Cerrar (la lectora USB escribe en el campo y manda Enter) *@
+        <BotonCamara Clase="btn btn-white border-0 text-primary" OnCodigo="ProcesarCodigoEscaneado" />
 
         @if (!string.IsNullOrEmpty(textoActual))
         {
@@ -36,9 +34,6 @@
         }
     </div>
 </div>
-
-@* CONTENEDOR PARA LA CÁMARA (Se muestra solo cuando se activa) *@
-<div id="reader" style="width: 100%; max-width: 400px; margin: auto;"></div>
 
 @if (estaCargando)
 {
@@ -141,6 +136,9 @@
     [Parameter] public bool MostrarSegundaLista { get; set; } = false;
     /// <summary>Lista que usa la página (Vender la fija por venta). Si no se pasa, el buscador la calcula por horario.</summary>
     [Parameter] public string? ColumnaActiva { get; set; }
+    [Parameter] public string Placeholder { get; set; } = "Buscar artículo...";
+    /// <summary>Después de elegir un producto vuelve el foco al buscador (Vender). false si la página abre una ventana (Compras al mayorista).</summary>
+    [Parameter] public bool EnfocarAlElegir { get; set; } = true;
 
     /// <summary>En Vender, un domingo / feriado: se muestra el precio de esa lista (no el de venta).</summary>
     private bool EsFeriadoEnVenta => !string.IsNullOrEmpty(ColumnaActiva) && columnaPrecioActiva == "precio_lista3";
@@ -207,6 +205,15 @@
                 //Se agrega esta condición para que si el usuario presiona Enter y hay un solo resultado, se seleccione automáticamente
                 if (EsCodigoBarras(textoActual))
                 {
+                    // el código exacto gana aunque haya otros que lo contengan (779123 y 7791234)
+                    var exacto = productosFiltrados.Where(p => (p.CodigoBarras ?? "").Trim() == textoActual.Trim()).ToList();
+                    if (exacto.Count == 1 && productosFiltrados.Count > 1)
+                    {
+                        busquedaResuelta = true;
+                        await SeleccionarProducto(exacto[0]);
+                        return;
+                    }
+
                     if (productosFiltrados.Count == 1)
                     {
                         busquedaResuelta = true;
@@ -271,7 +278,21 @@
                     new Supabase.Postgrest.QueryFilter("codigo_barras", Operator.ILike, $"%{string.Join("", palabras)}%")
                 })
                 .Limit(20).Get();
-            return res.Models ?? new List<Producto>();
+            var lista = res.Models ?? new List<Producto>();
+
+            // también por el CÓDIGO DEL PROVEEDOR (ej: escanean el código que trae la boleta del mayorista)
+            var idsProv = await BusquedaProductos.IdsPorCodigoProveedorAsync(SupaClient, State.KioscoId, busqueda);
+            var faltanProv = idsProv.Where(id => !lista.Any(p => p.Id == (long)id)).ToList();
+            if (faltanProv.Any())
+            {
+                var extra = await SupaClient.From<Producto>()
+                    .Where(p => p.KioscoId == State.KioscoId)
+                    .Where(x => x.Activo == true)
+                    .Filter("id", Operator.In, faltanProv)
+                    .Limit(20).Get();
+                lista.AddRange(extra.Models ?? new List<Producto>());
+            }
+            return lista;
         }
         catch (Exception ex) when (usarSinAcentos && ex.Message.Contains("nombre_busqueda"))
         {
@@ -294,15 +315,8 @@
             .Normalize(System.Text.NormalizationForm.FormC);
     }
 
-    // --- LÓGICA DEL ESCÁNER ---
+    // --- LÓGICA DEL ESCÁNER (la cámara la maneja BotonCamara) ---
 
-    private async Task AbrirScanner()
-    {
-        var dotNetHelper = DotNetObjectReference.Create(this);
-        await JSRuntime.InvokeVoidAsync("methodsJS.iniciarEscaneo", dotNetHelper);
-    }
-
-    [JSInvokable]
     public async Task ProcesarCodigoEscaneado(string code)
     {
         textoActual = code;
@@ -341,9 +355,11 @@
         {
             LimpiarTodo();
 
-            await Task.Delay(50);
-
-            await txtBuscar.FocusAsync();
+            if (EnfocarAlElegir)
+            {
+                await Task.Delay(50);
+                try { await txtBuscar.FocusAsync(); } catch { }
+            }
         }
     }
     /// <summary>La búsqueda ya resolvió sola (agregó el producto o avisó que no existe).</summary>

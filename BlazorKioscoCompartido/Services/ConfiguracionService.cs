@@ -83,15 +83,30 @@ namespace BlazorKioscoCompartido.Services
                 .Order(x => x.Username!, Ordering.Ascending)
                 .Get()).Models;
 
-        public async Task<bool> ExisteUsername(string username, Guid? excluirId = null)
+        /// <summary>
+        /// ¿Ya hay un usuario con ese nombre EN ESE NEGOCIO? (script 39: el nombre es único dentro de cada negocio;
+        /// dos negocios distintos pueden tener cada uno su "MARIA", porque al entrar se pone el código del negocio).
+        /// Sin el script 39, se controla como antes (en todo el sistema).
+        /// </summary>
+        public async Task<bool> ExisteUsername(string username, long kioscoId, Guid? excluirId = null)
         {
-            // el nombre de usuario es único en TODO el sistema, pero cada negocio solo ve sus usuarios:
-            // lo controla la base sin mostrar los de otros negocios
-            var res = await _db.Rpc("usuario_existe", new Dictionary<string, object>
+            try
             {
-                { "p_username", username }, { "p_excluir", (object)excluirId?.ToString()! }
-            });
-            return string.Equals(res.Content?.Trim(), "true", StringComparison.OrdinalIgnoreCase);
+                var res = await _db.Rpc("usuario_existe_en_negocio", new Dictionary<string, object>
+                {
+                    { "p_kiosco", kioscoId }, { "p_username", username }, { "p_excluir", (object)excluirId?.ToString()! }
+                });
+                return string.Equals(res.Content?.Trim(), "true", StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception ex) when (ex.Message.Contains("usuario_existe_en_negocio"))
+            {
+                // todavía no se corrió el script 39
+                var res = await _db.Rpc("usuario_existe", new Dictionary<string, object>
+                {
+                    { "p_username", username }, { "p_excluir", (object)excluirId?.ToString()! }
+                });
+                return string.Equals(res.Content?.Trim(), "true", StringComparison.OrdinalIgnoreCase);
+            }
         }
 
         public async Task CrearUsuario(Usuario u)

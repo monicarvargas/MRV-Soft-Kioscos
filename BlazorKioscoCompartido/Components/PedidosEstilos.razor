@@ -390,6 +390,9 @@ select.gp-control {
     .gp-card-pad { padding: 1rem; }
     .gp-tab { flex-direction: column; gap: .25rem; padding: .65rem .4rem; font-size: .8rem; }
     .gp-tab i { font-size: 1.15rem; }
+    /* botones de filtro (Todos / Empleados / Con deuda / Deshabilitados): bajan de renglón en vez de salirse de la pantalla */
+    .gp-seg { display: flex; flex-wrap: wrap; flex: 1 1 100%; max-width: 100%; }
+    .gp-seg button { flex: 1 1 40%; justify-content: center; padding: .5rem .6rem; }
     .gp-filtros { gap: .9rem 1.5rem; }
     .gp-actions .gp-btn { flex: 1 1 100%; }
     .gp-title-input { font-size: 1.3rem; }

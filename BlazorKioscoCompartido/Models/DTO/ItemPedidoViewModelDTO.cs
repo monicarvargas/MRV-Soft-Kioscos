@@ -27,7 +27,12 @@ namespace BlazorKioscoCompartido.Models.DTO
         /// <summary>Viene por caja / pack / bulto (sepa o no cuántas unidades trae).</summary>
         public bool TieneTipo => !BlazorKioscoCompartido.Constants.TiposBulto.EsSuelto(TipoBulto, UnidadesPorBulto);
 
-        // Subtotal de costo acumulado
-        public decimal SubtotalEstimado => CantidadAComprar * PrecioCostoLocal;
+        /// <summary>Se vende por peso: el stock y el bulto van en GRAMOS y el costo es por KILO (ver Services/Bultos.cs).</summary>
+        public bool EnKilos => BlazorKioscoCompartido.Services.Utilidades.EsVentaPorPeso(Producto);
+
+        // Subtotal de costo acumulado (por peso sin bulto: la cantidad va en gramos y el costo es por kilo)
+        public decimal SubtotalEstimado => EnKilos && !PorBulto
+            ? CantidadAComprar / 1000m * PrecioCostoLocal
+            : CantidadAComprar * PrecioCostoLocal;
     }
 }

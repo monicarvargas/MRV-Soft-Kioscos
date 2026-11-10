@@ -144,7 +144,7 @@
                                     <td class="t-right" data-label="Costo">@Cambio(it.Original.PrecioCosto, n.PrecioCosto)
                                         @if (TieneBulto(it.Original) && n.BultoPrecio != it.Original.BultoPrecio)
                                         {
-                                            <div class="gp-sub"><i class="bi bi-box-seam"></i> Bulto x@(it.Original.BultoUnidades): $@((it.Original.BultoPrecio ?? 0).ToString("N2")) → <b>$@((n.BultoPrecio ?? 0).ToString("N2"))</b></div>
+                                            <div class="gp-sub"><i class="bi bi-box-seam"></i> Bulto de @it.Original.TextoCantidadBulto(): $@((it.Original.BultoPrecio ?? 0).ToString("N2")) → <b>$@((n.BultoPrecio ?? 0).ToString("N2"))</b></div>
                                         }
                                     </td>
                                     <td class="t-right" data-label="Ganancia">@CambioPct(it.Original.UtilidadPV, n.UtilidadPV)</td>
@@ -344,7 +344,7 @@
     private static void AjustarBulto(Producto n, Producto o)
     {
         if (!TieneBulto(o) || n.PrecioCosto == o.PrecioCosto) return;
-        n.BultoPrecio = Math.Round((n.PrecioCosto ?? 0) * o.BultoUnidades!.Value, 2);
+        n.BultoPrecio = Math.Round((n.PrecioCosto ?? 0) * o.CantidadBulto(), 2);   // por peso: costo x kilo × kilos
         n.BultoFecha = DateTime.UtcNow;
     }
 

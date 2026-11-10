@@ -4,6 +4,8 @@
     /// Textos de ayuda de cada parte del sistema (Configuración → Ayuda y plan, y el manual de usuario).
     /// Clave = la de <see cref="FuncionesPlan"/>; null = está siempre (no depende del plan).
     /// Para agregar una función nueva: sumar una entrada acá con la misma clave.
+    /// Los nombres de las listas van como {L1} (precio_venta), {L2} (precio_lista2) y {L3} (precio_lista3):
+    /// al mostrarse se cambian por el nombre que les puso cada negocio (ver <see cref="ConNombres"/>).
     /// </summary>
     public static class AyudaSistema
     {
@@ -20,12 +22,12 @@
                     "Para cambiar la cantidad usá + / − o escribila. En productos por peso tocá el lápiz y cargá los gramos o el importe.",
                     "Si el producto no está cargado, se ofrece venderlo como \"producto sin código\" (escribís descripción y precio).",
                     "Tocá \"Cobrar\", elegí la forma de pago y el monto (los botones con montos ayudan a calcular el vuelto). Se puede pagar con más de una.",
-                    "Si una parte queda fiada, elegí el cliente: el sistema pregunta a qué precio se fía (el de ese momento o el de día).",
+                    "Si una parte queda fiada, elegí el cliente: el sistema pregunta a qué precio se fía (el de ese momento o el de la lista «{L1}»).",
                     "\"Confirmar venta\": se guarda, baja el stock y te muestra el vuelto. Si está prendido \"Imprimir ticket\", sale el ticket.",
                 },
                 new[]
                 {
-                    "El precio que se cobra depende del momento: de noche puede ir la lista noche y los domingos o feriados la lista de feriado (según Configuración → Listas de precios). En el buscador se ve en color.",
+                    "El precio que se cobra depende del momento: en el horario configurado puede ir la lista «{L2}» y los domingos o feriados la lista «{L3}» (según Configuración → Listas de precios). En el buscador se ve en color.",
                     "La lista de precios queda fija al empezar la venta: si se pasa de hora mientras cobrás, no cambia.",
                     "Si el producto tiene precio por mayor o precios por cantidad (ej: 10 u x $250), el precio cambia solo.",
                     "Cuando llevando 1 más le sale más barato al cliente, aparece un aviso amarillo para ofrecérselo.",
@@ -75,13 +77,14 @@
                     "Elegí cómo se vende: por unidad, por kilo (precio por kilo), por gramos (se muestra x 100 g), etc.",
                     "Cargá el costo y la utilidad (el precio se calcula solo) o directamente el precio de venta.",
                     "Si lo comprás por bulto, usá \"Lo compro por bulto\": cargás el precio del bulto y cuántas unidades trae y calcula el costo por unidad. Queda guardado para ver si aumentó la próxima vez.",
-                    "Opcional: precio noche, precio por mayor, precios por cantidad, stock inicial, mínimo e ideal, y proveedores.",
+                    "Si se vende por peso (fiambre, alimento balanceado), el bulto va en KILOS: ej. bolsa de 15 kg o horma de 4,35 kg (con coma). Calcula el costo por kilo y de ahí salen los precios por kilo o cada 100 g.",
+                    "Opcional: precio «{L2}», precio por mayor, precios por cantidad, stock inicial, mínimo e ideal, y proveedores.",
                     "\"Guardar\" o \"Guardar y cargar otra variante\" (para el mismo producto en otro sabor o color).",
                 },
                 new[]
                 {
                     "Redondeo: si el negocio redondea precios, cada producto tiene un interruptor. Apagalo en cosas chicas (gomitas a $30).",
-                    "Precio noche igual al de día (gomitas): se respeta y no se le suma el recargo.",
+                    "Precio «{L2}» igual al de «{L1}» (gomitas): se respeta y no se le suma el recargo.",
                     "Precios por cantidad: ej. c/u $30 · 10 u x $250 · 23 u x $500. Al vender se arma solo el precio más barato.",
                 }),
             new(null, "Configuración", "bi-gear-fill", "Menú → Configuración",
@@ -94,16 +97,16 @@
                     "Ayuda y plan → Perfiles: qué puede hacer cada perfil. El dueño le puede dar o sacar cosas al encargado y al vendedor.",
                     "Copia de seguridad (solo el dueño): baja un Excel con todos los datos del negocio. En la PC se puede hacer sola, todos los días o una vez por semana, en la carpeta de Google Drive.",
                 }),
-            new(null, "Listas de precios: noche, feriados y por mayor", "bi-currency-dollar", "Configuración → Listas de precios",
-                "Cobrar otro precio de noche, los domingos y feriados, o por mayor.",
+            new(null, "Listas de precios: {L2}, {L3} y por mayor", "bi-currency-dollar", "Configuración → Listas de precios",
+                "Cobrar otro precio en cierto horario («{L2}»), los domingos y feriados («{L3}»), o por mayor.",
                 new[]
                 {
-                    "Tildá las listas que usa el negocio: Precio Venta (siempre), Precio Noche, Precio Feriado y Precio x Mayor. Con el lápiz les cambiás el nombre.",
-                    "Precio Noche: elegí el horario (ej: de 00:00 a 08:00) y el recargo por tramos de costo (con \"Agregar tramo\").",
-                    "Precio Feriado: elegí los días de la semana (ej: domingo) y marcá los feriados en el almanaque. El recargo puede ser un monto fijo o un %. Ese día vale todo el día y gana sobre la noche.",
-                    "Si a un producto le cargás a mano el precio noche, se respeta. Si no lo tiene (o es menor que el de día), se calcula con el recargo.",
+                    "Tildá las listas que usa el negocio: «{L1}» (siempre), «{L2}», «{L3}» y Precio x Mayor. Con el lápiz les cambiás el nombre.",
+                    "«{L2}»: elegí el horario (ej: de 00:00 a 08:00) y el recargo por tramos de costo (con \"Agregar tramo\").",
+                    "«{L3}»: elegí los días de la semana (ej: domingo) y marcá los feriados en el almanaque. El recargo puede ser un monto fijo o un %. Ese día vale todo el día y gana sobre «{L2}».",
+                    "Si a un producto le cargás a mano el precio «{L2}», se respeta. Si no lo tiene (o es menor que el de «{L1}»), se calcula con el recargo.",
                 },
-                new[] { "Lo fiado: al cobrar se pregunta a qué precio se fía; al cobrar la deuda se puede elegir el precio según el horario en que lo sacó o todo a precio de día." }),
+                new[] { "Lo fiado: al cobrar se pregunta a qué precio se fía; al cobrar la deuda se puede elegir el precio según el horario en que lo sacó o todo con la lista «{L1}»." }),
             new(null, "Utilidad por familia", "bi-percent", "Configuración → Familias",
                 "Que cada rubro tenga su ganancia: ferretería 60 %, fiambres 50 %, golosinas 40 %...",
                 new[]
@@ -120,7 +123,7 @@
                 new[]
                 {
                     "Solapa \"Carteles de precios\": buscá y tildá productos, o traé de una todos los que cambiaron de precio desde una fecha.",
-                    "Elegí el tamaño (grandes o chicos) y si muestra el precio noche.",
+                    "Elegí el tamaño (grandes o chicos) y si muestra el precio «{L2}».",
                     "Tocá \"Imprimir\", o descargalos en Word (para modificarlos antes) o en PDF.",
                     "Solapa \"Códigos de barras\": elegí los productos y cuántas etiquetas de cada uno. Si no tienen código, se lo crea. También se pueden bajar en Word o PDF.",
                     "Imprimí en hoja A4 (común o autoadhesiva) y probá leer una con el lector antes de pegar todas.",
@@ -133,7 +136,7 @@
                     "Elegí el tipo: factura de compra, carga de productos o solo precios. Si corresponde, elegí el proveedor y la familia de los productos nuevos (ahí ves qué utilidad se les aplica).",
                     "Subí el archivo. El sistema reconoce solo las columnas (código, descripción, costo, precio, familia, subfamilia...).",
                     "Revisá la vista previa: nuevos, que ya existen, parecidos, errores. Podés cambiar la utilidad o el precio de cada fila (\"volver a la regla\" deshace lo que cambiaste).",
-                    "Si un producto viene por bulto, indicá cuántas unidades trae: el costo se divide y el producto guarda el precio del bulto.",
+                    "Si un producto viene por bulto, indicá cuántas unidades trae (o cuántos kilos, si se vende por peso): el costo se divide y el producto guarda el precio del bulto.",
                     "Al confirmar, si hay productos nuevos se pregunta qué es el código del Excel: tu código de barras, el del proveedor, los dos, o generar uno propio (29...).",
                 },
                 new[] { "La utilidad sale del Excel si la trae; si no, la que ya tiene el producto; en los nuevos, la de su familia o subfamilia." }),
@@ -163,6 +166,7 @@
                     "En Vender, el botón de venta rápida abre esas categorías.",
                     "Combos: armá un producto combo con los productos que lo forman, su precio y, si querés, vigencia y límite de unidades. Con la varita le creás un código numérico.",
                     "Al vender un combo se descuenta el stock de cada producto que lo forma.",
+                    "El combo se arma solo: si en la venta escanean todos sus productos (ej: 1 pan + 2 hamburguesas), se cambian por el combo y se cobra su precio, con un cartel que avisa. Con \"Desarmar\" vuelven a quedar sueltos. Para que funcione, el combo tiene que tener los mismos productos (y cantidades) que pasan por el lector. Los combos con productos por peso (fiambres) se venden buscando el combo por su nombre.",
                 }),
             new(FuncionesPlan.Fiado, "Clientes y fiado", "bi-journal-bookmark-fill", "Menú → Deudas (fiado) · Configuración → Clientes",
                 "Vender fiado a clientes, ver cuánto debe cada uno y cobrar las entregas.",
@@ -171,7 +175,7 @@
                     "Cargá los clientes en Configuración → Clientes.",
                     "Al cobrar, elegí el cliente y la forma de pago \"Fiado\": se pregunta a qué precio se fía.",
                     "En Deudas ves quién debe y cuánto, con el detalle de lo que llevó.",
-                    "Para cobrar: abrí el cliente y registrá la entrega (parcial o total). Se descuenta de lo más viejo primero. Se puede cobrar según el horario en que lo sacó o todo a precio de día.",
+                    "Para cobrar: abrí el cliente y registrá la entrega (parcial o total). Se descuenta de lo más viejo primero. Se puede cobrar según el horario en que lo sacó o todo con la lista «{L1}».",
                     "Solapa \"Historial y comprobante\": todo lo que se fió y se pagó, y el comprobante en PDF para darle al cliente.",
                 },
                 new[] { "De fábrica las deudas las ve solo el dueño. Se pueden habilitar en Ayuda y plan → Perfiles." }),
@@ -189,6 +193,7 @@
                 {
                     "Cargá la compra (a mano, con la calculadora o importando la factura en Excel).",
                     "Revisá costos y cantidades y confirmá: sube el stock y se actualizan los costos.",
+                    "En \"Recibir mercadería\" podés cargar por bulto: cuántos bultos llegaron y cuánto trae cada uno (unidades, o kilos si se vende por peso). Escribís el costo del bulto y calcula el de la unidad o el del kilo.",
                     "En el historial quedan todas las compras.",
                 }),
             new(FuncionesPlan.PedidosProveedores, "Pedidos a proveedores", "bi-truck", "Menú → Pedidos a proveedores",
@@ -197,7 +202,7 @@
                 {
                     "Elegí el proveedor. Se abre la ventana \"Agregar productos al pedido\".",
                     "En la ventana filtrá por familia, subfamilia y \"Stock actual hasta\", o prendé \"Solo los que tienen stock mínimo\" (los que tienen menos stock que su mínimo). Tildá los que querés y \"Agregar al pedido\". También podés buscar uno en particular.",
-                    "En la grilla está lo que vas a pedir. La cantidad sugerida es stock ideal − stock actual; si viene por bulto o caja, se pide en bultos (el stock siempre se cuenta en unidades).",
+                    "En la grilla está lo que vas a pedir. La cantidad sugerida es stock ideal − stock actual; si viene por bulto o caja, se pide en bultos (el stock se cuenta en unidades, o en kilos si se vende por peso: ej. 2 bolsas de 15 kg = 30 kg).",
                     "Guardá el pedido, mandalo por WhatsApp o en PDF (al proveedor no se le dicen las unidades de cada bulto).",
                     "Cuando llega, \"Recibir mercadería\": controlás lo que vino y sube el stock.",
                 }),
@@ -236,6 +241,10 @@
                     "El dueño o encargado ve en \"Reporte de tareas\" lo que hizo cada uno, por día.",
                 }),
         };
+
+        /// <summary>Cambia {L1} {L2} {L3} por el nombre de cada lista en este negocio.</summary>
+        public static string ConNombres(string? texto, string l1, string l2, string l3) =>
+            (texto ?? "").Replace("{L1}", l1).Replace("{L2}", l2).Replace("{L3}", l3);
 
         /// <summary>Tema de una función del plan (null si no hay ayuda cargada).</summary>
         public static Tema? DeFuncion(string clave) => Temas.FirstOrDefault(t => t.Clave == clave);

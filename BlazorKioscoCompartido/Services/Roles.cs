@@ -26,6 +26,7 @@
         public const string PReportes = "reportes";
         public const string PPersonal = "personal";
         public const string PConfiguracion = "configuracion";
+        public const string PEditarProductos = "editar_productos";
 
         public sealed record Permiso(string Clave, string Nombre, string Icono, string Detalle);
 
@@ -40,14 +41,40 @@
             new(PReportes,      "Reportes de productos",         "bi-clipboard-data-fill",    "Precios viejos, poca venta y productos sin ventas"),
             new(PPersonal,      "Personal",                      "bi-person-check-fill",      "Asistencia de todos los empleados y reporte de tareas"),
             new(PConfiguracion, "Configuración del negocio",     "bi-gear-fill",              "Clientes, proveedores, familias, listas de precios, formas de pago, turnos, unidades y color"),
+            new(PEditarProductos, "Modificar productos",         "bi-pencil-square",          "Cambiar precios, stock y datos de los productos que ya existen. Si lo apagás, los ve pero no los puede cambiar"),
         };
 
         /// <summary>Lo que trae cada perfil si el dueño no cambió nada.</summary>
         public static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> PorDefecto = new Dictionary<string, IReadOnlyList<string>>
         {
-            [Encargado] = new[] { PMercaderia, PPrecios, PVentaRapida, PReportes, PPersonal, PConfiguracion },
-            [Vendedor] = Array.Empty<string>(),
+            [Encargado] = new[] { PMercaderia, PPrecios, PVentaRapida, PReportes, PPersonal, PConfiguracion, PEditarProductos },
+            [Vendedor] = new[] { PEditarProductos },
         };
+
+        /// <summary>
+        /// Permisos nuevos que vienen PRENDIDOS: los negocios que ya habían guardado sus perfiles antes
+        /// de que existieran los siguen teniendo. Para apagarlos se guarda "!clave" en la lista.
+        /// </summary>
+        private static readonly string[] DefectoSi = { PEditarProductos };
+
+        /// <summary>De lo guardado en la base a lo que tiene de verdad el perfil.</summary>
+        public static HashSet<string> DesdeGuardado(IEnumerable<string>? lista)
+        {
+            var l = (lista ?? Array.Empty<string>()).ToList();
+            var r = new HashSet<string>(l.Where(x => !x.StartsWith("!")));
+            foreach (var k in DefectoSi)
+                if (!l.Contains("!" + k)) r.Add(k);
+            return r;
+        }
+
+        /// <summary>De lo que tiene el perfil a lo que se guarda en la base (anota los apagados de <see cref="DefectoSi"/>).</summary>
+        public static List<string> ParaGuardar(IEnumerable<string> permisos)
+        {
+            var r = permisos.Where(x => !x.StartsWith("!")).Distinct().OrderBy(x => x).ToList();
+            foreach (var k in DefectoSi)
+                if (!r.Contains(k)) r.Add("!" + k);
+            return r;
+        }
 
         // lo que eligió el dueño de ESTE negocio (null = lo de por defecto). Se carga al entrar.
         private static Dictionary<string, HashSet<string>>? _elegidos;
@@ -56,7 +83,7 @@
         public static void CargarPermisos(Dictionary<string, List<string>>? elegidos)
         {
             _elegidos = elegidos == null ? null
-                : elegidos.ToDictionary(x => N(x.Key), x => new HashSet<string>(x.Value ?? new List<string>()));
+                : elegidos.ToDictionary(x => N(x.Key), x => DesdeGuardado(x.Value));
         }
 
         /// <summary>"encargado" o "vendedor" (cajero y cualquier otro cuentan como vendedor).</summary>
@@ -86,6 +113,9 @@
 
         /// <summary>Ve y cobra las deudas de los clientes (fiado). Por defecto solo el dueño.</summary>
         public static bool VeFiado(string? rol) => Puede(rol, PFiado);
+
+        /// <summary>Puede cambiar un producto que ya existe (si no, Editar producto queda solo para ver). Por defecto todos.</summary>
+        public static bool EditaProductos(string? rol) => Puede(rol, PEditarProductos);
 
         /// <summary>Crea / cambia usuarios. Solo el dueño (así un encargado no se puede hacer admin).</summary>
         public static bool AdministraUsuarios(string? rol) => EsAdmin(rol);

@@ -23,6 +23,10 @@
     .vt-tag.vario { background: var(--gp-warn-soft); color: var(--gp-warn); }
     .vt-tag.peso { background: var(--gp-primary-soft); color: var(--gp-primary); }
     .vt-tag.combo { background: var(--gp-ok-soft); color: var(--gp-ok); }
+    /* combo armado solo (al escanear sus productos): botón para volver a los productos sueltos */
+    .vt-desarmar { display: inline-flex; align-items: center; gap: .25rem; margin-right: .35rem; padding: .05rem .55rem; border-radius: 999px;
+                   border: 1px solid var(--gp-line); background: #fff; color: var(--gp-muted); font-size: .68rem; font-weight: 800; vertical-align: middle; cursor: pointer; }
+    .vt-desarmar:hover { color: var(--gp-primary); border-color: var(--gp-primary); }
     .vt-tag.mayor { margin-left: .35rem; background: var(--gp-ok-soft); color: var(--gp-ok); }
     .vt-mayor-hint { color: var(--gp-muted); font-weight: 600; }
     .vt-qty { display: inline-flex; align-items: center; gap: .2rem; padding: .2rem; border-radius: 12px; background: #f1f3f9; }
@@ -52,6 +56,37 @@
     .vt-calc { display: flex; flex-direction: column; align-items: center; gap: .2rem; margin-top: .9rem; padding: .85rem; border-radius: 14px; background: #f6f8fc; border: 1px solid var(--gp-line); text-align: center; }
     .vt-calc span { color: var(--gp-muted); font-size: .85rem; font-weight: 700; }
     .vt-calc strong { color: var(--gp-ok); font-size: 1.5rem; font-weight: 900; }
+
+    /* ---------- Modal de cantidad / peso con colores marcados (como las ventanas de alta rápida) ---------- */
+    .vt-modal-color .gp-modal-head { padding: 1.1rem 1.25rem; color: #fff;
+        background: linear-gradient(135deg, var(--gp-primary), color-mix(in srgb, var(--gp-primary) 70%, #000)); }
+    .vt-modal-color .gp-modal-head h3 { color: #fff; }
+    .vt-modal-color .gp-modal-head p { color: rgba(255,255,255,.88); font-weight: 700; }
+    .vt-modal-color .gp-modal-head .gp-bubble { background: rgba(255,255,255,.22); color: #fff; }
+    .vt-modal-color .gp-modal-x { background: rgba(255,255,255,.18) !important; color: #fff !important; border: 0 !important; }
+    .vt-modal-color .gp-modal-x:hover { background: rgba(255,255,255,.32) !important; }
+    .vt-modal-color .gp-modal-body { padding-top: 1rem; background: linear-gradient(180deg, color-mix(in srgb, var(--gp-primary) 7%, #fff), #fff 80%); }
+    .vt-modal-color .cf-lbl { color: #1b2540; font-weight: 800; }
+
+    /* selector (Por peso / Por plata, Gramos / Kilos): el elegido va lleno de color */
+    .vt-modal-color .gp-seg { background: #e2e6f1; padding: .3rem; }
+    .vt-modal-color .gp-seg button { justify-content: center; color: #4a5578; }
+    .vt-modal-color .gp-seg button:hover:not(.is-active) { background: rgba(255,255,255,.6); color: #1b2540; }
+    .vt-modal-color .gp-seg button.is-active { background: var(--gp-primary); color: #fff;
+        box-shadow: 0 4px 12px color-mix(in srgb, var(--gp-primary) 40%, transparent); }
+
+    /* número grande */
+    .vt-modal-color .vt-big-input { border: 2px solid #cfd5e4 !important; background: #fff !important; }
+    .vt-modal-color .vt-big-input:focus { border-color: var(--gp-primary) !important;
+        box-shadow: 0 0 0 4px color-mix(in srgb, var(--gp-primary) 18%, transparent) !important; }
+
+    /* botones rápidos (100 g, ¼ kg...): el que coincide con lo cargado queda marcado */
+    .vt-modal-color .vt-rapidos button { border: 2px solid #d6dbe8; }
+    .vt-modal-color .vt-rapidos button.is-active { border-color: var(--gp-primary); background: var(--gp-primary); color: #fff; }
+
+    /* resultado */
+    .vt-modal-color .vt-calc { background: color-mix(in srgb, var(--gp-ok) 9%, #fff); border: 2px solid color-mix(in srgb, var(--gp-ok) 35%, #fff); }
+    .vt-modal-color .vt-calc span { color: #1b2540; font-size: .95rem; font-weight: 800; }
     .vt-cats { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: .6rem; }
     .vt-cat { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .4rem; min-height: 6rem; padding: .8rem; border: 2px solid var(--gp-line); border-radius: 16px; background: #fff; color: var(--gp-text); font: inherit; font-weight: 900; cursor: pointer; transition: border-color .15s, background .15s; }
     .vt-cat i { font-size: 1.6rem; color: var(--gp-primary); }

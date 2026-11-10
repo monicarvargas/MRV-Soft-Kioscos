@@ -143,7 +143,7 @@
                             @if (difHorario > 0)
                             {
                                 <button type="button" class="cfp-op is-hoy @(cobrarActualizado && modoPrecioHoy == "horario" ? "is-active" : "")" @onclick='() => ElegirPrecio("horario")'
-                                        title="Cada cosa con la lista del horario en que la sacó (ej: lo de la noche, a precio noche de hoy)">
+                                        title="@($"Cada cosa con la lista del horario en que la sacó (ej: lo sacado en el horario de «{NombreLista2}», con el precio de «{NombreLista2}» de hoy)")">
                                     <span>Hoy, según el horario en que lo sacó</span>
                                     <b>$ @((totalDeudaOriginal + difHorario).ToString("N2"))</b>
                                     <small>+ $ @difHorario.ToString("N2")</small>
@@ -152,8 +152,8 @@
                             @if (HayOpcionDia)
                             {
                                 <button type="button" class="cfp-op is-hoy @(cobrarActualizado && modoPrecioHoy == "dia" ? "is-active" : "")" @onclick='() => ElegirPrecio("dia")'
-                                        title="Todo con el precio de venta de hoy (el de día, el más barato)">
-                                    <span>Hoy, todo a precio de día</span>
+                                        title="@($"Todo con la lista «{NombreListaBase}» de hoy (la más barata)")">
+                                    <span>Hoy, todo con «@NombreListaBase»</span>
                                     <b>$ @((totalDeudaOriginal + difDia).ToString("N2"))</b>
                                     <small>+ $ @difDia.ToString("N2")</small>
                                 </button>
@@ -269,6 +269,10 @@
     private decimal deudaPrecioHoy = 0;
     private decimal diferenciaAumento = 0;     // solo si aumentó
     private bool cobrarActualizado = false;    // lo elige el dueño
+    // nombre de las listas de este negocio (cada uno las llama distinto)
+    private string NombreListaBase => BlazorKioscoCompartido.Services.PrecioService.NombreParaMostrar(State.KioscoId, "precio_venta");
+    private string NombreLista2 => BlazorKioscoCompartido.Services.PrecioService.NombreParaMostrar(State.KioscoId, "precio_lista2");
+
     // Precio de hoy: "horario" = cada fiado con la lista del horario en que se sacó (noche → precio noche de hoy)
     //                "dia"     = todo con el precio de venta de hoy (el de día)
     private string modoPrecioHoy = "horario";

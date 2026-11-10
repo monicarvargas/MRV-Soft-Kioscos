@@ -46,10 +46,13 @@
             <div class="cf-grid">
                 <div>
                     <label class="cf-lbl">Código de barras</label>
-                    <div class="pp-icon-input pp-codigo">
-                        <i class="bi bi-upc-scan"></i>
-                        <input type="text" class="gp-control" placeholder="Escaneá o escribí"
-                               value="@producto.CodigoBarras" @onchange="BuscarProductoPorCodigo" />
+                    <div class="pp-cod-fila">
+                        <div class="pp-icon-input pp-codigo">
+                            <i class="bi bi-upc-scan"></i>
+                            <input type="text" class="gp-control" placeholder="Escaneá o escribí"
+                                   value="@producto.CodigoBarras" @onchange="BuscarProductoPorCodigo" />
+                        </div>
+                        <BotonCamara OnCodigo="CodigoDeCamaraAsync" />
                     </div>
                     @if (string.IsNullOrWhiteSpace(producto.CodigoBarras))
                     {
@@ -170,7 +173,7 @@
         @* ================= PROVEEDORES ================= *@
         @if (listo)
         {
-            <GestionProveedoresProducto @ref="gestionProvNuevoRef" ProductoId="@producto.Id" KioscoId="@State.KioscoId" UnidadesBultoProducto="@producto.BultoUnidades" CopiarDeProductoId="@(origen?.Id ?? 0)" OnBultosCambio="b => hayBultos = b" />
+            <GestionProveedoresProducto @ref="gestionProvNuevoRef" ProductoId="@producto.Id" KioscoId="@State.KioscoId" UnidadesBultoProducto="@BultoParaProveedores" EnKilos="@producto.EsVentaPorPeso()" CopiarDeProductoId="@(origen?.Id ?? 0)" OnBultosCambio="b => hayBultos = b" />
         }
         <ProductoCreator @ref="productoCreatorRef" ProductoInput="producto" />
 
@@ -284,7 +287,6 @@
         avisos.Toast($"Proveedor {p.Nombre} listo", "exito", 1800);
     }
     private CultureInfo argCulture = CultureInfo.GetCultureInfo("es-AR");
-    private string nombreLista2 = "";
 
     // referencias a componentes
     private GestionProveedoresProducto? gestionProvNuevoRef;
@@ -314,8 +316,6 @@
 
         var responseProv = await SupaClient.From<Proveedor>().Where(p => p.KioscoId == State.KioscoId).Get();
         proveedores = responseProv.Models.Where(p => p.EstaActivo()).OrderBy(p => p.Nombre).ToList();   // sin los dados de baja
-
-        nombreLista2 = await PrecioServ.ObtenerNombreColumnaAsync(State.KioscoId, "precio_lista2");
 
         await CargarSubfamiliasUtil();
         producto.UtilidadPV = utilAutomatica = UtilidadDelGrupo;   // arranca con la del grupo (o 40%)
@@ -508,6 +508,9 @@
     }
 
     // ---------- Código existente ----------
+    /// <summary>Código leído con la cámara del celular: igual que si lo escribieran o pasaran el lector.</summary>
+    private Task CodigoDeCamaraAsync(string codigo) => BuscarProductoPorCodigo(new ChangeEventArgs { Value = codigo });
+
     private async Task BuscarProductoPorCodigo(ChangeEventArgs e)
     {
         string codigoIngresado = e.Value?.ToString()?.Trim() ?? "";
@@ -539,6 +542,9 @@
 
     // algún proveedor lo vende por bulto: el stock se aclara "x unidad" para no confundir
     private bool hayBultos;
+
+    /// <summary>El bulto del producto para completar el de los proveedores (por peso va en gramos; menos de 100 g es un dato viejo y no se usa).</summary>
+    private int? BultoParaProveedores => producto.EsVentaPorPeso() && (producto.BultoUnidades ?? 0) < 100 ? null : producto.BultoUnidades;
 
     private void Volver() => Nav.NavigateTo("/productos");
 }

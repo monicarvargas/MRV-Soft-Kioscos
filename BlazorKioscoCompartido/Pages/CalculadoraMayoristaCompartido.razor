@@ -38,16 +38,16 @@
 
     <!-- ESCÁNER -->
     <section class="gp-card gp-card-pad mb-3">
-        <label class="gp-field-label" for="cmScan"><i class="bi bi-upc-scan"></i> Escaneá o tipeá el código de barras</label>
-        <div class="cm-scan">
-            <input id="cmScan" @ref="inputEscaner" type="text" class="gp-control" autocomplete="off"
-                   placeholder="Escaneá un producto..."
-                   @bind="codigoInput" @bind:event="oninput" @onkeyup="OnCodigoKeyUp" />
-            <button type="button" class="gp-btn gp-btn-primary" disabled="@buscando" @onclick="BuscarOEscanearCodigo">
-                @if (buscando) { <span class="gp-spinner" style="width:1rem;height:1rem;border-width:2px;border-color:rgba(255,255,255,.4);border-top-color:#fff"></span> }
-                else { <i class="bi bi-search"></i> }
-                <span class="d-none d-sm-inline">Buscar</span>
-            </button>
+        <label class="gp-field-label"><i class="bi bi-upc-scan"></i> Escaneá, tipeá el código o buscá por nombre</label>
+        <div class="gp-buscador">
+            <BuscadorProducto @ref="buscador"
+                              CargarAlInicio="false"
+                              MostrarPrimeraLista="false"
+                              MostrarSegundaLista="false"
+                              EnfocarAlElegir="false"
+                              Placeholder="Escaneá un producto o escribí el nombre..."
+                              OnProductoEncontrado="ProductoElegido"
+                              OnProductoNoEncontrado="CodigoNoEncontradoAsync" />
         </div>
     </section>
 
@@ -207,7 +207,7 @@
     private AvisosPagina avisos = default!;
     private readonly CultureInfo cultura = CultureInfo.GetCultureInfo("es-AR");
 
-    private ElementReference? inputEscaner;
+    private BuscadorProducto? buscador;
     private ElementReference inputCantidadModal;
     private ElementReference inputNombreModal;
     private string codigoInput = "";
@@ -261,8 +261,8 @@
         try
         {
             await Task.Delay(100);
-            if (inputEscaner.HasValue && !modalAbierto)
-                await inputEscaner.Value.FocusAsync();
+            if (buscador != null && !modalAbierto)
+                await buscador.Enfocar();
         }
         catch (Exception) { }
     }
@@ -396,9 +396,44 @@
 
     // ======================= ESCANEO =======================
 
-    private async Task OnCodigoKeyUp(KeyboardEventArgs e)
+    /// <summary>El buscador encontró el producto (escaneado con la lectora o la cámara, o elegido por nombre).</summary>
+    private void ProductoElegido(Producto p)
     {
-        if (e.Key == "Enter") await BuscarOEscanearCodigo();
+        if (modalAbierto || buscando) return;
+        var codigo = (p.CodigoBarras ?? "").Trim();
+        var enLista = listaCompra.FirstOrDefault(x => (x.ProductoId != null && x.ProductoId == p.Id)
+                                                   || (codigo.Length > 0 && x.CodigoBarras == codigo));
+        if (enLista != null)
+        {
+            AbrirModal(enLista, ModoSumar);
+            return;
+        }
+
+        AbrirModal(new ItemCompraMayorista
+        {
+            ProductoId = p.Id,
+            CodigoBarras = codigo,
+            Nombre = (p.Nombre ?? "").ToUpper().Trim(),
+            PrecioCosto = p.PrecioCosto ?? 0m,
+            CostoAnteriorBD = p.PrecioCosto ?? 0m,
+            Cantidad = 1,
+            EsNuevoEnBD = false
+        }, ModoAgregar);
+    }
+
+    /// <summary>No está entre los productos activos: se busca el código exacto y, si no existe, se carga como producto nuevo.</summary>
+    private async Task CodigoNoEncontradoAsync(string texto)
+    {
+        var codigo = (texto ?? "").Trim();
+        buscador?.LimpiarTodo();
+        if (codigo.Length == 0 || modalAbierto) return;
+        if (codigo.Contains(' '))
+        {
+            avisos.Toast($"No se encontró \"{codigo}\". Si es nuevo, escaneá su código de barras.", "aviso", 3500);
+            return;
+        }
+        codigoInput = codigo;
+        await BuscarOEscanearCodigo();
     }
 
     /// <summary>Busca el código y abre directamente la ventana de cantidad y costo (sin botón "agregar" intermedio).</summary>

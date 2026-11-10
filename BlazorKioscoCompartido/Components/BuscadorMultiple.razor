@@ -22,6 +22,7 @@
             <button type="button" class="gp-search-clear" title="Borrar búsqueda" @onclick="Limpiar"><i class="bi bi-x-lg"></i></button>
         }
     </div>
+    <BotonCamara OnCodigo="CodigoDeCamaraAsync" />
     @if (familias.Count > 0)
     {
         <select class="gp-control" @bind="familiaId" @bind:after="CambioFamilia">
@@ -235,6 +236,13 @@ else if (!string.IsNullOrWhiteSpace(busqueda) || HayFiltro)
         }
     }
 
+    /// <summary>Código leído con la cámara del celular: igual que el lector (si trae un solo producto, se agrega).</summary>
+    private async Task CodigoDeCamaraAsync(string codigo)
+    {
+        busqueda = codigo;
+        await AlTeclear(new KeyboardEventArgs { Key = "Enter" });
+    }
+
     private void Limpiar()
     {
         espera?.Cancel();
@@ -260,6 +268,8 @@ else if (!string.IsNullOrWhiteSpace(busqueda) || HayFiltro)
                 tandasProv = ids.Chunk(150).Select(c => (List<object>?)c.ToList()).ToList();
             }
             var junt = new List<Producto>();
+            // también por el CÓDIGO DEL PROVEEDOR
+            var idsCodProv = texto != "" ? await BusquedaProductos.IdsPorCodigoProveedorAsync(SupaClient, k, texto) : new List<object>();
             foreach (var tanda in tandasProv)
             {
             Supabase.Postgrest.Interfaces.IPostgrestTable<Producto> q = SupaClient.From<Producto>()
@@ -281,6 +291,18 @@ else if (!string.IsNullOrWhiteSpace(busqueda) || HayFiltro)
             }
             var res = await q.Order("nombre", Ordering.Ascending).Limit(Maximo).Get();
             junt.AddRange(res.Models ?? new());
+
+            var extraIds = tanda == null ? idsCodProv : idsCodProv.Where(i => tanda.Contains(i)).ToList();
+            if (extraIds.Any())
+            {
+                Supabase.Postgrest.Interfaces.IPostgrestTable<Producto> qx = SupaClient.From<Producto>()
+                    .Where(p => p.KioscoId == k)
+                    .Where(p => p.Activo == true);
+                if (familiaId > 0) { long fx = familiaId; qx = qx.Where(p => p.FamiliaId == fx); }
+                if (familiaId > 0 && subfamiliaId > 0) { long sx = subfamiliaId; qx = qx.Where(p => p.SubfamiliaId == sx); }
+                var rx = await qx.Filter("id", Operator.In, extraIds).Limit(Maximo).Get();
+                junt.AddRange(rx.Models ?? new());
+            }
             }
             resultados = junt.GroupBy(p => p.Id).Select(g => g.First()).OrderBy(p => p.Nombre).Take(Maximo).ToList();
         }

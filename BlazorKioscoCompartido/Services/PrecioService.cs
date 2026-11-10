@@ -117,6 +117,20 @@ namespace BlazorKioscoCompartido.Services
         public static string NombreLista(long kioscoId, string? columna) =>
             _reglas.TryGetValue(kioscoId, out var r) ? r.Listas.FirstOrDefault(l => l.NombreColumnaProductos == columna)?.NombreLista ?? "" : "";
 
+        /// <summary>Nombre de la lista para mostrar: el que le puso el negocio, o el de fábrica (Precio Venta / Precio Noche / Precio Feriado).</summary>
+        public static string NombreParaMostrar(long kioscoId, string? columna)
+        {
+            var n = NombreLista(kioscoId, columna).Trim();
+            if (n != "") return n;
+            return columna switch
+            {
+                "precio_lista2" => "Precio Noche",
+                "precio_lista3" => "Precio Feriado",
+                "precio_venta_por_mayor" => "Precio x Mayor",
+                _ => "Precio Venta"
+            };
+        }
+
         /// <summary>
         /// Determina el nombre de la columna de precio activa según el kiosco y la hora.
         /// </summary>

@@ -40,8 +40,26 @@ namespace BlazorKioscoCompartido.Services.Reportes
         public decimal TotalVendido => Cobrado + Fiado;
         /// <summary>Lo que vendió cada usuario en el turno (cobrado + fiado).</summary>
         public Dictionary<string, decimal> PorEmpleado { get; set; } = new();
+        /// <summary>Cada usuario en el turno, con lo que cobró por forma de pago.</summary>
+        public Dictionary<string, EmpleadoTurno> Empleados { get; set; } = new();
         /// <summary>Plata que entró por medio de pago.</summary>
         public Dictionary<string, decimal> PorMedio { get; set; } = new();
+    }
+
+    /// <summary>Lo que hizo un empleado en un turno, separado por forma de pago.</summary>
+    public class EmpleadoTurno
+    {
+        public string Nombre { get; set; } = "";
+        public decimal Cobrado { get; set; }
+        public decimal Fiado { get; set; }
+        public decimal CobrosDeudas { get; set; }
+        public HashSet<long> Movimientos { get; } = new();
+        public int CantidadVentas => Movimientos.Count;
+        public decimal TotalVendido => Cobrado + Fiado;
+        /// <summary>La plata que tendría que tener en la caja de ese turno.</summary>
+        public decimal EnCaja => Cobrado + CobrosDeudas;
+        /// <summary>Por forma de pago (ventas + cobros de deudas; FIADO aparte, no es plata).</summary>
+        public Dictionary<string, decimal> PorMedio { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
     public class FilaMedioPago
@@ -66,6 +84,8 @@ namespace BlazorKioscoCompartido.Services.Reportes
         public decimal TotalVendido => Cobrado + Fiado;
         /// <summary>La plata que tendría que tener en la caja.</summary>
         public decimal EnCaja => Cobrado + CobrosDeudas;
+        /// <summary>Por forma de pago que confirmó (ventas + cobros de deudas; FIADO aparte, no es plata).</summary>
+        public Dictionary<string, decimal> PorMedio { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>Las ventas que hizo (los productos se cargan recién cuando se piden: CargarProductosAsync).</summary>
         public List<TicketVenta> Ventas { get; set; } = new();
@@ -143,10 +163,17 @@ namespace BlazorKioscoCompartido.Services.Reportes
         ///      positivos  → renglones de "equilibrio" del sistema de fiados: no son plata, se ignoran
         ///  - Si no: es una venta. Forma FIADO → fiado; el resto → cobrado. Los ajustes por aumento se ignoran.
         /// </summary>
-        public async Task<ResumenDia> ObtenerResumenDelDia(DateTime fecha, long kioscoId)
+        /// <remarks>
+        /// Con turnos cargados, el DÍA va de turno a turno (como "Por turno"): el turno noche que empieza el 09/11
+        /// a las 23:00 cuenta entero para el 09/11, y lo vendido el 10/11 de 00:00 a 07:00 NO entra en el 10/11.
+        /// Sin turnos, el día es de 00:00 a 24:00 (como antes).
+        /// </remarks>
+        public async Task<ResumenDia> ObtenerResumenDelDia(DateTime fecha, long kioscoId, List<Turno>? turnos = null, int minutosUtc = 180)
         {
             var r = new ResumenDia();
-            DateTime desde = fecha.Date, hasta = fecha.Date.AddDays(1);
+            var dia = fecha.Date;
+            bool porJornada = turnos != null && turnos.Any(t => t.Activo);
+            DateTime desde = dia, hasta = porJornada ? dia.AddDays(2) : dia.AddDays(1);   // la madrugada siguiente es del turno noche de hoy
 
             var datos = await CargarDatosAsync(kioscoId, desde, hasta);
             if (!datos.Filas.Any()) return r;
@@ -177,6 +204,7 @@ namespace BlazorKioscoCompartido.Services.Reportes
             var ventasDelDia = new HashSet<long>();
             foreach (var f in filas)
             {
+                if (porJornada && !EsDeLaJornada(f, dia, horas, turnos!, minutosUtc)) continue;
                 string forma = formas.TryGetValue(f.FormaPagoId, out var n) ? n : "Sin especificar";
                 bool fiado = EsFiado(forma);
                 var emp = Empleado(f.UsuarioOperadorId);
@@ -186,7 +214,11 @@ namespace BlazorKioscoCompartido.Services.Reportes
                     if (f.Total >= 0) continue;                // equilibrio del sistema de fiados
                     decimal monto = Math.Abs(f.Total);
                     if (fiado) { r.Descontado += monto; emp.Descontado += monto; }
-                    else { r.CobrosDeudas += monto; emp.CobrosDeudas += monto; Medio(forma).CobrosDeudas += monto; }
+                    else
+                    {
+                        r.CobrosDeudas += monto; emp.CobrosDeudas += monto; Medio(forma).CobrosDeudas += monto;
+                        emp.PorMedio[forma] = emp.PorMedio.GetValueOrDefault(forma) + monto;
+                    }
                     continue;
                 }
 
@@ -197,6 +229,7 @@ namespace BlazorKioscoCompartido.Services.Reportes
 
                 if (fiado) { r.Fiado += f.Total; emp.Fiado += f.Total; }
                 else { r.VentasCobradas += f.Total; emp.Cobrado += f.Total; Medio(forma).Ventas += f.Total; }
+                emp.PorMedio[forma] = emp.PorMedio.GetValueOrDefault(forma) + f.Total;
 
                 // el ticket de esa venta (una venta puede tener varias formas de pago)
                 var ticket = emp.Ventas.FirstOrDefault(t => t.Movimiento == f.NumeroUnicoIdentificatorioMovimiento);
@@ -218,6 +251,17 @@ namespace BlazorKioscoCompartido.Services.Reportes
             return r;
         }
 
+
+        /// <summary>
+        /// ¿Ese renglón es de la jornada "dia"? Por la hora: el turno noche cuenta para el día en que empezó;
+        /// fuera de los turnos, por la fecha de esa hora. Sin hora (ventas viejas): por la fecha de la venta.
+        /// </summary>
+        private static bool EsDeLaJornada(Venta f, DateTime dia, Dictionary<long, DateTime> horas, List<Turno> turnos, int minutosUtc)
+        {
+            if (horas.TryGetValue(f.Id, out var utc))
+                return AsistenciaService.Ubicar(utc.AddMinutes(-minutosUtc), turnos).jornada == dia;
+            return f.Fecha.Date == dia;
+        }
 
         // ===================== CARGA COMÚN (día o rango) =====================
         private sealed record Datos(List<Venta> Filas, Dictionary<long, DateTime> Horas, HashSet<long> MovsPago,
@@ -340,14 +384,21 @@ namespace BlazorKioscoCompartido.Services.Reportes
                     case "descontado": fila.Descontado += monto; break;
                 }
 
+                string quien = f.UsuarioOperadorId is Guid g && d.Usuarios.TryGetValue(g, out var u) ? (u.Username ?? "?") : "Sin usuario";
+                if (!fila.Empleados.TryGetValue(quien, out var et)) fila.Empleados[quien] = et = new EmpleadoTurno { Nombre = quien };
+
                 if (tipo is "venta" or "fiado")
                 {
                     if (!ventasPorFila.TryGetValue(fila, out var set)) ventasPorFila[fila] = set = new HashSet<long>();
                     set.Add(f.NumeroUnicoIdentificatorioMovimiento);
 
-                    string quien = f.UsuarioOperadorId is Guid g && d.Usuarios.TryGetValue(g, out var u) ? (u.Username ?? "?") : "Sin usuario";
                     fila.PorEmpleado[quien] = fila.PorEmpleado.GetValueOrDefault(quien) + monto;
+                    et.Movimientos.Add(f.NumeroUnicoIdentificatorioMovimiento);
+                    if (tipo == "venta") et.Cobrado += monto; else et.Fiado += monto;
                 }
+                if (tipo == "cobro") et.CobrosDeudas += monto;
+                if (tipo is "venta" or "cobro" or "fiado")
+                    et.PorMedio[forma] = et.PorMedio.GetValueOrDefault(forma) + monto;
                 if (tipo is "venta" or "cobro")
                     fila.PorMedio[forma] = fila.PorMedio.GetValueOrDefault(forma) + monto;
             }

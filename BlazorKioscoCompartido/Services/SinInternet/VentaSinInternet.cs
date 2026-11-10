@@ -330,6 +330,14 @@ namespace BlazorKioscoCompartido.Services.SinInternet
         /// <summary>Precios por cantidad guardados en la PC.</summary>
         public List<PrecioCantidad> Escalas() => CopiaActual()?.Escalas ?? new();
 
+        /// <summary>Combos y sus productos guardados en la PC (para que se armen solos también sin internet).</summary>
+        public (List<Producto> Combos, List<ComboDetalle> Detalles) CombosGuardados()
+        {
+            var c = CopiaActual();
+            if (c == null) return (new(), new());
+            return (c.Productos.Where(p => p.EsCombo == true).ToList(), c.Combos ?? new());
+        }
+
         public string NombreLista(string columna) =>
             CopiaActual()?.Listas.FirstOrDefault(l => l.NombreColumnaProductos == columna)?.NombreLista ?? "";
 

@@ -16,6 +16,8 @@
 
 <PedidosEstilos />
 <AvisosPagina @ref="avisos" />
+<AltaRapida @ref="altaProveedor" OnCreado="ProveedorCreado" />
+<AltaRapida @ref="altaSubfamilia" OnCreado="SubfamiliaCreada" />
 
 @if (preguntaCodigo != null)
 {
@@ -120,18 +122,21 @@
                 <div class="imp-grid">
                     <div class="gp-field">
                         <label class="gp-field-label" for="impProv"><i class="bi bi-truck"></i> ¿De qué proveedor es el archivo?</label>
-                        <select id="impProv" class="gp-control" value="@proveedorId" @onchange="OnProveedorChanged">
-                            <option value="0">-- Ninguno / varios --</option>
-                            @foreach (var prov in proveedores.Where(p => !EsSinProveedor(p) && p.EstaActivo()))
-                            {
-                                <option value="@prov.Id">@prov.Nombre</option>
-                            }
-                        </select>
+                        <div style="display:flex; gap:.4rem; align-items:center">
+                            <select id="impProv" class="gp-control" style="flex:1 1 auto; min-width:0" value="@proveedorId" @onchange="OnProveedorChanged">
+                                <option value="0">-- Ninguno / varios --</option>
+                                @foreach (var prov in proveedores.Where(p => !EsSinProveedor(p) && p.EstaActivo()))
+                                {
+                                    <option value="@prov.Id">@prov.Nombre</option>
+                                }
+                            </select>
+                            <button type="button" class="gp-btn gp-btn-soft gp-btn-icon" style="flex:none" title="Nuevo proveedor" @onclick="() => altaProveedor.Abrir(AltaRapida.Tipo.Proveedor)"><i class="bi bi-plus-lg"></i></button>
+                        </div>
                     </div>
 
                     <div class="gp-field">
                         <label class="gp-field-label" for="impFam"><i class="bi bi-tags-fill"></i> Familia de los productos nuevos</label>
-                        <select id="impFam" class="gp-control" @bind="familiaElegida" @bind:after="RecalcularNuevos">
+                        <select id="impFam" class="gp-control" @bind="familiaElegida" @bind:after="CambioFamiliaElegida">
                             <option value="">-- La del Excel (si no trae: ARTICULOS) --</option>
                             @foreach (var fam in familiasLista)
                             {
@@ -146,7 +151,34 @@
                         <small class="imp-util-grupo"><i class="bi bi-percent"></i> @TextoUtilidadElegida</small>
                     </div>
 
-                    @if (proveedorId > 0 && tipo != ImportacionTipo.Carga)
+                    @if (subfamiliasLista.Any() || FamiliaElegidaObj != null)
+                    {
+                        <div class="gp-field">
+                            <label class="gp-field-label" for="impSub"><i class="bi bi-diagram-3"></i> Subfamilia de los productos nuevos</label>
+                            <div style="display:flex; gap:.4rem; align-items:center">
+                                <select id="impSub" class="gp-control" style="flex:1 1 auto; min-width:0" value="@subfamiliaElegidaId" @onchange="CambioSubfamiliaElegida">
+                                    <option value="0">-- La del Excel (si no trae: ninguna) --</option>
+                                    @foreach (var s in SubfamiliasParaElegir)
+                                    {
+                                        <option value="@s.Id">@(FamiliaElegidaObj != null ? s.Nombre : $"{NombreFamiliaDe(s.FamiliaId)} › {s.Nombre}")</option>
+                                    }
+                                </select>
+                                <button type="button" class="gp-btn gp-btn-soft gp-btn-icon" style="flex:none" disabled="@(FamiliaElegidaObj == null)"
+                                        title="@(FamiliaElegidaObj == null ? "Para crear una subfamilia, elegí antes la familia" : $"Nueva subfamilia de {FamiliaElegidaObj.Nombre}")"
+                                        @onclick="AbrirNuevaSubfamilia"><i class="bi bi-plus-lg"></i></button>
+                            </div>
+                            <small class="gp-hint" style="display:block; margin-top:.3rem">Podés elegirla sin elegir la familia: la familia se pone sola.</small>
+                        </div>
+                    }
+
+                    @if (proveedorId > 0 && tipo != ImportacionTipo.Carga && DosCodigos)
+                    {
+                        <div class="gp-field">
+                            <span class="gp-field-label"><i class="bi bi-upc-scan"></i> Códigos</span>
+                            <small class="gp-hint" style="display:block">El Excel trae dos columnas: <b>Código</b> = tu código de barras y <b>Código del proveedor</b> = el del proveedor. Cada uno se guarda en su lugar.</small>
+                        </div>
+                    }
+                    else if (proveedorId > 0 && tipo != ImportacionTipo.Carga)
                     {
                         <div class="gp-field">
                             <span class="gp-field-label"><i class="bi bi-upc-scan"></i> Los códigos del Excel son</span>
@@ -394,7 +426,7 @@
             {
                 <div class="gp-banner" role="alert">
                     <i class="bi bi-graph-up-arrow"></i>
-                    <p><b>@CntAlertaCosto</b> producto(s) cambian su costo un 30% o más. Revisalos por si hay un error en el archivo.</p>
+                    <p>@(CntAlertaCosto == 1 ? "Hay 1 producto que cambia" : $"Hay {CntAlertaCosto} productos que cambian") su costo un 30% o más. Revisalos por si hay un error en el archivo.</p>
                     <button type="button" class="gp-btn gp-btn-outline gp-btn-sm" @onclick='() => filtroVista = "problemas"'>Verlos</button>
                 </div>
             }
@@ -403,7 +435,7 @@
                 <div class="gp-banner" role="alert" style="flex-wrap:wrap">
                     <i class="bi bi-link-45deg"></i>
                     <p>
-                        <b>@CntSinAsociar</b> código(s) del proveedor todavía no están asociados a ningún producto, y esas filas no se importan.
+                        @(CntSinAsociar == 1 ? "Hay 1 código del proveedor que todavía no está asociado a ningún producto, y esa fila no se importa." : $"Hay {CntSinAsociar} códigos del proveedor que todavía no están asociados a ningún producto, y esas filas no se importan.")
                         Buscá el producto en cada fila, o creálos todos juntos como productos nuevos.
                         @if (coincidenConMisCodigos > 0)
                         {
@@ -423,7 +455,7 @@
             {
                 <div class="gp-banner" role="alert" style="flex-wrap:wrap">
                     <i class="bi bi-box-seam"></i>
-                    <p><b>@CntSugeridosBulto</b> producto(s) parecen venir por bulto según la descripción (ej: "X 100 UNID"). Si el costo del Excel es el del bulto, aplicalo y calculo el costo por unidad@(tipo == ImportacionTipo.Factura ? " y las unidades que entran" : "").</p>
+                    <p>@(CntSugeridosBulto == 1 ? "Hay 1 producto que parece venir" : $"Hay {CntSugeridosBulto} productos que parecen venir") por bulto según la descripción (ej: "X 100 UNID"). Si el costo del Excel es el del bulto, aplicalo y calculo el costo por unidad@(tipo == ImportacionTipo.Factura ? " y las unidades que entran" : "").</p>
                     <button type="button" class="gp-btn gp-btn-primary gp-btn-sm" @onclick="AplicarTodosSugeridos"><i class="bi bi-check2-all"></i> Aplicar a todos</button>
                 </div>
             }
@@ -431,7 +463,7 @@
             {
                 <div class="gp-banner" role="alert" style="flex-wrap:wrap">
                     <i class="bi bi-basket3-fill"></i>
-                    <p><b>@CntPorPeso</b> producto(s) nuevo(s) se cargan <b>por peso</b> (la descripción dice "X KG"). El precio del Excel se guarda por kilo; en pantalla y en el cartel se ve x 100 g, y al vender se pesa en gramos. Si alguno no lo dice pero también es por peso (ej: un fiambre), tocá "por peso" en su fila.</p>
+                    <p>@(CntPorPeso == 1 ? "Hay 1 producto nuevo que se carga" : $"Hay {CntPorPeso} productos nuevos que se cargan") <b>por peso</b> (la descripción dice "X KG"). El precio del Excel se guarda por kilo; en pantalla y en el cartel se ve x 100 g, y al vender se pesa en gramos. Si alguno no lo dice pero también es por peso (ej: un fiambre), tocá "por peso" en su fila.</p>
                     @if (FamiliasConPesoMezclado.Any())
                     {
                         <div class="imp-acciones" style="margin:0">
@@ -443,11 +475,40 @@
                     }
                 </div>
             }
+            @if (CntSoloVenta > 0 && tipo != ImportacionTipo.Factura)
+            {
+                @* Excel de otro sistema: sin precio de costo pero con precio de venta *@
+                <div class="gp-banner" role="alert" style="flex-wrap:wrap">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                    <p>
+                        @(CntSoloVenta == 1 ? "Hay 1 producto que no tiene precio de costo" : $"Hay {CntSoloVenta} productos que no tienen precio de costo") pero sí precio de venta
+                        (pasa cuando el Excel viene de otro sistema).
+                        @if (ventaSinCosto)
+                        {
+                            <b>Se cargan con el precio de venta del Excel; el costo y la utilidad quedan en 0.</b>
+                        }
+                        else
+                        {
+                            <span>Si querés, se cargan con el precio de venta del Excel y el costo y la utilidad en 0. Si no, quedan sin precio.</span>
+                        }
+                    </p>
+                    <div class="imp-acciones" style="margin:0">
+                        @if (ventaSinCosto)
+                        {
+                            <button type="button" class="gp-btn gp-btn-outline gp-btn-sm" @onclick="() => CambiarVentaSinCosto(false)"><i class="bi bi-arrow-counterclockwise"></i> No, dejarlos sin precio</button>
+                        }
+                        else
+                        {
+                            <button type="button" class="gp-btn gp-btn-primary gp-btn-sm" @onclick="() => CambiarVentaSinCosto(true)"><i class="bi bi-check2-all"></i> Cargarlos con el precio de venta</button>
+                        }
+                    </div>
+                </div>
+            }
             @if (CntParecidos > 0)
             {
                 <div class="gp-banner" role="alert" style="flex-wrap:wrap">
                     <i class="bi bi-intersect"></i>
-                    <p><b>@CntParecidos</b> producto(s) "nuevos" se parecen mucho a uno que ya tenés (ej: mismo nombre con distinto código o con "X 100 UNID"). Si son el mismo, no se duplican: se actualiza el que tenés y se le suma este proveedor. Revisalos en cada fila.</p>
+                    <p>@(CntParecidos == 1 ? "Hay 1 producto “nuevo” que se parece mucho a uno que ya tenés" : $"Hay {CntParecidos} productos “nuevos” que se parecen mucho a otros que ya tenés") (ej: mismo nombre con distinto código o con "X 100 UNID"). Si son el mismo, no se duplican: se actualiza el que tenés y se le suma este proveedor. Revisalos en cada fila.</p>
                     <div class="imp-acciones" style="margin:0">
                         <button type="button" class="gp-btn gp-btn-outline gp-btn-sm" @onclick='() => filtroVista = "parecidos"'>Verlos</button>
                         <button type="button" class="gp-btn gp-btn-primary gp-btn-sm" @onclick="UsarTodosLosParecidos"><i class="bi bi-check2-all"></i> Son los mismos: usar los existentes</button>
@@ -495,6 +556,10 @@
                                     @if (nombreLista2 != "")
                                     {
                                         <th class="t-right">@nombreLista2</th>
+                                    }
+                                    @if (nombreLista3 != "" && IndiceMapa("lista3") >= 0)
+                                    {
+                                        <th class="t-right">@nombreLista3</th>
                                     }
                                 }
                             </tr>
@@ -553,6 +618,11 @@
                                                     <span>Se vende</span>
                                                     <button type="button" class="@(!EsPesoFila(f) ? "is-active" : "")" @onclick="() => CambiarPesoFila(f, false)">por unidad</button>
                                                     <button type="button" class="@(EsPesoFila(f) ? "is-active" : "")" @onclick="() => CambiarPesoFila(f, true)">por peso</button>
+                                                    @if (!f.Procesada)
+                                                    {
+                                                        <button type="button" class="imp-bulto-lapiz @(f.UnidadesBulto > 1 ? "is-active" : "")" title="@(EsPesoFila(f) ? "Lo compro por bulto / bolsa: cargá cuántos kilos trae y se calcula el costo por kilo" : "Lo compro por bulto / caja: cargá cuántas unidades trae y se calcula el costo por unidad")"
+                                                                @onclick="() => EditarBulto(f)"><i class="bi bi-pencil-fill"></i> @(f.UnidadesBulto > 1 ? "bulto x " + Bultos.Texto(f.UnidadesBulto, EsPesoFila(f)) : "viene por bulto")</button>
+                                                    }
                                                     @if (EsPesoFila(f))
                                                     {
                                                         <small>precio del Excel = x kilo · se muestra x 100 g · al vender se pesa</small>
@@ -576,21 +646,35 @@
                                             {
                                                 <div class="imp-mini" style="white-space:normal; margin-top:.2rem"><i class="bi bi-arrow-return-right"></i> En tu sistema: <b>@f.Producto.Nombre</b></div>
                                             }
+                                            @if (!MuestraBulto(f) && f.Importable && !f.Procesada && f.Estado != EstNuevo)
+                                            {
+                                                <button type="button" class="imp-bulto-link" title="@(EsPesoFila(f) ? "Si este producto viene por bulto o bolsa, cargá cuántos kilos trae" : "Si este producto viene por bulto o caja, cargá cuántas unidades trae")" @onclick="() => EditarBulto(f)">
+                                                    <i class="bi bi-box-seam"></i> ¿Viene por bulto/caja? <i class="bi bi-pencil-fill"></i>
+                                                </button>
+                                            }
                                             @if (MuestraBulto(f))
                                             {
                                                 <div class="imp-bulto @(f.UnidadesBulto > 1 ? "is-on" : "")">
                                                     <i class="bi bi-box-seam"></i>
                                                     <span>Viene por</span>
-                                                    <input type="number" min="1" class="imp-in" title="Unidades que trae el bulto (1 = suelto)" disabled="@f.Procesada"
-                                                           value="@f.UnidadesBulto" @onchange="e => CambiarBultoFila(f, e)" onfocus="this.select()" />
-                                                    <span>u.</span>
-                                                    @if (f.BultoSugerido > 1 && f.UnidadesBulto != f.BultoSugerido && !f.Procesada)
+                                                    <InputBulto Id="@($"bulto-{f.NumeroFila}")" Valor="f.UnidadesBulto" ValorChanged="n => CambiarBultoFila(f, n)" EnKilos="@EsPesoFila(f)"
+                                                                Clase="imp-in" Deshabilitado="@f.Procesada" Placeholder="?" ConUnidad="true"
+                                                                Titulo="@(EsPesoFila(f) ? "Kilos que trae el bulto (vacío = suelto)" : "Unidades que trae el bulto (vacío = suelto)")" />
+                                                    @if (f.BultoSugerido > 1 && f.UnidadesBulto != f.BultoSugerido && !f.Procesada && !EsPesoFila(f))
                                                     {
                                                         <button type="button" class="imp-sug" @onclick="() => AplicarSugerido(f)">¿x @f.BultoSugerido? (lo dice la descripción)</button>
                                                     }
                                                     @if (f.BultoDeRelacion && f.UnidadesBulto > 1)
                                                     {
                                                         <small class="gp-muted">(guardado para este proveedor)</small>
+                                                    }
+                                                    @if (f.UnidadesBulto > 1 && f.CostoExcel > 0)
+                                                    {
+                                                        <small>· bulto $ @((f.CostoExcel ?? 0m).ToString("N2", cultura)) ÷ @Bultos.Texto(f.UnidadesBulto, EsPesoFila(f)) = <b>$ @((f.Costo ?? 0m).ToString("N2", cultura)) @(EsPesoFila(f) ? "el kg" : "c/u")</b></small>
+                                                    }
+                                                    else if (f.EditarBulto)
+                                                    {
+                                                        <small>poné cuántos @(EsPesoFila(f) ? "kilos" : "unidades") trae (el costo del Excel pasa a ser el del bulto)</small>
                                                     }
                                                 </div>
                                             }
@@ -611,9 +695,13 @@
                                                     <div class="imp-cell">
                                                         @if (f.UnidadesBulto > 1 && tipo == ImportacionTipo.Factura)
                                                         {
-                                                            <span class="imp-mini">@((f.CantidadExcel ?? 0m).ToString("0.##", cultura)) bulto(s) x @f.UnidadesBulto</span>
+                                                            <span class="imp-mini">@((f.CantidadExcel ?? 0m).ToString("0.##", cultura)) bulto(s) x @Bultos.Texto(f.UnidadesBulto, EsPesoFila(f))</span>
+                                                            <b>@Bultos.TextoCantidad(Cant(f), EsPesoFila(f))</b>
                                                         }
-                                                        <b>@(f.Cantidad!.Value.ToString("0.##", cultura))@(f.UnidadesBulto > 1 && tipo == ImportacionTipo.Factura ? " u." : "")</b>
+                                                        else
+                                                        {
+                                                            <b>@(f.Cantidad!.Value.ToString("0.##", cultura))</b>
+                                                        }
                                                         <span class="imp-chip">Stock @f.StockAnterior → @StockNuevo(f)</span>
                                                     </div>
                                                 }
@@ -636,7 +724,7 @@
                                                     {
                                                         <span class="imp-mini">Bulto: $@((f.CostoExcel ?? 0m).ToString("N2", cultura))</span>
                                                     }
-                                                    <b>$@f.Costo!.Value.ToString("N2", cultura)@(f.UnidadesBulto > 1 ? " c/u" : "")</b>
+                                                    <b>$@f.Costo!.Value.ToString("N2", cultura)@(f.UnidadesBulto > 1 ? (EsPesoFila(f) ? " el kg" : " c/u") : "")</b>
                                                     @if (f.Importable && f.OrigCosto > 0m && Math.Abs(f.DeltaCosto) >= 0.05m)
                                                     {
                                                         <span class="imp-delta @(f.DeltaCosto > 0 ? "up" : "down") @(f.AlertaCosto ? "alert" : "")">@(f.DeltaCosto > 0 ? "▲ +" : "▼ ")@f.DeltaCosto.ToString("0.#", cultura)%</span>
@@ -697,6 +785,25 @@
                                                     }
                                                 </td>
                                             }
+                                            @if (nombreLista3 != "" && IndiceMapa("lista3") >= 0)
+                                            {
+                                                <td class="t-right" data-label="@nombreLista3">
+                                                    @if (f.Importable && (f.Lista3 ?? 0m) > 0m && regla == ReglaExcel)
+                                                    {
+                                                        <div class="imp-cell right">
+                                                            @if (f.OrigL3 > 0m)
+                                                            {
+                                                                <span class="imp-ant">Ant: $@f.OrigL3.ToString("N2", cultura)</span>
+                                                            }
+                                                            <b class="imp-venta">$@f.Lista3Nueva.ToString("N2", cultura)</b>
+                                                        </div>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="gp-muted">@(f.Importable && f.OrigL3 > 0m ? "$" + f.OrigL3.ToString("N2", cultura) : "—")</span>
+                                                    }
+                                                </td>
+                                            }
                                         }
                                     </tr>
                                 }
@@ -740,6 +847,15 @@
                             <span> <b>@resErrores</b> con error.</span>
                         }
                     </p>
+                }
+
+                @if (CntNoGuardadas > 0)
+                {
+                    <div class="imp-nog">
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+                        <span><b>@CntNoGuardadas</b> fila(s) no se pudieron guardar. Bajalas en un archivo (se abre con Excel), corregilas y volvé a importarlo.</span>
+                        <button type="button" class="gp-btn gp-btn-primary gp-btn-sm" @onclick="DescargarNoGuardadasAsync"><i class="bi bi-download"></i> Descargar las que no se guardaron</button>
+                    </div>
                 }
 
                 @if (resMensajes.Any())
@@ -1775,6 +1891,13 @@
     .imp-peso.is-on { border-style: solid; border-color: var(--gp-primary-line); background: var(--gp-primary-soft); color: var(--gp-primary); }
     .imp-peso button { padding: .1rem .55rem; border: 1px solid var(--gp-line); border-radius: 999px; background: #fff; color: var(--gp-muted); font: inherit; font-size: .72rem; font-weight: 800; cursor: pointer; }
     .imp-peso button.is-active { background: var(--gp-primary); border-color: var(--gp-primary); color: #fff; }
+    .imp-peso .imp-bulto-lapiz { border-style: dashed; }
+    .imp-nog { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; margin: .8rem 0; padding: .7rem .9rem; border: 1px solid var(--gp-warn-line); border-radius: 12px; background: var(--gp-warn-soft); color: var(--gp-warn); font-weight: 700; }
+    .imp-nog span { flex: 1 1 16rem; }
+    .imp-peso .imp-bulto-lapiz i { font-size: .65rem; }
+    .imp-bulto-link { display: inline-flex; align-items: center; gap: .3rem; margin-top: .4rem; padding: .15rem .55rem; border: 1px dashed var(--gp-line); border-radius: 999px;
+                      background: #fff; color: var(--gp-muted); font-size: .72rem; font-weight: 800; cursor: pointer; }
+    .imp-bulto-link:hover, .imp-peso .imp-bulto-lapiz:hover { border-color: var(--gp-primary); color: var(--gp-primary); }
     .imp-peso small { font-weight: 600; }
     .imp-peso-sug { color: var(--gp-warn); }
     .imp-sug { padding: .1rem .55rem; border: 0; border-radius: 999px; background: var(--gp-warn-soft); color: var(--gp-warn); font: inherit; font-size: .72rem; font-weight: 800; cursor: pointer; }
@@ -1857,6 +1980,7 @@
         codigosIguales = iguales;
     }
     private string nombreLista2 = "";
+    private string nombreLista3 = "";   // la Lista 3 del negocio (vacío = no la usa)
     private List<Proveedor> proveedores = new();
 
     // archivo
@@ -1918,6 +2042,8 @@
         await PrecioServ.AsegurarReglasAsync(State.KioscoId);   // recargos de la Lista 2 del negocio
         try { nombreLista2 = await PrecioServ.ObtenerNombreColumnaAsync(State.KioscoId, "precio_lista2") ?? ""; }
         catch { nombreLista2 = ""; }
+        try { nombreLista3 = await PrecioServ.ObtenerNombreColumnaAsync(State.KioscoId, "precio_lista3") ?? ""; }
+        catch { nombreLista3 = ""; }
 
         try
         {
@@ -1954,6 +2080,21 @@
         crearInexistentes = true;
     }
 
+    // ---------- Alta rápida de proveedor (sin ir a Configuración) ----------
+    private AltaRapida altaProveedor = default!;
+
+    private void ProveedorCreado((long Id, string Nombre) p)
+    {
+        if (!proveedores.Any(x => x.Id == p.Id))
+        {
+            proveedores.Add(new Proveedor { Id = p.Id, KioscoId = State.KioscoId, Nombre = p.Nombre });
+            proveedores = proveedores.OrderBy(x => x.Nombre).ToList();
+        }
+        proveedoresCache = null;   // que lo encuentre al guardar
+        OnProveedorChanged(new ChangeEventArgs { Value = p.Id.ToString() });
+        avisos.Toast($"Proveedor {p.Nombre} listo", "exito", 1800);
+    }
+
     private void OnProveedorChanged(ChangeEventArgs e)
     {
         proveedorId = long.TryParse(e.Value?.ToString(), out long id) ? id : 0;
@@ -1970,15 +2111,22 @@
     private static readonly CampoDef[] Campos =
     {
         new("codigo", "Código", "7790895001234"),
+        new("codprov", "Código del proveedor", "A-1234"),
         new("descripcion", "Descripción", "GASEOSA COLA 500ML"),
         new("cantidad", "Cantidad", "12"),
         new("costo", "Costo", "850,00"),
         new("utilidad", "Utilidad %", "40"),
         new("venta", "Precio de venta", "1200,00"),
         new("lista2", "Lista 2", "1250,00"),
+        new("lista3", "Lista 3", "1300,00"),
         new("familia", "Familia", "Gaseosas"),
         new("subfamilia", "Subfamilia", "Cola"),
-        new("proveedor", "Proveedor", "COCA COLA")
+        new("proveedor", "Proveedor", "COCA COLA"),
+        // datos extra del producto (opcionales): si la columna viene con algo, se guarda en el producto
+        new("marca", "Marca", "COCA COLA"),
+        new("stockmin", "Stock mínimo", "6"),
+        new("stockideal", "Stock ideal", "24"),
+        new("nota", "Nota", "Va en la heladera")
     };
 
     private List<string> CamposVisibles()
@@ -1986,11 +2134,16 @@
         var l = tipo switch
         {
             ImportacionTipo.Factura => new List<string> { "codigo", "descripcion", "cantidad", "costo", "familia", "subfamilia" },
-            ImportacionTipo.Precios => new List<string> { "codigo", "descripcion", "costo", "utilidad", "venta", "lista2", "familia", "subfamilia" },
-            _ => new List<string> { "codigo", "descripcion", "cantidad", "costo", "utilidad", "venta", "lista2", "familia", "subfamilia", "proveedor" }
+            ImportacionTipo.Precios => new List<string> { "codigo", "descripcion", "costo", "utilidad", "venta", "lista2", "lista3", "familia", "subfamilia" },
+            _ => new List<string> { "codigo", "descripcion", "cantidad", "costo", "utilidad", "venta", "lista2", "lista3", "familia", "subfamilia", "proveedor" }
         };
+        // columna aparte con el código del proveedor (opcional): el "Código" queda como mi código de barras
+        if (proveedorId > 0 || tipo == ImportacionTipo.Carga) l.Insert(1, "codprov");
         if (nombreLista2 == "") l.Remove("lista2");
+        if (nombreLista3 == "") l.Remove("lista3");
         if (proveedorId > 0) l.Remove("proveedor");
+        // datos extra del producto (opcionales, en todos los tipos)
+        l.AddRange(new[] { "marca", "stockmin", "stockideal", "nota" });
         return l;
     }
 
@@ -2004,7 +2157,9 @@
     private string EtiquetaCampo(string k)
     {
         if (k == "lista2") return nombreLista2;
+        if (k == "lista3") return nombreLista3;
         if (k == "cantidad" && tipo == ImportacionTipo.Carga) return "Stock";
+        if (k == "codigo" && DosCodigos) return "Código de barras (el mío)";
         if (k == "codigo" && codigosDelProveedor) return "Código del proveedor";
         if (k == "codigo" && codigosIguales) return "Código (mío y del proveedor)";
         return Campos.First(c => c.Key == k).Etiqueta;
@@ -2051,21 +2206,29 @@
 
     private Dictionary<string, string[]> Sinonimos()
     {
-        var l2 = new List<string> { "lista2", "plista2", "preciolista2" };
+        var l2 = new List<string> { "lista2", "plista2", "preciolista2", "listaprecio2", "listadeprecio2" };
         if (!string.IsNullOrWhiteSpace(nombreLista2)) l2.Add(Clave(nombreLista2));
+        var l3 = new List<string> { "lista3", "plista3", "preciolista3", "listaprecio3", "listadeprecio3" };
+        if (!string.IsNullOrWhiteSpace(nombreLista3)) l3.Add(Clave(nombreLista3));
 
         return new Dictionary<string, string[]>
         {
-            ["codigo"] = new[] { "codigo", "codigodebarras", "codbarras", "codbarra", "ean", "sku", "cod", "codart", "codigoarticulo", "codigoproveedor", "codprov", "codigoprov", "codigoprod" },
+            ["codigo"] = new[] { "codigo", "codigodebarras", "codigobarras", "codbarras", "codbarra", "ean", "sku", "cod", "codart", "codigoarticulo", "codigoprod" },
+            ["codprov"] = new[] { "codigoproveedor", "codigodelproveedor", "codproveedor", "codprov", "codigoprov", "codprovee" },
             ["descripcion"] = new[] { "descripcion", "detalle", "producto", "nombre", "articulo", "denominacion", "concepto", "descripcionarticulo" },
             ["cantidad"] = new[] { "cantidad", "cant", "stock", "unidades", "unid", "qty", "cantidadrecibida" },
             ["costo"] = new[] { "costo", "preciocosto", "costounitario", "preciounitario", "punitario", "punit", "precio", "preciolista", "preciodecompra", "pcompra", "importeunitario" },
             ["utilidad"] = new[] { "utilidad", "utilidadpv", "margen", "markup", "ganancia" },
             ["venta"] = new[] { "venta", "pventa", "precioventa", "pvp", "preciopublico", "preciofinal" },
             ["lista2"] = l2.ToArray(),
+            ["lista3"] = l3.ToArray(),
             ["familia"] = new[] { "familia", "categoria", "rubro", "linea", "grupo", "seccion" },
             ["subfamilia"] = new[] { "subfamilia", "subrubro", "subcategoria", "subgrupo", "sublinea", "subseccion" },
-            ["proveedor"] = new[] { "proveedor", "mayorista", "distribuidor" }
+            ["proveedor"] = new[] { "proveedor", "mayorista", "distribuidor" },
+            ["marca"] = new[] { "marca", "fabricante", "laboratorio" },
+            ["stockmin"] = new[] { "stockminimo", "stockmin", "minimo", "stmin" },
+            ["stockideal"] = new[] { "stockideal", "ideal", "stockmaximo", "stockmax", "maximo" },
+            ["nota"] = new[] { "nota", "notas", "notaproducto", "observacion", "observaciones", "comentario", "comentarios" }
         };
     }
 
@@ -2126,7 +2289,10 @@
         }
 
         // la subfamilia se busca antes que la familia: si no, "SUB FAMILIA" quedaría como familia (contiene "familia")
-        var orden = visibles.OrderBy(k => k == "subfamilia" ? 0 : 1).ToList();
+        // y el código del proveedor antes que el código: si no, "CODIGO PROVEEDOR" quedaría como código (contiene "codigo")
+        // y "stock mínimo / ideal" antes que la cantidad: si no, "STOCK MINIMO" quedaría como cantidad (contiene "stock")
+        // (y las listas 2 y 3 antes que el costo: "PRECIO LISTA 2" contiene "precio lista", que es del costo)
+        var orden = visibles.OrderBy(k => k is "subfamilia" or "codprov" or "stockmin" or "stockideal" or "lista2" or "lista3" ? 0 : 1).ToList();
         foreach (var exacto in new[] { true, false })
         {
             foreach (var k in orden)
@@ -2137,12 +2303,28 @@
             }
         }
 
+        // si el Excel trae SOLO el código del proveedor (sin otra columna de código), esa es la columna "Código" (como antes)
+        if (mapa.TryGetValue("codprov", out var iProv) && iProv >= 0 && !(mapa.TryGetValue("codigo", out var iCod) && iCod >= 0))
+        {
+            mapa["codigo"] = iProv;
+            mapa["codprov"] = -1;
+            if (proveedorId > 0 && !codigosIguales) codigosDelProveedor = true;
+        }
+
         foreach (var k in visibles)
             if (!mapa.ContainsKey(k)) mapa[k] = -1;
     }
 
+    /// <summary>
+    /// El Excel trae DOS columnas de código: "Código" = mi código de barras y "Código del proveedor" = el suyo.
+    /// Se busca el producto por mi código (y si no, por el del proveedor) y al guardar cada uno va a su lugar:
+    /// productos.codigo_barras y el código del proveedor en la relación con el proveedor.
+    /// </summary>
+    private bool DosCodigos => IndiceMapa("codigo") >= 0 && IndiceMapa("codprov") >= 0;
+
     private bool HayPreciosEnExcel =>
-        (mapa.TryGetValue("venta", out var v) && v >= 0) || (nombreLista2 != "" && mapa.TryGetValue("lista2", out var l) && l >= 0);
+        (mapa.TryGetValue("venta", out var v) && v >= 0) || (nombreLista2 != "" && mapa.TryGetValue("lista2", out var l) && l >= 0)
+        || (nombreLista3 != "" && mapa.TryGetValue("lista3", out var l3) && l3 >= 0);
 
     // ---------------------------------------------------------------- lectura del archivo
     private void LimpiarArchivo(bool tambienEstado)
@@ -2392,9 +2574,12 @@
             proveedoresCache = null;
             crearInexistentes = true;
             reemplazarStock = false;
+            ventaSinCosto = false;
             var nuevas = new List<FilaImport>();
             var porCodigo = new Dictionary<string, FilaImport>(StringComparer.OrdinalIgnoreCase);
             bool sumaRepetidas = tipo != ImportacionTipo.Precios;
+            bool dosCodigos = DosCodigos;
+            if (dosCodigos) { codigosDelProveedor = false; codigosIguales = false; }   // la columna "Código" es mi código de barras
 
             for (int idx = 0; idx < filasDatos.Count; idx++)
             {
@@ -2412,6 +2597,11 @@
                     Subfamilia = Val("subfamilia").Trim(),
                     ProveedorTexto = Val("proveedor").Trim()
                 };
+                if (dosCodigos)
+                {
+                    var cp = LimpiarCodigo(Val("codprov"));
+                    f.CodigoProveedor = cp == "" ? null : cp;
+                }
 
                 if (f.Codigo == "" && f.Descripcion == "") continue;   // renglón de total, nota, etc.
 
@@ -2426,9 +2616,14 @@
 
                 f.Cantidad = Num("cantidad", "Cantidad");
                 f.Costo = Num("costo", "Costo");
+                f.Marca = Corto(Val("marca").Trim(), MaxFamilia);
+                f.Nota = Corto(Val("nota").Trim(), MaxNombre);
+                f.StockMin = Num("stockmin", "Stock mínimo");
+                f.StockIdeal = Num("stockideal", "Stock ideal");
                 f.Utilidad = Num("utilidad", "Utilidad");
                 f.Venta = Num("venta", "Venta");
                 f.Lista2 = nombreLista2 != "" ? Num("lista2", nombreLista2) : null;
+                f.Lista3 = nombreLista3 != "" ? Num("lista3", nombreLista3) : null;
 
                 if (f.Codigo == "")
                 {
@@ -2446,6 +2641,7 @@
                     if ((f.Costo ?? 0m) > 0m) anterior.Costo = f.Costo;
                     if ((f.Venta ?? 0m) > 0m) anterior.Venta = f.Venta;
                     if ((f.Lista2 ?? 0m) > 0m) anterior.Lista2 = f.Lista2;
+                    if ((f.Lista3 ?? 0m) > 0m) anterior.Lista3 = f.Lista3;
                     if ((f.Utilidad ?? 0m) > 0m) anterior.Utilidad = f.Utilidad;
                     if (!anterior.Avisos.Contains("Repetido en el archivo")) anterior.Avisos.Add("Repetido en el archivo" + (sumaRepetidas ? " (se sumaron las cantidades)" : " (vale el último)"));
                     continue;
@@ -2524,6 +2720,26 @@
                 var prods = await CargarProductosPorCodigosAsync(faltan);
                 foreach (var p in prods)
                     if (!string.IsNullOrWhiteSpace(p.CodigoBarras)) encontrados.TryAdd(p.CodigoBarras.Trim(), p);
+
+                // dos columnas de código: lo que no se encontró por mi código, se busca por el código del proveedor
+                if (dosCodigos && proveedorId > 0)
+                {
+                    var idPorCodProv = relProv
+                        .Where(r => !string.IsNullOrWhiteSpace(r.CodigoBarrasProveedor))
+                        .GroupBy(r => r.CodigoBarrasProveedor!.Trim(), StringComparer.OrdinalIgnoreCase)
+                        .ToDictionary(g => g.Key, g => g.First().IdProducto, StringComparer.OrdinalIgnoreCase);
+                    var porProv = validas.Where(f => !encontrados.ContainsKey(f.Codigo) && !string.IsNullOrWhiteSpace(f.CodigoProveedor)
+                                                     && idPorCodProv.ContainsKey(f.CodigoProveedor!)).ToList();
+                    if (porProv.Any())
+                    {
+                        var prodsProv = await CargarProductosPorIdsAsync(porProv.Select(f => idPorCodProv[f.CodigoProveedor!]).Distinct().ToList());
+                        foreach (var f in porProv)
+                        {
+                            var p = prodsProv.FirstOrDefault(x => x.Id == idPorCodProv[f.CodigoProveedor!]);
+                            if (p != null && encontrados.TryAdd(f.Codigo, p)) f.Avisos.Add("Encontrado por el código del proveedor");
+                        }
+                    }
+                }
             }
 
             // con "los del proveedor": si un código sin asociar es igual a uno de mis códigos de barras, es ese producto
@@ -2539,7 +2755,7 @@
             // ---- estado de cada fila
             foreach (var f in validas)
             {
-                f.CodigoProveedor = codigosDelProveedor || codigosIguales ? f.Codigo : null;
+                if (!dosCodigos) f.CodigoProveedor = codigosDelProveedor || codigosIguales ? f.Codigo : null;
 
                 Producto? existente = encontrados.TryGetValue(f.Codigo, out var pe) ? pe : null;
                 if (existente == null && porMiCodigo.TryGetValue(f.Codigo, out var pm))
@@ -2555,7 +2771,7 @@
                     Capturar(f);
 
                     // si con este proveedor ya se sabe que viene por bulto, se aplica solo
-                    if (bultoPorProducto.TryGetValue(existente.Id, out var nRel) && nRel > 1 && !existente.EsVentaPorPeso())
+                    if (bultoPorProducto.TryGetValue(existente.Id, out var nRel) && Bultos.Tiene(nRel, existente.EsVentaPorPeso()))
                     {
                         AplicarBultoFila(f, nRel);
                         f.BultoDeRelacion = true;
@@ -2630,13 +2846,14 @@
         }
         else if (tipo == ImportacionTipo.Precios)
         {
-            if ((f.Costo ?? 0m) <= 0m) { f.Estado = EstError; f.Mensaje = "Falta el costo"; f.Incluir = false; return; }
+            if ((f.Costo ?? 0m) <= 0m && (f.Venta ?? 0m) <= 0m) { f.Estado = EstError; f.Mensaje = "Falta el costo"; f.Incluir = false; return; }
+            if ((f.Costo ?? 0m) <= 0m) f.Avisos.Add("Sin costo: solo trae precio de venta");
         }
         else if ((f.Costo ?? 0m) <= 0m && f.Estado == EstNuevo && mapa.TryGetValue("costo", out var iCosto) && iCosto >= 0)
         {
             // solo si el Excel TIENE columna de costo y a esta fila le falta. Si el archivo no trae precios
             // (ej: solo código, descripción, familia y cantidad) es a propósito: no se marca cada fila.
-            f.Avisos.Add("Sin costo: el producto se crea sin precio");
+            f.Avisos.Add((f.Venta ?? 0m) > 0m ? "Sin costo: solo trae precio de venta" : "Sin costo: el producto se crea sin precio");
         }
 
         if (f.Cantidad.HasValue && f.Cantidad.Value < 0m) { f.Estado = EstError; f.Mensaje = "Cantidad negativa"; f.Incluir = false; return; }
@@ -2659,6 +2876,72 @@
     private string FamiliaElegidaNombre =>
         familiaElegida == "__nueva__" ? (familiaNueva ?? "").Trim() : familiaElegida;
 
+    // ---------------------------------------------------------------- subfamilia elegida arriba (para los productos NUEVOS)
+    private long subfamiliaElegidaId = 0;   // 0 = la del Excel (o ninguna)
+    private AltaRapida altaSubfamilia = default!;
+    private long familiaDeLaSubNueva;       // familia de la subfamilia que se está creando con el +
+
+    /// <summary>La familia elegida arriba (null si es "la del Excel" o una familia nueva que todavía no existe).</summary>
+    private Familia? FamiliaElegidaObj => string.IsNullOrWhiteSpace(familiaElegida) || familiaElegida == "__nueva__" ? null
+        : familiasLista.FirstOrDefault(x => string.Equals(x.Nombre?.Trim(), familiaElegida.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    private Subfamilia? SubfamiliaElegida => subfamiliaElegidaId > 0 ? subfamiliasLista.FirstOrDefault(s => s.Id == subfamiliaElegidaId) : null;
+
+    private string NombreFamiliaDe(long familiaId) => familiasLista.FirstOrDefault(x => x.Id == familiaId)?.Nombre ?? "";
+
+    /// <summary>Con familia elegida: sus subfamilias. Sin familia: todas, como "FAMILIA › SUBFAMILIA" (igual que en Carteles).</summary>
+    private IEnumerable<Subfamilia> SubfamiliasParaElegir => FamiliaElegidaObj is Familia fe
+        ? subfamiliasLista.Where(s => s.FamiliaId == fe.Id).OrderBy(s => s.Nombre)
+        : subfamiliasLista.OrderBy(s => NombreFamiliaDe(s.FamiliaId)).ThenBy(s => s.Nombre);
+
+    /// <summary>Cambió la familia de arriba: si la subfamilia elegida es de otra familia, se saca.</summary>
+    private void CambioFamiliaElegida()
+    {
+        if (SubfamiliaElegida is Subfamilia s && FamiliaElegidaObj?.Id != s.FamiliaId) subfamiliaElegidaId = 0;
+        RecalcularNuevos();
+    }
+
+    /// <summary>Si se elige una subfamilia sin haber elegido familia (o de otra familia), la familia se pone sola.</summary>
+    private void CambioSubfamiliaElegida(ChangeEventArgs e)
+    {
+        subfamiliaElegidaId = long.TryParse(e.Value?.ToString(), out var id) ? id : 0;
+        if (SubfamiliaElegida is Subfamilia s && FamiliaElegidaObj?.Id != s.FamiliaId)
+        {
+            var nom = NombreFamiliaDe(s.FamiliaId);
+            if (nom != "") { familiaElegida = nom; familiaNueva = null; }
+        }
+        RecalcularNuevos();
+    }
+
+    private void AbrirNuevaSubfamilia()
+    {
+        if (FamiliaElegidaObj is not Familia fe) return;
+        familiaDeLaSubNueva = fe.Id;
+        altaSubfamilia.Abrir(AltaRapida.Tipo.Subfamilia, fe.Id, fe.Nombre);
+    }
+
+    private void SubfamiliaCreada((long Id, string Nombre) s)
+    {
+        if (!subfamiliasLista.Any(x => x.Id == s.Id))
+            subfamiliasLista.Add(new Subfamilia { Id = s.Id, KioscoId = State.KioscoId, FamiliaId = familiaDeLaSubNueva, Nombre = s.Nombre });
+        subfamiliasCache = null;   // que la encuentre al guardar
+        subfamiliaElegidaId = s.Id;
+        RecalcularNuevos();
+        avisos.Toast($"Subfamilia {s.Nombre} lista", "exito", 1800);
+    }
+
+    /// <summary>
+    /// Subfamilia de un producto NUEVO: la del Excel si la trae; si no, la elegida arriba
+    /// (solo si es de la misma familia que va a tener el producto); si no, ninguna.
+    /// </summary>
+    private string SubfamiliaDeFila(FilaImport f)
+    {
+        if (!string.IsNullOrWhiteSpace(f.Subfamilia)) return f.Subfamilia;
+        if (SubfamiliaElegida is not Subfamilia s) return "";
+        var famFila = (FamiliaDeFila(f) ?? "ARTICULOS").Trim();
+        return string.Equals(NombreFamiliaDe(s.FamiliaId).Trim(), famFila, StringComparison.OrdinalIgnoreCase) ? s.Nombre ?? "" : "";
+    }
+
     // ---------------------------------------------------------------- utilidad por familia / subfamilia (script 37)
     private List<Subfamilia> subfamiliasLista = new();
 
@@ -2668,8 +2951,9 @@
         var nomFam = (FamiliaDeFila(f) ?? "ARTICULOS").Trim();
         var fam = familiasLista.FirstOrDefault(x => string.Equals(x.Nombre?.Trim(), nomFam, StringComparison.OrdinalIgnoreCase));
         if (fam == null) return Subfamilia.UtilidadGeneral;
-        var sub = string.IsNullOrWhiteSpace(f.Subfamilia) ? null
-            : subfamiliasLista.FirstOrDefault(s => s.FamiliaId == fam.Id && string.Equals(s.Nombre?.Trim(), f.Subfamilia.Trim(), StringComparison.OrdinalIgnoreCase));
+        var nomSub = SubfamiliaDeFila(f);
+        var sub = string.IsNullOrWhiteSpace(nomSub) ? null
+            : subfamiliasLista.FirstOrDefault(s => s.FamiliaId == fam.Id && string.Equals(s.Nombre?.Trim(), nomSub.Trim(), StringComparison.OrdinalIgnoreCase));
         return Subfamilia.Para(familiasLista, subfamiliasLista, fam.Id, sub?.Id);
     }
 
@@ -2680,6 +2964,8 @@
             if (string.IsNullOrWhiteSpace(FamiliaElegidaNombre))
                 return "Los nuevos usan la utilidad de la familia/subfamilia que traiga cada fila (Configuración → Familias).";
             var fam = familiasLista.FirstOrDefault(x => string.Equals(x.Nombre?.Trim(), FamiliaElegidaNombre, StringComparison.OrdinalIgnoreCase));
+            if (SubfamiliaElegida is Subfamilia se && se.Utilidad is decimal us)
+                return $"Los nuevos de {fam?.Nombre} › {se.Nombre} arrancan con {us:0.##}% de utilidad.";
             var u = fam?.Utilidad ?? Subfamilia.UtilidadGeneral;
             return fam?.Utilidad != null
                 ? $"Los nuevos de {fam.Nombre} arrancan con {u:0.##}% de utilidad (si su subfamilia no tiene otra)."
@@ -2706,7 +2992,7 @@
     {
         if (f.Procesada || f.Producto == null || f.Estado != EstNuevo) return;
         f.Producto.UnidadMedida = porPeso ? "KG" : "UNIDAD";
-        if (porPeso && f.UnidadesBulto > 1) AplicarBultoFila(f, 1);   // por peso no viene "por bulto"
+        if (f.UnidadesBulto > 1) AplicarBultoFila(f, 1);   // cambia unidades ↔ kilos: el bulto se vuelve a cargar
         f.Avisos.Remove(AvisoPorKilo);
         Recalcular(f);
     }
@@ -2738,6 +3024,8 @@
     private void ArmarProductoNuevo(FilaImport f)
     {
         if (string.IsNullOrWhiteSpace(f.NombreSistema)) f.NombreSistema = f.Descripcion.Trim();
+        if (f.NombreSistema.Length > MaxNombre && !f.Avisos.Contains(AvisoNombreLargo)) f.Avisos.Add(AvisoNombreLargo);
+        f.NombreSistema = Corto(f.NombreSistema, MaxNombre);
         f.Producto = new Producto
         {
             KioscoId = State.KioscoId,
@@ -2760,6 +3048,8 @@
         f.OrigVenta = D(p.PrecioVenta);
         f.OrigUtilL2 = D(p.UtilidadLista2);
         f.OrigL2 = D(p.PrecioLista2);
+        f.OrigUtilL3 = D(p.UtilidadLista3);
+        f.OrigL3 = D(p.PrecioLista3);
         f.StockAnterior = p.StockActual ?? 0;
     }
 
@@ -2774,11 +3064,32 @@
         p.PrecioVenta = f.OrigVenta;
         p.UtilidadLista2 = f.OrigUtilL2;
         p.PrecioLista2 = f.OrigL2;
+        p.UtilidadLista3 = f.OrigUtilL3;
+        p.PrecioLista3 = f.OrigL3;
         f.VentaNueva = f.OrigVenta;
         f.Lista2Nueva = f.OrigL2;
+        f.Lista3Nueva = f.OrigL3;
 
         var costo = f.Costo ?? 0m;
-        if (costo <= 0m) return;   // sin costo no se tocan costos ni precios
+        if (costo <= 0m)
+        {
+            // sin costo no se tocan costos ni precios... salvo que el Excel traiga precio de venta y se aceptó
+            // cargarlo así (Excel de otro sistema sin costos): venta del Excel, costo y utilidad en 0
+            if (ventaSinCosto && tipo != ImportacionTipo.Factura && (f.Venta ?? 0m) > 0m)
+            {
+                p.PrecioCosto = 0m;
+                p.UtilidadPV = 0m;
+                p.PrecioVenta = f.Venta!.Value;
+                PrecioService.ProcesarLista2Automatico(p, State.KioscoId, State, PrecioService.EraMismoPrecioDiaNoche(p));
+                if (nombreLista2 != "" && (f.Lista2 ?? 0m) > 0m) { p.PrecioLista2 = f.Lista2!.Value; p.UtilidadLista2 = 0m; }
+                if (nombreLista3 != "" && (f.Lista3 ?? 0m) > 0m) { p.PrecioLista3 = f.Lista3!.Value; p.UtilidadLista3 = 0m; }
+                f.VentaNueva = D(p.PrecioVenta);
+                f.Lista2Nueva = D(p.PrecioLista2);
+                f.Lista3Nueva = D(p.PrecioLista3);
+                f.UtilUsada = 0m;
+            }
+            return;
+        }
 
         p.PrecioCosto = costo;
 
@@ -2814,8 +3125,16 @@
             p.UtilidadLista2 = PrecioService.CalcularPrecioCostoDeLista2desdePrecioLista2(f.Lista2.Value, costo);
         }
 
+        // Lista 3: el precio que trae el Excel (con la regla "Excel"); la utilidad se calcula sola
+        if (efectiva == ReglaExcel && nombreLista3 != "" && (f.Lista3 ?? 0m) > 0m)
+        {
+            p.PrecioLista3 = f.Lista3!.Value;
+            p.UtilidadLista3 = Math.Round((f.Lista3.Value - costo) / costo * 100m, 2);
+        }
+
         f.VentaNueva = D(p.PrecioVenta);
         f.Lista2Nueva = D(p.PrecioLista2);
+        f.Lista3Nueva = D(p.PrecioLista3);
         f.UtilUsada = D(p.UtilidadPV);
     }
 
@@ -2892,7 +3211,11 @@
     {
         n = Math.Max(1, n);
         f.UnidadesBulto = n;
-        f.Costo = f.CostoExcel.HasValue ? Math.Round(f.CostoExcel.Value / n, 4) : null;
+        // por peso n son GRAMOS (bolsa de 15 kg = 15000) y el costo queda por KILO (Services/Bultos.cs)
+        bool enKilos = EsPesoFila(f);
+        f.Costo = !f.CostoExcel.HasValue ? null
+                : n > 1 ? Bultos.CostoPorUnidad(f.CostoExcel.Value, n, enKilos, 4)
+                : f.CostoExcel.Value;
         if (tipo == ImportacionTipo.Factura)
             f.Cantidad = f.CantidadExcel.HasValue ? f.CantidadExcel.Value * n : null;
 
@@ -2925,12 +3248,28 @@
     }
 
     private bool MuestraBulto(FilaImport f) =>
-        f.Importable && tipo != ImportacionTipo.Carga && !(f.Producto?.EsVentaPorPeso() ?? false)
-        && (f.UnidadesBulto > 1 || (f.BultoSugerido ?? 0) > 1 || proveedorId > 0);
+        f.Importable
+        && (f.EditarBulto || f.UnidadesBulto > 1
+            || (tipo != ImportacionTipo.Carga && (((f.BultoSugerido ?? 0) > 1 && !EsPesoFila(f)) || proveedorId > 0)));
 
-    private void CambiarBultoFila(FilaImport f, ChangeEventArgs e)
+    /// <summary>
+    /// El lápiz "viene por bulto": no se detectó solo que viene por bulto/caja. Abre el "Viene por __ u." de la fila:
+    /// al poner las unidades, el costo del Excel pasa a ser el del bulto, se calcula el costo por unidad
+    /// y al guardar el producto queda con el precio del bulto y las unidades (como "Lo compro por bulto").
+    /// </summary>
+    private async Task EditarBulto(FilaImport f)
     {
-        if (f.Procesada || !int.TryParse(e.Value?.ToString(), out var n) || n < 1) return;
+        if (f.Procesada) return;
+        f.EditarBulto = true;
+        StateHasChanged();
+        await Task.Yield();
+        try { await JSRuntime.InvokeVoidAsync("eval", $"setTimeout(function(){{var e=document.getElementById('bulto-{f.NumeroFila}');if(e){{e.focus();e.select();}}}},50)"); } catch { }
+    }
+
+    /// <summary>Cambió "viene por" de la fila (n = unidades, o gramos si es por peso; 1 = suelto). Lo arma InputBulto.</summary>
+    private void CambiarBultoFila(FilaImport f, int n)
+    {
+        if (f.Procesada || n < 1) return;
         AplicarBultoFila(f, n);
         f.BultoDeRelacion = false;
         Recalcular(f);
@@ -3079,7 +3418,7 @@
         f.Mensaje = "";
         f.CodigoProveedor = f.Codigo;          // el código del Excel queda como código de este proveedor
         Capturar(f);
-        if (bultoPorProducto.TryGetValue(p.Id, out var nRel) && nRel > 1 && f.UnidadesBulto <= 1 && !p.EsVentaPorPeso())
+        if (bultoPorProducto.TryGetValue(p.Id, out var nRel) && Bultos.Tiene(nRel, p.EsVentaPorPeso()) && f.UnidadesBulto <= 1)
         {
             AplicarBultoFila(f, nRel);
             f.BultoDeRelacion = true;
@@ -3149,6 +3488,18 @@
         }
     }
 
+    // ---------------------------------------------------------------- sin costo, con precio de venta
+    /// <summary>true = las filas sin costo pero con precio de venta se cargan con ese precio (costo y utilidad en 0).</summary>
+    private bool ventaSinCosto;
+
+    private int CntSoloVenta => filas.Count(f => f.Importable && !f.Procesada && (f.Costo ?? 0m) <= 0m && (f.Venta ?? 0m) > 0m);
+
+    private void CambiarVentaSinCosto(bool usar)
+    {
+        ventaSinCosto = usar;
+        RecalcularTodas();
+    }
+
     private void RecalcularTodas()
     {
         foreach (var f in filas.Where(x => x.Producto != null && !x.Procesada))
@@ -3171,6 +3522,15 @@
     {
         int cant = (int)Math.Round(f.Cantidad ?? 0m, MidpointRounding.AwayFromZero);
         return tipo == ImportacionTipo.Carga && reemplazarStock ? cant : f.StockAnterior + cant;
+    }
+
+    /// <summary>Marca, stock mínimo / ideal y nota: solo si el Excel trae la columna y la celda tiene algo (lo vacío no borra nada).</summary>
+    private static void AplicarDatosExtra(Producto p, FilaImport f)
+    {
+        if (!string.IsNullOrWhiteSpace(f.Marca)) p.Marca = f.Marca;
+        if (!string.IsNullOrWhiteSpace(f.Nota)) p.NotaProducto = f.Nota;
+        if (f.StockMin.HasValue) p.StockMinimo = (int)Math.Round(f.StockMin.Value, MidpointRounding.AwayFromZero);
+        if (f.StockIdeal.HasValue) p.StockIdeal = (int)Math.Round(f.StockIdeal.Value, MidpointRounding.AwayFromZero);
     }
 
     private static int Cant(FilaImport f) => (int)Math.Round(f.Cantidad ?? 0m, MidpointRounding.AwayFromZero);
@@ -3310,8 +3670,8 @@
 
         var res = await SupaClient.From<Familia>().Insert(new Familia
         {
-            Nombre = n.ToUpper(),
-            Descripcion = n.ToUpper(),
+            Nombre = Corto(n.ToUpper(), MaxFamilia),
+            Descripcion = Corto(n.ToUpper(), MaxNombre),
             KioscoId = State.KioscoId,
             FechaCreacion = DateTime.Now
         });
@@ -3329,7 +3689,7 @@
         var clave = Clave(n);
         if (proveedoresCache.TryGetValue(clave, out var id)) return id;
 
-        var res = await SupaClient.From<Proveedor>().Insert(new Proveedor { Nombre = n, KioscoId = State.KioscoId });
+        var res = await SupaClient.From<Proveedor>().Insert(new Proveedor { Nombre = Corto(n, MaxNombre), KioscoId = State.KioscoId });
         var creado = res.Models.FirstOrDefault() ?? throw new Exception($"No se pudo crear el proveedor '{n}'.");
         proveedoresCache[clave] = (long)creado.Id;
         return (long)creado.Id;
@@ -3499,11 +3859,28 @@
 
         // los nuevos: confirmar qué es el código del Excel (se olvidan de elegirlo al principio)
         var nuevosACrear = aGuardar.Where(f => f.Estado == EstNuevo && f.Producto != null && f.Producto.Id == 0).ToList();
-        if (nuevosACrear.Any())
+        if (nuevosACrear.Any() && !DosCodigos)
         {
             if (!await PreguntarCodigoNuevosAsync(nuevosACrear)) return;
             AplicarCodigoNuevos(nuevosACrear);
         }
+        else if (nuevosACrear.Any())
+        {
+            // dos columnas: el "Código" es mi código de barras y el del proveedor ya está en cada fila
+            codigoNuevos = CodMio;
+            foreach (var f in nuevosACrear) f.Producto!.CodigoBarras = string.IsNullOrWhiteSpace(f.Codigo) ? null : f.Codigo.Trim();
+        }
+        // sin costo pero con precio de venta: se avisa y se pregunta si se cargan con ese precio
+        if (tipo != ImportacionTipo.Factura && !ventaSinCosto && CntSoloVenta > 0)
+        {
+            int n = CntSoloVenta;
+            if (await avisos.ConfirmarAsync("Productos sin precio de costo",
+                    (n == 1 ? "Hay 1 producto que no tiene precio de costo" : $"Hay {n} productos que no tienen precio de costo") +
+                    " pero sí precio de venta.\n\n¿Cargarlos con el precio de venta del Excel? El costo y la utilidad quedan en 0 (los podés completar después).\n\nSi elegís Cancelar, quedan sin precio.",
+                    "Sí, con el precio de venta", "aviso"))
+                CambiarVentaSinCosto(true);
+        }
+
         int sinAsociar = filas.Count(f => f.Estado == EstSinAsociar);
         bool repetido = importacionPrevia != null;
         bool hayAlertas = repetido || CntAlertaCosto > 0 || sinAsociar > 0;
@@ -3553,7 +3930,7 @@
     private static bool MarcarBulto(FilaImport f)
     {
         var p = f.Producto;
-        if (p == null || f.UnidadesBulto <= 1 || (f.CostoExcel ?? 0m) <= 0m || p.EsVentaPorPeso()) return false;
+        if (p == null || !Bultos.Tiene(f.UnidadesBulto, p.EsVentaPorPeso()) || (f.CostoExcel ?? 0m) <= 0m) return false;
         p.BultoPrecio = Math.Round(f.CostoExcel!.Value, 2);
         p.BultoUnidades = f.UnidadesBulto;
         p.BultoFecha = DateTime.UtcNow;
@@ -3647,23 +4024,180 @@
         throw new Exception("No se pudo crear un código nuevo. Probá de nuevo.");
     }
 
-    private async Task InsertarProductoNuevoAsync(FilaImport f, int stockInicial)
+    /// <summary>Arma el producto NUEVO de la fila (familia, proveedor, código, bulto) sin grabarlo todavía.</summary>
+    private async Task PrepararProductoNuevoAsync(FilaImport f, int stockInicial)
     {
         var p = f.Producto!;
         p.KioscoId = State.KioscoId;
-        p.Nombre = string.IsNullOrWhiteSpace(f.NombreSistema) ? f.Descripcion.Trim() : f.NombreSistema.Trim();
+        p.Nombre = Corto(string.IsNullOrWhiteSpace(f.NombreSistema) ? f.Descripcion : f.NombreSistema, MaxNombre);
         if (string.IsNullOrWhiteSpace(p.UnidadMedida)) p.UnidadMedida = UnidadSegunDescripcion(f.Descripcion);   // la que se eligió en la fila
         p.Activo = true;
         p.StockActual = stockInicial;
+        AplicarDatosExtra(p, f);
         p.FamiliaId = await ResolverFamiliaAsync(FamiliaDeFila(f));
-        p.SubfamiliaId = await ResolverSubfamiliaAsync(p.FamiliaId ?? 0, f.Subfamilia);
+        p.SubfamiliaId = await ResolverSubfamiliaAsync(p.FamiliaId ?? 0, SubfamiliaDeFila(f));
         p.ProveedorId = proveedorId > 0 ? proveedorId : await ResolverProveedorAsync(f.ProveedorTexto);
         if (codigoNuevos == CodGenerar) p.CodigoBarras = await GenerarCodigoUnicoAsync();
         else if (codigoNuevos != CodProv) await CompletarCodigoPropioAsync(p, f.Codigo);   // sin código propio: queda el del Excel
         MarcarBulto(f);
+    }
 
-        var res = await SupaClient.From<Producto>().Insert(p);
+    /// <summary>Graba UN producto nuevo ya armado (cuando el grupo falló y hay que saber cuál fue).</summary>
+    private async Task InsertarUnoAsync(FilaImport f)
+    {
+        var res = await SupaClient.From<Producto>().Insert(f.Producto!);
         f.Producto = res.Models.FirstOrDefault() ?? throw new Exception("No se pudo recuperar el producto creado.");
+    }
+
+    // ---------------------------------------------------------------- grabar DE A 200 (Services/GuardadoEnLote.cs)
+    // Grabar fila por fila (miles de grabaciones seguidas) agota el "presupuesto de disco" del plan gratis
+    // de Supabase y la base se cuelga. De a 200 son unas pocas grabaciones.
+
+    /// <summary>Un producto que ya existía para actualizar: los datos a grabar y cómo grabarlo solo (sin el script 40).</summary>
+    private sealed record ItemLote(FilaImport? Fila, Dictionary<string, object?> Datos, Func<Task> UnoPorUno);
+
+    private bool? hayGuardadoEnLote;   // null = no se probó; false = falta el script 40 (se graba uno por uno, como antes)
+
+    /// <summary>
+    /// Graba los productos NUEVOS de a 200. Si un grupo falla, ese grupo se graba uno por uno para saber cuál falló.
+    /// lanzar = true: el primer error corta (factura). Devuelve las filas grabadas.
+    /// </summary>
+    private async Task<List<FilaImport>> InsertarEnLoteAsync(List<FilaImport> nuevos, bool lanzar, Action<FilaImport>? alGuardarse)
+    {
+        var ok = new List<FilaImport>();
+        foreach (var grupo in GuardadoEnLote.GruposParaInsertar(nuevos, f => f.Producto!))
+        {
+            List<Producto>? creados;
+            try { creados = (await SupaClient.From<Producto>().Insert(grupo.Select(f => f.Producto!).ToList())).Models; }
+            catch { creados = null; }
+
+            if (creados != null)
+            {
+                AsignarCreados(grupo, creados);
+                foreach (var f in grupo)
+                {
+                    if (f.Producto!.Id > 0) { ok.Add(f); alGuardarse?.Invoke(f); }
+                    else
+                    {
+                        const string msj = "Se creó pero no se pudo confirmar: buscalo en Productos antes de reintentar.";
+                        if (lanzar) throw new Exception(msj);
+                        f.ErrorGuardado = msj;
+                        resMensajes.Add($"Fila {f.NumeroFila} ({f.Codigo}): {msj}");
+                    }
+                }
+            }
+            else
+            {
+                foreach (var f in grupo)
+                {
+                    try { await InsertarUnoAsync(f); ok.Add(f); alGuardarse?.Invoke(f); }
+                    catch (Exception ex)
+                    {
+                        if (lanzar) throw;
+                        f.ErrorGuardado = ex.Message;
+                        resMensajes.Add($"Fila {f.NumeroFila} ({f.Codigo}): {ex.Message}");
+                    }
+                }
+            }
+            progreso += grupo.Count;
+            StateHasChanged();
+            await Task.Yield();
+        }
+        return ok;
+    }
+
+    /// <summary>Pone en cada fila el producto que devolvió la base (con su id). Vuelven en el mismo orden; igual se controla.</summary>
+    private static void AsignarCreados(List<FilaImport> grupo, List<Producto> creados)
+    {
+        bool mismoOrden = creados.Count == grupo.Count
+            && grupo.Select((f, i) => f.Producto!.Nombre == creados[i].Nombre && f.Producto.CodigoBarras == creados[i].CodigoBarras).All(x => x);
+        if (mismoOrden)
+        {
+            for (int i = 0; i < grupo.Count; i++) grupo[i].Producto = creados[i];
+            return;
+        }
+        var libres = creados.ToList();
+        foreach (var f in grupo)
+        {
+            var c = libres.FirstOrDefault(x => x.Nombre == f.Producto!.Nombre && x.CodigoBarras == f.Producto.CodigoBarras);
+            if (c != null) { f.Producto = c; libres.Remove(c); }
+        }
+    }
+
+    /// <summary>
+    /// Actualiza productos que ya existían de a 200 (script 40). Sin el script 40, uno por uno como antes.
+    /// Devuelve los ids grabados. alGuardarse se llama con cada fila apenas queda grabada.
+    /// </summary>
+    private async Task<HashSet<long>> ActualizarEnLoteAsync(List<ItemLote> lista, bool contarProgreso, Action<FilaImport>? alGuardarse)
+    {
+        var ok = new HashSet<long>();
+        foreach (var tanda in lista.Chunk(GuardadoEnLote.Tamanio))
+        {
+            var hechos = new HashSet<long>();
+            bool enLote = false;
+            if (hayGuardadoEnLote != false)
+            {
+                try
+                {
+                    hechos = await GuardadoEnLote.ActualizarAsync(SupaClient, tanda.Select(x => x.Datos));
+                    hayGuardadoEnLote = true;
+                    enLote = true;
+                }
+                catch (Exception ex) when (GuardadoEnLote.FaltaLaFuncion(ex))
+                {
+                    hayGuardadoEnLote = false;
+                }
+                catch
+                {
+                    // falló el grupo (ej: un código repetido): este grupo se graba uno por uno para saber cuál fue
+                }
+            }
+            if (!enLote)
+            {
+                foreach (var x in tanda)
+                {
+                    try { await x.UnoPorUno(); hechos.Add(Convert.ToInt64(x.Datos["id"])); }
+                    catch (Exception ex) when (x.Fila != null) { x.Fila.ErrorGuardado = ex.Message; }
+                    catch { }
+                }
+            }
+            foreach (var x in tanda)
+            {
+                long idP = Convert.ToInt64(x.Datos["id"]);
+                if (!hechos.Contains(idP)) continue;
+                ok.Add(idP);
+                if (x.Fila != null) alGuardarse?.Invoke(x.Fila);
+            }
+            if (contarProgreso) progreso += tanda.Length;
+            StateHasChanged();
+            await Task.Yield();
+        }
+        return ok;
+    }
+
+    /// <summary>Solo algunas columnas de un producto, uno por uno (sin el script 40).</summary>
+    private async Task ActualizarCamposUnoAsync(Dictionary<string, object?> d)
+    {
+        long idP = Convert.ToInt64(d["id"]);
+        Exception? errorCodigo = null;
+        if (d.TryGetValue("codigo_barras", out var cod))
+        {
+            try { await SupaClient.From<Producto>().Where(x => x.Id == idP).Set(x => x.CodigoBarras!, (string?)cod).Update(); }
+            catch (Exception ex) { errorCodigo = ex; }
+        }
+        if (d.ContainsKey("bulto_precio"))
+        {
+            decimal? bp = (decimal?)d["bulto_precio"];
+            int? bu = (int?)d["bulto_unidades"];
+            DateTime? bf = (DateTime?)d["bulto_fecha"];
+            try
+            {
+                await SupaClient.From<Producto>().Where(x => x.Id == idP)
+                    .Set(x => x.BultoPrecio!, bp).Set(x => x.BultoUnidades!, bu).Set(x => x.BultoFecha!, bf).Update();
+            }
+            catch { /* sin el script 32 no hay dónde guardarlo: no frena la importación (como antes) */ }
+        }
+        if (errorCodigo != null) throw errorCodigo;   // el código no quedó grabado
     }
 
     // ---------------------------------------------------------------- guardar de a varios
@@ -3693,9 +4227,9 @@
         foreach (var fam in familias) await ResolverFamiliaAsync(fam);
 
         // subfamilias (también una por una, antes, para no crear la misma dos veces)
-        var subs = lista.Where(f => !string.IsNullOrWhiteSpace(f.Subfamilia)
-                                    && (f.Estado == EstNuevo || (tipo == ImportacionTipo.Carga && !string.IsNullOrWhiteSpace(f.Familia))))
-                        .Select(f => (Fam: f.Estado == EstNuevo ? FamiliaDeFila(f) : f.Familia, Sub: f.Subfamilia))
+        var subs = lista.Where(f => f.Estado == EstNuevo ? !string.IsNullOrWhiteSpace(SubfamiliaDeFila(f))
+                                    : (tipo == ImportacionTipo.Carga && !string.IsNullOrWhiteSpace(f.Familia) && !string.IsNullOrWhiteSpace(f.Subfamilia)))
+                        .Select(f => (Fam: f.Estado == EstNuevo ? FamiliaDeFila(f) : f.Familia, Sub: f.Estado == EstNuevo ? SubfamiliaDeFila(f) : f.Subfamilia))
                         .Distinct().ToList();
         foreach (var (fam, sub) in subs) await ResolverSubfamiliaAsync(await ResolverFamiliaAsync(fam), sub);
 
@@ -3717,30 +4251,46 @@
         try
         {
             // 1. productos nuevos (entran con stock 0: el stock llega al confirmar la compra) — de a varios a la vez
+            // (se arman todos y se graban DE A 200: grabar uno por uno agota el disco del plan gratis de Supabase)
             var nuevosFactura = aGuardar.Where(x => x.Estado == EstNuevo && x.Producto!.Id == 0).ToList();
             await PrepararFamiliasYProveedoresAsync(nuevosFactura);
-            await DeAVariosAsync(nuevosFactura, async f =>
-            {
-                await InsertarProductoNuevoAsync(f, 0);
-                resCreados++;
-                progreso++;
-            });
+            await DeAVariosAsync(nuevosFactura, f => PrepararProductoNuevoAsync(f, 0));
+            progreso = 0;
+            var creadosFactura = await InsertarEnLoteAsync(nuevosFactura, lanzar: true, alGuardarse: _ => resCreados++);
 
             // 1b. los que ya existían pero no tienen código de barras propio: queda el del Excel
+            // 1c. los que ya existían y vienen por bulto: guardan el precio del bulto y cuántas unidades trae
+            var cambios = new Dictionary<long, Dictionary<string, object?>>();
+            var sinCodigo = new Dictionary<long, Producto>();
             foreach (var f in aGuardar.Where(x => x.Estado != EstNuevo && x.Producto != null && x.Producto.Id > 0 && string.IsNullOrWhiteSpace(x.Producto.CodigoBarras)))
             {
                 var p = f.Producto!;
                 if (await CompletarCodigoPropioAsync(p, f.Codigo))
                 {
-                    long idP = p.Id;
-                    string cod = p.CodigoBarras!;
-                    try { await SupaClient.From<Producto>().Where(x => x.Id == idP).Set(x => x.CodigoBarras!, cod).Update(); }
-                    catch { p.CodigoBarras = null; }
+                    cambios[p.Id] = GuardadoEnLote.Campos(p.Id, ("codigo_barras", p.CodigoBarras));
+                    sinCodigo[p.Id] = p;
                 }
             }
-
-            // 1c. los que ya existían y vienen por bulto: guardan el precio del bulto y cuántas unidades trae
-            await DeAVariosAsync(aGuardar.Where(x => x.Estado != EstNuevo && x.UnidadesBulto > 1).ToList(), GuardarBultoAsync);
+            foreach (var f in aGuardar.Where(x => x.Estado != EstNuevo && x.UnidadesBulto > 1 && x.Producto != null && x.Producto.Id > 0))
+            {
+                if (!MarcarBulto(f)) continue;
+                var p = f.Producto!;
+                if (!cambios.TryGetValue(p.Id, out var d)) cambios[p.Id] = d = GuardadoEnLote.Campos(p.Id);
+                d["bulto_precio"] = p.BultoPrecio;
+                d["bulto_unidades"] = p.BultoUnidades;
+                d["bulto_fecha"] = p.BultoFecha;
+            }
+            if (cambios.Count > 0)
+            {
+                var porId = aGuardar.Where(x => x.Producto != null && x.Producto.Id > 0).GroupBy(x => x.Producto!.Id).ToDictionary(g => g.Key, g => g.First());
+                var hechos = await ActualizarEnLoteAsync(cambios.Values.Select(d =>
+                {
+                    long idP = Convert.ToInt64(d["id"]);
+                    return new ItemLote(porId.GetValueOrDefault(idP), d, () => ActualizarCamposUnoAsync(d));
+                }).ToList(), contarProgreso: false, alGuardarse: null);
+                // el código que no se pudo grabar no queda puesto (como antes)
+                foreach (var (idP, p) in sinCodigo) if (!hechos.Contains(idP)) p.CodigoBarras = null;
+            }
 
             // 2. cabecera
             var nro = numeroComprobante?.Trim();
@@ -3768,7 +4318,7 @@
                 CompraId = cabecera.Id,
                 ProductoId = f.Producto!.Id,
                 CodigoBarras = f.Producto.CodigoBarras,
-                NombreProducto = f.Producto.Nombre ?? f.Descripcion,
+                NombreProducto = Corto(f.Producto.Nombre ?? f.Descripcion, MaxNombre),
                 PrecioCosto = f.Costo ?? 0m,
                 Cantidad = Cant(f),
                 Subtotal = SubtotalFila(f),
@@ -3829,18 +4379,25 @@
         {
             await PrepararFamiliasYProveedoresAsync(aGuardar);
 
-            // cada fila es independiente: se guardan de a varias a la vez (antes, una por una)
+            // 1) se ARMA cada producto (sin grabar). 2) se graban DE A 200: grabar uno por uno (miles de
+            //    grabaciones seguidas) agota el disco del plan gratis de Supabase y la base se cuelga.
+            var nuevosLote = new List<FilaImport>();
+            var existentesLote = new List<ItemLote>();
+            var provDeFila = new Dictionary<FilaImport, long>();
+
             await DeAVariosAsync(aGuardar, async f =>
             {
                 f.ErrorGuardado = null;
                 try
                 {
                     bool hayStock = tipo == ImportacionTipo.Carga && f.Cantidad.HasValue;
+                    long prov = await ProveedorDeFilaAsync(f);
+                    lock (provDeFila) provDeFila[f] = prov;
 
                     if (f.Estado == EstNuevo)
                     {
-                        await InsertarProductoNuevoAsync(f, hayStock ? Cant(f) : 0);
-                        resCreados++;
+                        await PrepararProductoNuevoAsync(f, hayStock ? Cant(f) : 0);
+                        lock (nuevosLote) nuevosLote.Add(f);
                     }
                     else
                     {
@@ -3861,20 +4418,21 @@
                             }
                             p.Activo = true;
                         }
+                        AplicarDatosExtra(p, f);
                         MarcarBulto(f);
-                        await SupaClient.From<Producto>().Update(p);
-                        if (limpiarSub)
+                        bool sacarSub = limpiarSub;
+                        var item = new ItemLote(f, GuardadoEnLote.Fila(p, subfamiliaNula: sacarSub), async () =>
                         {
-                            long idP = p.Id;
-                            await SupaClient.From<Producto>().Where(x => x.Id == idP).Set(x => x.SubfamiliaId!, (object?)null).Update();
-                        }
-                        resActualizados++;
+                            // uno por uno (sin el script 40), como antes
+                            await SupaClient.From<Producto>().Update(p);
+                            if (sacarSub)
+                            {
+                                long idP = p.Id;
+                                await SupaClient.From<Producto>().Where(x => x.Id == idP).Set(x => x.SubfamiliaId!, (object?)null).Update();
+                            }
+                        });
+                        lock (existentesLote) existentesLote.Add(item);
                     }
-
-                    f.Procesada = true;
-
-                    long prov = await ProveedorDeFilaAsync(f);
-                    if (prov > 0) paraAsociar.Add((f.Producto!.Id, prov, string.IsNullOrWhiteSpace(f.CodigoProveedor) ? null : f.CodigoProveedor, f.UnidadesBulto, DescripcionProveedorDe(f)));
                 }
                 catch (Exception ex)
                 {
@@ -3882,9 +4440,26 @@
                     erroresAhora++;
                     resMensajes.Add($"Fila {f.NumeroFila} ({f.Codigo}): {ex.Message}");
                 }
-
-                progreso++;
             });
+
+            // lo que pasa con cada fila apenas queda grabada (así, si se corta, al reintentar no se repite)
+            void Guardada(FilaImport f, bool nueva)
+            {
+                if (nueva) resCreados++; else resActualizados++;
+                f.Procesada = true;
+                long prov = provDeFila.GetValueOrDefault(f);
+                if (prov > 0) paraAsociar.Add((f.Producto!.Id, prov, string.IsNullOrWhiteSpace(f.CodigoProveedor) ? null : f.CodigoProveedor, f.UnidadesBulto, DescripcionProveedorDe(f)));
+            }
+
+            progreso = aGuardar.Count - nuevosLote.Count - existentesLote.Count;   // las que ya dieron error
+            await InsertarEnLoteAsync(nuevosLote, lanzar: false, alGuardarse: f => Guardada(f, true));
+            var actualizados = await ActualizarEnLoteAsync(existentesLote, contarProgreso: true, alGuardarse: f => Guardada(f, false));
+            foreach (var it in existentesLote.Where(x => x.Fila != null && !x.Fila.Procesada && string.IsNullOrEmpty(x.Fila.ErrorGuardado)))
+            {
+                it.Fila!.ErrorGuardado = "No se pudo guardar. Volvé a confirmar para reintentar.";
+                erroresAhora++;
+                resMensajes.Add($"Fila {it.Fila.NumeroFila} ({it.Fila.Codigo}): no se pudo guardar");
+            }
 
             resErrores = filas.Count(f => !string.IsNullOrEmpty(f.ErrorGuardado));
             await AsociarProveedoresAsync(paraAsociar);
@@ -3905,7 +4480,71 @@
 
     /// <summary>Vincula cada producto con su proveedor y guarda el código que usa el proveedor (sin pisar uno existente).</summary>
     private static string? DescripcionProveedorDe(FilaImport f) =>
-        string.IsNullOrWhiteSpace(f.Descripcion) ? null : f.Descripcion.Trim();
+        string.IsNullOrWhiteSpace(f.Descripcion) ? null : Corto(f.Descripcion, MaxNombre);
+
+    // ---------------------------------------------------------------- largos máximos de la base
+    // (productos.nombre y los nombres de proveedores son de hasta 255 letras; familias, hasta 100)
+    private const int MaxNombre = 255;
+    private const int MaxFamilia = 100;
+    private const string AvisoNombreLargo = "El nombre es muy largo: se guarda recortado (hasta 255 letras)";
+
+    private static string Corto(string? s, int max)
+    {
+        var t = (s ?? "").Trim();
+        return t.Length <= max ? t : t[..max].TrimEnd();
+    }
+
+    // ---------------------------------------------------------------- filas que no se pudieron guardar
+    private int CntNoGuardadas => filas.Count(f => !string.IsNullOrEmpty(f.ErrorGuardado));
+
+    /// <summary>
+    /// Baja un archivo (.csv, se abre con Excel) con las filas que dieron error al guardar, con las mismas columnas
+    /// que el Excel original (código, descripción, costo...) y una columna ERROR. Se puede corregir y volver a importar.
+    /// </summary>
+    private async Task DescargarNoGuardadasAsync()
+    {
+        var lista = filas.Where(f => !string.IsNullOrEmpty(f.ErrorGuardado)).OrderBy(f => f.NumeroFila).ToList();
+        if (!lista.Any()) return;
+        try
+        {
+            var claves = new[] { "codigo", "descripcion", "cantidad", "costo", "utilidad", "venta", "lista2", "lista3", "familia", "subfamilia", "proveedor" };
+            static string Celda(string? v)
+            {
+                var t = (v ?? "").Replace("\r", " ").Replace("\n", " ");
+                return t.Contains(';') || t.Contains('"') ? "\"" + t.Replace("\"", "\"\"") + "\"" : t;
+            }
+            string Num(decimal? d) => d.HasValue ? d.Value.ToString("0.##", cultura) : "";
+            string Valor(FilaImport f, string k) => k switch
+            {
+                "codigo" => f.Codigo,
+                "descripcion" => f.Descripcion,
+                "cantidad" => Num(f.CantidadExcel ?? f.Cantidad),
+                "costo" => Num(f.CostoExcel ?? f.Costo),
+                "utilidad" => Num(f.Utilidad),
+                "venta" => Num(f.Venta),
+                "lista2" => Num(f.Lista2),
+                "lista3" => Num(f.Lista3),
+                "familia" => f.Familia,
+                "subfamilia" => f.Subfamilia,
+                "proveedor" => f.ProveedorTexto,
+                _ => ""
+            };
+
+            var sb = new System.Text.StringBuilder();
+            sb.Append(string.Join(";", claves.Select(k => Celda(Campos.First(c => c.Key == k).Etiqueta.ToUpper(cultura)))) + ";FILA DEL EXCEL;ERROR\r\n");
+            foreach (var f in lista)
+                sb.Append(string.Join(";", claves.Select(k => Celda(Valor(f, k)))) + ";" + f.NumeroFila + ";" + Celda(f.ErrorGuardado) + "\r\n");
+
+            jsModulo ??= await JSRuntime.InvokeAsync<IJSObjectReference>("import", "./_content/BlazorKioscoCompartido/js/descargas.js?v=2");
+            var nombre = $"no guardados {Path.GetFileNameWithoutExtension(nombreArchivo ?? "importacion")} {DateTime.Now:yyyy-MM-dd HH.mm}.csv";
+            await jsModulo.InvokeVoidAsync("descargarArchivo", nombre, "text/csv", sb.ToString());
+            avisos.Toast($"Se bajaron {lista.Count} fila(s): corregilas y volvé a importar ese archivo.", "exito", 4000);
+        }
+        catch (Exception ex)
+        {
+            await avisos.InformarAsync("No se pudo descargar", ex.Message, "aviso");
+        }
+    }
 
     private async Task AsociarProveedoresAsync(List<(long productoId, long provId, string? codigo, int bulto, string? descripcion)> lista)
     {
@@ -4291,6 +4930,11 @@
         public string Familia { get; set; } = "";
         public string Subfamilia { get; set; } = "";
         public string ProveedorTexto { get; set; } = "";
+        // datos extra del producto (si el Excel los trae)
+        public string Marca { get; set; } = "";
+        public string Nota { get; set; } = "";
+        public decimal? StockMin { get; set; }
+        public decimal? StockIdeal { get; set; }
         public string? CodigoProveedor { get; set; }
 
         public decimal? Cantidad { get; set; }
@@ -4298,6 +4942,7 @@
         public decimal? Utilidad { get; set; }
         public decimal? Venta { get; set; }
         public decimal? Lista2 { get; set; }
+        public decimal? Lista3 { get; set; }
 
         public string Estado { get; set; } = EstExiste;
         public string Mensaje { get; set; } = "";
@@ -4313,11 +4958,14 @@
         public decimal OrigVenta { get; set; }
         public decimal OrigUtilL2 { get; set; }
         public decimal OrigL2 { get; set; }
+        public decimal OrigUtilL3 { get; set; }
+        public decimal OrigL3 { get; set; }
         public int StockAnterior { get; set; }
 
         // valores calculados
         public decimal VentaNueva { get; set; }
         public decimal Lista2Nueva { get; set; }
+        public decimal Lista3Nueva { get; set; }
         public decimal UtilUsada { get; set; }
 
         // lo que escribió el usuario en la fila (manda sobre la regla)
@@ -4328,6 +4976,8 @@
         public decimal? CostoExcel { get; set; }
         public decimal? CantidadExcel { get; set; }
         public int UnidadesBulto { get; set; } = 1;
+        /// <summary>Se tocó el lápiz "viene por bulto" (se muestra para cargar las unidades aunque no se haya detectado).</summary>
+        public bool EditarBulto { get; set; }
         public int? BultoSugerido { get; set; }
         public bool BultoDeRelacion { get; set; }
 

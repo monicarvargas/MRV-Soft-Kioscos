@@ -37,9 +37,8 @@
                         <button type="button" class="gp-search-clear" title="Borrar" @onclick="Limpiar"><i class="bi bi-x-lg"></i></button>
                     }
                 </div>
-                <button type="button" class="gp-btn gp-btn-soft gp-btn-icon pr-scan" title="Escanear con la cámara" @onclick="Escanear"><i class="bi bi-upc-scan"></i></button>
+                <BotonCamara Clase="gp-btn gp-btn-soft gp-btn-icon pr-scan" OnCodigo="ProcesarCodigoEscaneado" />
             </div>
-            <div id="reader" style="width:100%; max-width:420px; margin:.6rem auto 0;"></div>
 
             @* ---- filtros ---- *@
             <div class="pr-filtros">
@@ -395,6 +394,21 @@
             if (nro != consultaNro) return;                     // llegó tarde: ya hay otra búsqueda
             lista = res.Models ?? new List<Producto>();
             hayMas = lista.Count == TamPagina;
+
+            // también por el CÓDIGO DEL PROVEEDOR: esos van primero
+            var idsProv = await BusquedaProductos.IdsPorCodigoProveedorAsync(SupaClient, State.KioscoId, busqueda);
+            var faltanProv = idsProv.Where(id => !lista.Any(p => p.Id == (long)id)).ToList();
+            if (faltanProv.Any())
+            {
+                long kp = State.KioscoId;
+                Supabase.Postgrest.Interfaces.IPostgrestTable<Producto> qp = SupaClient.From<Producto>().Select(Columnas).Where(p => p.KioscoId == kp);
+                qp = ConFiltro(qp, filtro);
+                if (familiaId > 0) { long famP = familiaId; qp = qp.Where(p => p.FamiliaId == famP); }
+                if (familiaId > 0 && subfamiliaId > 0) { long subP = subfamiliaId; qp = qp.Where(p => p.SubfamiliaId == subP); }
+                var extra = (await qp.Filter("id", Operator.In, faltanProv).Get()).Models ?? new List<Producto>();
+                if (nro != consultaNro) return;
+                lista.InsertRange(0, extra);
+            }
             stockCombos.Clear();
             await CargarStockCombosAsync(lista);
             if (nro != consultaNro) return;
@@ -581,21 +595,7 @@
         await Buscar();
     }
 
-    private async Task Escanear()
-    {
-        try
-        {
-            refJs ??= DotNetObjectReference.Create(this);
-            await JS.InvokeVoidAsync("methodsJS.iniciarEscaneo", refJs);
-        }
-        catch
-        {
-            // en la PC no hay cámara configurada: se usa el lector de códigos (escribe el código y manda Enter)
-            try { await txtBuscar.FocusAsync(); } catch { }
-        }
-    }
-
-    [JSInvokable]
+    // la cámara la maneja BotonCamara (ventana con botón Cerrar); la lectora USB escribe en el campo y manda Enter
     public async Task ProcesarCodigoEscaneado(string code)
     {
         busqueda = ultimaBusqueda = code ?? "";

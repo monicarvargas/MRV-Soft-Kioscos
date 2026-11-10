@@ -174,6 +174,7 @@ else
                 <input id="rmCodProv" type="text" class="gp-control" autocomplete="off" placeholder="El código que trae la boleta, y Enter"
                        @bind="codigoProvInput" @bind:event="oninput" @onkeyup="OnCodigoProvKeyUp" />
                 <button type="button" class="gp-btn gp-btn-outline gp-btn-sm" @onclick="BuscarPorCodigoProveedorAsync"><i class="bi bi-search"></i></button>
+                <BotonCamara Clase="gp-btn gp-btn-soft gp-btn-sm" OnCodigo="CodigoProvDeCamaraAsync" />
             </div>
             @if (!string.IsNullOrEmpty(codigoProvPendiente))
             {
@@ -261,10 +262,10 @@ else
                                             <span class="ing-ant" style="background:var(--gp-primary-soft); border-color:var(--gp-primary-line); color:var(--gp-primary)">Pedido: @(item.PorBulto && item.UnidadesPorBulto > 1 && item.CantidadPedida % item.UnidadesPorBulto == 0 ? $"{item.CantidadPedida / item.UnidadesPorBulto} bto." : item.CantidadPedida.ToString())</span>
                                         }
                                         <span class="gp-muted" style="font-size:.72rem">Stock: @item.StockAnterior → @(item.StockAnterior + item.Cantidad)</span>
-                                        @if (!esGramos && !item.Impactado)
+                                        @if (!item.Impactado)
                                         {
                                             <div class="rm-modo" role="group" aria-label="Cargar por unidad o por bulto">
-                                                <button type="button" class="@(item.PorBulto ? "" : "is-active")" @onclick="() => CambiarModo(item, false)">Unid.</button>
+                                                <button type="button" class="@(item.PorBulto ? "" : "is-active")" @onclick="() => CambiarModo(item, false)">@(esGramos ? "Gramos" : "Unid.")</button>
                                                 <button type="button" class="@(item.PorBulto ? "is-active" : "")" @onclick="() => CambiarModo(item, true)">Bulto</button>
                                             </div>
                                         }
@@ -272,25 +273,26 @@ else
                                                value="@(item.PorBulto ? item.Bultos : item.Cantidad)" @onchange="@(e => ActualizarCantidad(item, e))" onfocus="this.select()" />
                                         @if (item.PorBulto)
                                         {
+                                            @* bulto en unidades (caja de 48) o en kilos (bolsa de 15 kg): el stock suma unidades o gramos *@
                                             <span class="rm-bulto">
-                                                x <input type="number" min="1" class="rm-bulto-n" disabled="@item.Impactado" title="Unidades que trae cada bulto"
-                                                         value="@item.UnidadesPorBulto" @onchange="@(e => CambiarUnidadesBulto(item, e))" onfocus="this.select()" /> u.
-                                                = <b>@item.Cantidad u.</b>
+                                                x <InputBulto Valor="item.UnidadesPorBulto" ValorChanged="n => CambiarUnidadesBulto(item, n)" EnKilos="@esGramos"
+                                                              Clase="rm-bulto-n" Deshabilitado="@item.Impactado" PermitirVacio="false" Placeholder="?" ConUnidad="true" />
+                                                = <b>@Bultos.TextoCantidad(item.Cantidad, esGramos)</b>
                                             </span>
                                         }
-                                        @if (esGramos) { <small class="gp-muted" style="font-size:.7rem">(x Gr)</small> }
+                                        @if (esGramos && !item.PorBulto) { <small class="gp-muted" style="font-size:.7rem">(x Gr)</small> }
                                     </div>
                                 </td>
 
                                 <td class="t-center" data-label="Costo ($)">
                                     <div class="ing-cell">
-                                        <span class="ing-ant">@(item.PorBulto ? "Ant. bulto" : "Ant"): $@((item.PorBulto ? item.CostoAnterior * item.UnidadesPorBulto : item.CostoAnterior).ToString("N2", cultura))</span>
+                                        <span class="ing-ant">@(item.PorBulto ? "Ant. bulto" : "Ant"): $@((item.PorBulto ? item.CostoAnterior * item.FactorBulto : item.CostoAnterior).ToString("N2", cultura))</span>
                                         <input type="text" inputmode="decimal" class="ing-input cost js-monto" disabled="@item.Impactado"
                                                value="@CostoMostrar(item)" @onchange="@(e => ActualizarCosto(item, e))" onfocus="this.select()" />
-                                        @if (esGramos) { <small class="gp-muted" style="font-size:.7rem">(x Kg)</small> }
+                                        @if (esGramos && !item.PorBulto) { <small class="gp-muted" style="font-size:.7rem">(x Kg)</small> }
                                         @if (item.PorBulto)
                                         {
-                                            <small class="rm-bulto">x bulto · <b>$@item.CostoPV.ToString("N2", cultura) c/u</b></small>
+                                            <small class="rm-bulto">x bulto · <b>$@item.CostoPV.ToString("N2", cultura) @(esGramos ? "el kg" : "c/u")</b></small>
                                         }
                                         @if (item.EsEstimado && !item.CostoEditado)
                                         {
@@ -425,7 +427,10 @@ else
             <div class="gp-modal-body">
                 <div class="gp-field" style="margin-bottom:.8rem">
                     <label class="gp-field-label" for="altaCodigo"><i class="bi bi-upc-scan"></i> Código de barras</label>
-                    <input id="altaCodigo" type="text" class="gp-control" @bind="nuevoProducto.CodigoBarras" placeholder="Escaneá o ingresá el código" />
+                    <div style="display:flex; gap:.4rem">
+                        <input id="altaCodigo" type="text" class="gp-control" @bind="nuevoProducto.CodigoBarras" placeholder="Escaneá o ingresá el código" />
+                        <BotonCamara OnCodigo="@(c => nuevoProducto.CodigoBarras = c)" />
+                    </div>
                 </div>
                 <div class="gp-field" style="margin-bottom:.8rem">
                     <label class="gp-field-label" for="altaNombre"><i class="bi bi-pencil-square"></i> Nombre del producto *</label>
@@ -739,9 +744,11 @@ else
                 if (cant < 1) cant = 1;
 
                 // si se pidió por bulto: cantidad en bultos y costo del bulto → se pasan a unidades
-                int nPedido = d.UnidadesPorBulto > 1 && !prod.EsVentaPorPeso() ? d.UnidadesPorBulto : 1;
+                // por peso el bulto va en gramos (bolsa de 15 kg = 15000) y el costo es por kilo
+                bool pesoPedido = prod.EsVentaPorPeso();
+                int nPedido = Bultos.Tiene(d.UnidadesPorBulto, pesoPedido) ? d.UnidadesPorBulto : 1;
                 int unidades = cant * nPedido;
-                decimal costoUnidad = nPedido > 1 ? Math.Round(d.PrecioCosto / nPedido, 4) : d.PrecioCosto;
+                decimal costoUnidad = nPedido > 1 ? Bultos.CostoPorUnidad(d.PrecioCosto, nPedido, pesoPedido, 4) : d.PrecioCosto;
 
                 var item = ConstruirItem(prod, unidades, costoUnidad, estimado: true, cantidadPedida: unidades);
                 item.CodigoProveedor = !string.IsNullOrWhiteSpace(d.CodigoBarrasProveedor) ? d.CodigoBarrasProveedor : CodigoRelacion(prod.Id);
@@ -864,6 +871,13 @@ else
     private string? CodigoRelacion(long productoId) =>
         relacionesProveedor.TryGetValue(productoId, out var cod) && !string.IsNullOrWhiteSpace(cod) ? cod : null;
 
+    /// <summary>Código del proveedor leído con la cámara del celular.</summary>
+    private async Task CodigoProvDeCamaraAsync(string codigo)
+    {
+        codigoProvInput = codigo;
+        await BuscarPorCodigoProveedorAsync();
+    }
+
     private async Task OnCodigoProvKeyUp(KeyboardEventArgs e)
     {
         if (e.Key == "Enter") await BuscarPorCodigoProveedorAsync();
@@ -947,7 +961,7 @@ else
                 codigoProvPendiente = null;
             }
             avisos.Toast(existente.PorBulto
-                ? $"{prod.Nombre}: ya estaba, ahora son {existente.Bultos} bultos ({existente.Cantidad} u.)"
+                ? $"{prod.Nombre}: ya estaba, ahora son {existente.Bultos} bultos ({TextoCantidadItem(existente)})"
                 : $"{prod.Nombre}: ya estaba, ahora son {existente.Cantidad}", "info", 2200);
             return;
         }
@@ -985,7 +999,8 @@ else
     /// <summary>Pasa el renglón a "por bulto" con n unidades por bulto. soloSiExacto: solo si la cantidad actual entra justa en bultos.</summary>
     private void AplicarBulto(ItemRecepcion item, int n, bool soloSiExacto)
     {
-        if (n <= 1 || item.Impactado || item.Producto.EsVentaPorPeso()) return;
+        // por peso n son GRAMOS: menos de 100 g no es un bulto (dato viejo cargado en unidades)
+        if (item.Impactado || !Bultos.Tiene(n, item.EsPeso)) return;
 
         if (soloSiExacto)
         {
@@ -1009,11 +1024,14 @@ else
         if (porBulto)
         {
             var n = item.UnidadesPorBulto > 1 ? item.UnidadesPorBulto : BultoRelacion(item.Producto.Id);
+            if (!Bultos.Tiene(n, item.EsPeso)) n = 1;
+            // lo que se escribe es el costo del bulto: el costo por unidad / kilo no cambia
             item.UnidadesPorBulto = n;
             item.PorBulto = true;
-            item.Bultos = n > 1 ? Math.Max(1, (int)Math.Round(item.Cantidad / (decimal)n, MidpointRounding.AwayFromZero)) : Math.Max(1, item.Cantidad);
+            item.Bultos = n > 1 ? Math.Max(1, (int)Math.Round(item.Cantidad / (decimal)n, MidpointRounding.AwayFromZero))
+                                : (item.EsPeso ? 1 : Math.Max(1, item.Cantidad));
             item.Cantidad = item.Bultos * n;
-            if (n <= 1) avisos.Toast("Completá cuántas unidades trae el bulto", "info", 2500);
+            if (n <= 1) avisos.Toast(item.EsPeso ? "Completá cuántos kilos trae el bulto" : "Completá cuántas unidades trae el bulto", "info", 2500);
         }
         else
         {
@@ -1021,32 +1039,36 @@ else
         }
     }
 
-    private void CambiarUnidadesBulto(ItemRecepcion item, ChangeEventArgs e)
+    /// <summary>Cambió lo que trae el bulto (n = unidades, o gramos si es por peso; lo arma InputBulto).</summary>
+    private void CambiarUnidadesBulto(ItemRecepcion item, int n)
     {
-        if (!int.TryParse(e.Value?.ToString(), out int n) || n < 1) return;
+        if (!Bultos.Tiene(n, item.EsPeso)) return;
 
-        // Lo que el usuario copió de la boleta es el costo del bulto: se mantiene y se reparte entre las nuevas unidades
-        var costoBulto = item.CostoPV * item.UnidadesPorBulto;
+        // Lo que el usuario copió de la boleta es el costo del bulto: se mantiene y se reparte entre las nuevas unidades (o kilos)
+        var costoBulto = item.CostoPV * item.FactorBulto;
         item.UnidadesPorBulto = n;
         item.Cantidad = item.Bultos * n;
-        if (costoBulto > 0)
+        if (costoBulto > 0 && item.FactorBulto > 0)
         {
-            item.CostoPV = Math.Round(costoBulto / n, 4);
+            item.CostoPV = Math.Round(costoBulto / item.FactorBulto, 4);
             AlCambiarCosto(item);
         }
     }
 
+    /// <summary>"48 u" o "30 kg".</summary>
+    private static string TextoCantidadItem(ItemRecepcion item) => Bultos.TextoCantidad(item.Cantidad, item.EsPeso);
+
     /// <summary>Costo que se muestra en el input: el del bulto o el de la unidad (formato con punto para el input numérico).</summary>
     private string CostoMostrar(ItemRecepcion item)
     {
-        var v = item.PorBulto ? item.CostoPV * item.UnidadesPorBulto : item.CostoPV;
+        var v = item.PorBulto ? item.CostoPV * item.FactorBulto : item.CostoPV;
         return Plata.Texto(Math.Round(v, 2));   // 3.000 · 1.500,50
     }
 
     private void ActualizarCosto(ItemRecepcion item, ChangeEventArgs e)
     {
         if (!Plata.TryLeer(e.Value, out decimal v) || v < 0) return;
-        item.CostoPV = item.PorBulto && item.UnidadesPorBulto > 1 ? Math.Round(v / item.UnidadesPorBulto, 4) : v;
+        item.CostoPV = item.PorBulto && item.UnidadesPorBulto > 1 && item.FactorBulto > 0 ? Math.Round(v / item.FactorBulto, 4) : v;
         AlCambiarCosto(item);
     }
 
@@ -1220,7 +1242,10 @@ else
             catch { /* el control es un aviso, no debe frenar la carga */ }
         }
 
-        var mensaje = $"Se suma stock a {cantidadItems} productos ({unidades} unidades) y se actualizan costo y precios en {cantidadItems - sinCosto}.";
+        // genérico: no se suman unidades con gramos (los productos por peso cuentan el stock en gramos)
+        var mensaje = cantidadItems == 1
+            ? "Se suma el stock ingresado al producto y se actualizan su costo y sus precios."
+            : $"Se suma el stock ingresado a los {cantidadItems} productos y se actualizan sus costos y precios.";
         if (sinCosto > 0) mensaje += $"\n{sinCosto} sin costo: solo suman stock.";
         if (costoSinRevisar > 0) mensaje += $"\n{costoSinRevisar} con costo estimado sin revisar.";
         if (hayDiferencia) mensaje += $"\nOjo: lo cargado difiere de la boleta en ${Math.Abs(Diferencia).ToString("N2", cultura)}.";
@@ -1492,6 +1517,13 @@ else
         public decimal UtilidadL2Anterior { get; set; }
         public string PrecioVentaAntes { get; set; } = "";
         public string PrecioL2Antes { get; set; } = "";
+
+        /// <summary>Se vende por peso: Cantidad y UnidadesPorBulto van en GRAMOS y CostoPV es por KILO.</summary>
+        public bool EsPeso => Producto.IsMedidaGramos();
+
+        /// <summary>Por cuánto se multiplica el costo (por unidad o por kilo) para tener el costo del bulto.</summary>
+        // (con el nombre completo: aca adentro "Bultos" es la cantidad de bultos del renglon)
+        public decimal FactorBulto => UnidadesPorBulto <= 1 ? 1m : BlazorKioscoCompartido.Services.Bultos.Factor(UnidadesPorBulto, EsPeso);
 
         public decimal SubtotalCosto =>
             Producto.IsMedidaGramos()

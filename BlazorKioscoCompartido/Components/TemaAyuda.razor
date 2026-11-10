@@ -4,8 +4,8 @@
     <button type="button" class="ta-cab" @onclick="OnAlternar">
         <span class="ta-ico"><i class="bi @Tema.Icono"></i></span>
         <span class="ta-txt">
-            <b>@Tema.Titulo</b>
-            <small>@Tema.ParaQue</small>
+            <b>@T(Tema.Titulo)</b>
+            <small>@T(Tema.ParaQue)</small>
         </span>
         @if (!string.IsNullOrEmpty(Etiqueta))
         {
@@ -16,11 +16,11 @@
     @if (Abierto)
     {
         <div class="ta-cuerpo">
-            <div class="ta-donde"><i class="bi bi-signpost-2-fill"></i> @Tema.DondeEsta</div>
+            <div class="ta-donde"><i class="bi bi-signpost-2-fill"></i> @T(Tema.DondeEsta)</div>
             <ol>
                 @foreach (var p in Tema.Pasos)
                 {
-                    <li>@p</li>
+                    <li>@T(p)</li>
                 }
             </ol>
             @if (Tema.Consejos?.Length > 0)
@@ -28,7 +28,7 @@
                 <div class="ta-consejos">
                     @foreach (var c in Tema.Consejos)
                     {
-                        <div><i class="bi bi-lightbulb-fill"></i> @c</div>
+                        <div><i class="bi bi-lightbulb-fill"></i> @T(c)</div>
                     }
                 </div>
             }
@@ -68,4 +68,8 @@
     [Parameter] public bool Bloqueado { get; set; }
     [Parameter] public string? Etiqueta { get; set; }
     [Parameter] public EventCallback OnAlternar { get; set; }
+    /// <summary>Pone el nombre de las listas del negocio en el texto ({L1} {L2} {L3}).</summary>
+    [Parameter] public Func<string, string>? Textos { get; set; }
+
+    private string T(string? s) => Textos?.Invoke(s ?? "") ?? (s ?? "");
 }

@@ -145,7 +145,7 @@
                     @if (PrecioDiaAplicado)
                     {
                         <div style="margin:-.2rem 0 .6rem; color:#7ee2b8; font-size:.82rem; font-weight:800">
-                            <i class="bi bi-sun-fill"></i> Fiado: se cobra a precio de día (- $ @ahorroPrecioDia.ToString("N2"))
+                            <i class="bi bi-sun-fill"></i> Fiado: se cobra con la lista «@NombreListaBase» (- $ @ahorroPrecioDia.ToString("N2"))
                         </div>
                     }
 
@@ -405,12 +405,12 @@
             if (ahorro > 0 && !PrecioDiaAplicado)
             {
                 var colAhora = BlazorKioscoCompartido.Services.PrecioService.ColumnaSegunMomento(State.KioscoId, DateTime.Now) ?? "precio_lista2";
-                var lista = BlazorKioscoCompartido.Services.PrecioService.NombreLista(State.KioscoId, colAhora == "precio_venta" ? "precio_lista2" : colAhora);
-                if (string.IsNullOrWhiteSpace(lista)) lista = "noche";
+                var lista = BlazorKioscoCompartido.Services.PrecioService.NombreParaMostrar(State.KioscoId, colAhora == "precio_venta" ? "precio_lista2" : colAhora);
+                var listaBase = NombreListaBase;
                 decimal total = State.TotalVentaActual;
                 bool aDia = await avisos.ConfirmarAsync("¿A qué precio se fía?",
-                    $"La venta va con precio {lista}: $ {total:N2}. A precio de día sería $ {total - ahorro:N2} ($ {ahorro:N2} menos).",
-                    $"Precio de día ($ {total - ahorro:N2})", "aviso", $"Precio {lista} ($ {total:N2})");
+                    $"La venta va con la lista «{lista}»: $ {total:N2}. Con la lista «{listaBase}» sería $ {total - ahorro:N2} ($ {ahorro:N2} menos).",
+                    $"«{listaBase}» ($ {total - ahorro:N2})", "aviso", $"«{lista}» ($ {total:N2})");
                 if (aDia) AplicarPrecioDia();
             }
             if (PrecioDiaAplicado && monto >= restanteAntes) monto = Math.Max(0, Restante);   // era "lo que falta": se ajusta al nuevo total
@@ -432,6 +432,9 @@
     private readonly Dictionary<ItemCarrito, decimal> preciosAntesDelFiado = new();
     private decimal ahorroPrecioDia = 0;
     private bool PrecioDiaAplicado => preciosAntesDelFiado.Any();
+
+    /// <summary>Nombre de la lista precio_venta de este negocio (ej: "Precio de día"): cada negocio la llama distinto.</summary>
+    private string NombreListaBase => BlazorKioscoCompartido.Services.PrecioService.NombreParaMostrar(State.KioscoId, "precio_venta");
 
     /// <summary>Cuánto bajaría la venta si todo fuera a precio de día (0 = ya está a precio de día).</summary>
     private decimal AhorroSiPrecioDia()
@@ -472,7 +475,7 @@
         {
             State.TotalVentaActual = State.CarritoActual.Sum(i => i.Subtotal);
             ahorroPrecioDia = totalAntes - State.TotalVentaActual;
-            avisos.Toast($"Fiado: precio de día. El total bajó $ {ahorroPrecioDia:N2}", "info", 3500);
+            avisos.Toast($"Fiado: lista «{NombreListaBase}». El total bajó $ {ahorroPrecioDia:N2}", "info", 3500);
         }
     }
 

@@ -44,6 +44,15 @@
     {
         <div class="pp-wrap pp-stack">
 
+            @if (soloLectura)
+            {
+                <div class="gp-banner is-neutral pp-sololectura" style="background:#fff7e6;border:1px solid #f5c26b;color:#7a4b00">
+                    <i class="bi bi-eye-fill"></i>
+                    <p><b>Solo para ver.</b> Tu perfil no puede modificar productos que ya existen. Si hay algo para corregir, avisale al dueño o al encargado.</p>
+                </div>
+            }
+
+            <fieldset class="pp-campos" disabled="@soloLectura" style="display:contents;border:0;margin:0;padding:0;min-width:0">
             @* ================= DATOS DEL ARTÍCULO ================= *@
             <section class="gp-card gp-card-pad">
                 <div class="gp-card-head" style="flex-wrap:wrap">
@@ -67,9 +76,12 @@
                 <div class="cf-grid">
                     <div>
                         <label class="cf-lbl">Código de barras</label>
-                        <div class="pp-icon-input pp-codigo">
-                            <i class="bi bi-upc-scan"></i>
-                            <input type="text" class="gp-control" @bind="producto.CodigoBarras" />
+                        <div class="pp-cod-fila">
+                            <div class="pp-icon-input pp-codigo">
+                                <i class="bi bi-upc-scan"></i>
+                                <input type="text" class="gp-control" @bind="producto.CodigoBarras" />
+                            </div>
+                            <BotonCamara OnCodigo="@(c => producto.CodigoBarras = c)" />
                         </div>
                         @if (string.IsNullOrWhiteSpace(producto.CodigoBarras))
                         {
@@ -153,7 +165,7 @@
                         <p>Cambiá el costo o la utilidad y el precio de venta se calcula solo (o al revés).</p>
                     </div>
                 </div>
-                <PreciosProducto @ref="preciosRef" Producto="producto" NombreLista2="@nombreLista2" OnCambio="StateHasChanged" UtilidadSugerida="UtilidadDelGrupo" GrupoSugerido="@NombreGrupo" />
+                <PreciosProducto @ref="preciosRef" Producto="producto" OnCambio="StateHasChanged" UtilidadSugerida="UtilidadDelGrupo" GrupoSugerido="@NombreGrupo" />
 
                 @* Por mayor: ahora está dentro de PreciosProducto (se ve si la lista está tildada en Configuración) *@
             </section>
@@ -201,10 +213,19 @@
             </section>
 
             @* ================= PROVEEDORES ================= *@
-            <GestionProveedoresProducto @ref="gestionProvRef" ProductoId="@producto.Id" KioscoId="@State.KioscoId" UnidadesBultoProducto="@producto.BultoUnidades" OnBultosCambio="b => hayBultos = b" />
+            <GestionProveedoresProducto @ref="gestionProvRef" ProductoId="@producto.Id" KioscoId="@State.KioscoId" UnidadesBultoProducto="@BultoParaProveedores" EnKilos="@producto.EsVentaPorPeso()" OnBultosCambio="b => hayBultos = b" />
+            </fieldset>
 
             @* ================= BOTONERA ================= *@
             <div class="pp-actions">
+                @if (soloLectura)
+                {
+                    <span class="pp-actions-info"><i class="bi bi-lock-fill"></i> Solo para ver: no se puede guardar.</span>
+                    <button type="button" class="gp-btn gp-btn-soft" title="Crear otro producto igual (otro aroma, color, sabor...) con otro código" @onclick="DuplicarComoVariante"><i class="bi bi-copy"></i> Duplicar como variante</button>
+                    <button type="button" class="gp-btn gp-btn-outline" @onclick="Volver"><i class="bi bi-arrow-left"></i> Volver</button>
+                }
+                else
+                {
                 <span class="pp-actions-info"><i class="bi bi-info-circle"></i> Los cambios se guardan al tocar “Guardar cambios”.</span>
                 <button type="button" class="gp-btn gp-btn-soft" title="Crear otro producto igual (otro aroma, color, sabor...) con otro código" @onclick="DuplicarComoVariante"><i class="bi bi-copy"></i> Duplicar como variante</button>
                 <button type="button" class="gp-btn gp-btn-outline" @onclick="Volver"><i class="bi bi-x-lg"></i> Cancelar</button>
@@ -218,6 +239,7 @@
                         <i class="bi bi-check-circle-fill"></i> <span>Guardar cambios</span>
                     }
                 </button>
+                }
             </div>
         </div>
     }
@@ -321,6 +343,7 @@
 
     private void ConfirmarSumar()
     {
+        if (soloLectura) { sumarAbierto = false; return; }
         if (SumarEnStock <= 0) return;
         int llego = SumarEnStock;
         producto.StockActual = (producto.StockActual ?? 0) + llego;
@@ -339,6 +362,8 @@
     private AvisosPagina avisos = default!;
     private Producto? producto;
     private bool cargando = true, guardando;
+    // el perfil no puede cambiar productos que ya existen (Configuración → Perfiles → Modificar productos)
+    private bool soloLectura => !BlazorKioscoCompartido.Services.Roles.EditaProductos(State.UsuarioRol);
 
     private List<Familia> familias = new();
     private List<Proveedor> proveedores = new();
@@ -411,7 +436,6 @@
     private PreciosPorCantidad? preciosCantRef;
 
     private CultureInfo argCulture = CultureInfo.GetCultureInfo("es-AR");
-    private string nombreLista2 = "";
 
     protected override async Task OnInitializedAsync()
     {
@@ -430,7 +454,6 @@
                 // sin los dados de baja (salvo el que ya tiene este producto, para no perderlo al guardar)
                 proveedores = responseProv.Models.Where(p => p.EstaActivo() || p.Id == producto.ProveedorId).OrderBy(p => p.Nombre).ToList();
 
-                nombreLista2 = await PrecioServ.ObtenerNombreColumnaAsync(State.KioscoId, "precio_lista2");
                 await CargarSubfamiliasUtil();
 
                 // 1. Validar Unidad de Medida si es null o vacía
@@ -494,6 +517,7 @@
     private bool creandoCodigo;
     private async Task CrearCodigoPropio()
     {
+        if (soloLectura) return;
         creandoCodigo = true;
         try
         {
@@ -515,6 +539,7 @@
     private async Task GuardarCambios()
     {
         if (producto == null) return;
+        if (soloLectura) { avisos.Toast("Tu perfil no puede modificar productos.", "peligro"); return; }
         if (string.IsNullOrWhiteSpace(producto.Nombre)) { avisos.Toast("Falta la descripción del producto.", "peligro"); return; }
 
         CompletarFamiliaYProveedor();
@@ -573,6 +598,9 @@
 
     // algún proveedor lo vende por bulto: el stock se aclara "x unidad" para no confundir
     private bool hayBultos;
+
+    /// <summary>El bulto del producto para completar el de los proveedores (por peso va en gramos; menos de 100 g es un dato viejo y no se usa).</summary>
+    private int? BultoParaProveedores => producto.EsVentaPorPeso() && (producto.BultoUnidades ?? 0) < 100 ? null : producto.BultoUnidades;
 
     /// <summary>
     /// Si quedó sin familia o sin proveedor ("-- Elegí --"), se ponen los de siempre: ARTICULOS y PROVEEDOR.

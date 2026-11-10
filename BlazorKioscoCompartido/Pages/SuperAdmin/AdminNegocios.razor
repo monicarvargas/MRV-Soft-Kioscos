@@ -661,8 +661,8 @@
         {
             if (esNuevo)
             {
-                if (!string.IsNullOrWhiteSpace(adminUser) && await Config.ExisteUsername(adminUser.Trim()))
-                { avisos.Toast("Ese nombre de usuario ya está en uso.", "peligro"); return; }
+                // negocio nuevo: todavía no tiene usuarios, así que el nombre del admin no choca con nadie
+                // (el nombre de usuario es único dentro de cada negocio, script 39)
 
                 var nuevo = await Config.AltaNegocio(editando, adminUser, adminPass);
                 editando = null;

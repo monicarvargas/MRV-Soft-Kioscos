@@ -55,3 +55,19 @@ En una ventana de comandos (cmd), con los datos de conexion del proyecto DONDE s
 
 --clean BORRA las tablas que hay y las vuelve a crear con lo de la copia.
 Si hay dudas, consultar antes de restaurar en PRODUCCION.
+
+---------------------------------------------------------------------
+ PISAR LA BASE DE TEST CON PRODUCCION  (dejar TEST igual a produccion)
+---------------------------------------------------------------------
+Una sola vez: abrir config_test.bat con el Bloc de notas y completar
+TEST_HOST, TEST_USER y TEST_PASSWORD (Supabase, proyecto de TEST >
+"Connect" > "Session pooler"). Guardar.
+
+Cada vez que se quiera: doble clic en PisarBaseTestConProduccion.bat
+  1. hace la copia de PRODUCCION (como la de todas las noches)
+  2. guarda una copia de TEST como estaba (CARPETA\test\test_antes_de_pisar_FECHA.dump)
+  3. borra las tablas de TEST y las carga con lo de PRODUCCION
+  4. da los permisos de Supabase
+Pide escribir PISAR para confirmar. Si algo falla, TEST queda como estaba.
+Produccion solo se lee, no se toca. Las fotos (Storage) no se copian.
+Lo que paso queda anotado en CARPETA\pisar_test_log.txt

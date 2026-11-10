@@ -1,0 +1,97 @@
+﻿@* =====================================================================
+   InputBulto: el campo para escribir cuánto trae un bulto. Se usa en todos lados igual.
+     - Producto por unidad: se escriben unidades (48).
+     - Producto por peso:   se escriben KILOS (15 o 4,35) y devuelve GRAMOS (15000 / 4350).
+   Uso:  <InputBulto @bind-Valor="rel.UnidadesPorBulto" EnKilos="@producto.EsVentaPorPeso()" />
+   Valor 1 (o menos) = sin bulto. Las cuentas y textos están en Services/Bultos.cs.
+   ===================================================================== *@
+
+<input id="@Id" type="text" inputmode="@(EnKilos ? "decimal" : "numeric")" class="@Clase" style="@Estilo"
+       placeholder="@(Placeholder ?? (EnKilos ? "Ej: 15 o 4,5" : "Ej: 48"))"
+       title="@(Titulo ?? (EnKilos ? "Kilos que trae el bulto" : "Unidades que trae el bulto"))"
+       disabled="@Deshabilitado" value="@texto" onfocus="this.select()"
+       @oninput="AlEscribirAsync" @onchange="AlSalirAsync" />
+@if (ConUnidad)
+{
+    <span>@(TextoUnidad ?? Bultos.Unidad(EnKilos))</span>
+}
+
+@code {
+    /// <summary>Lo guardado: unidades, o gramos si EnKilos. 1 (o menos) = sin bulto.</summary>
+    [Parameter] public int Valor { get; set; }
+    [Parameter] public EventCallback<int> ValorChanged { get; set; }
+
+    /// <summary>El producto se vende por peso: se escribe en kilos.</summary>
+    [Parameter] public bool EnKilos { get; set; }
+
+    [Parameter] public string? Clase { get; set; } = "gp-control";
+    /// <summary>id del campo (para ponerle el foco desde la página).</summary>
+    [Parameter] public string? Id { get; set; }
+    [Parameter] public string? Estilo { get; set; }
+    [Parameter] public string? Placeholder { get; set; }
+    [Parameter] public string? Titulo { get; set; }
+    [Parameter] public bool Deshabilitado { get; set; }
+
+    /// <summary>Muestra "kg" / "u." después del campo (o TextoUnidad).</summary>
+    [Parameter] public bool ConUnidad { get; set; }
+    [Parameter] public string? TextoUnidad { get; set; }
+
+    /// <summary>true: avisa mientras escribe (para ver la cuenta en el momento). false: al salir del campo.</summary>
+    [Parameter] public bool AlEscribir { get; set; }
+
+    /// <summary>false: si lo escrito no sirve, vuelve a lo que estaba (el bulto no puede quedar vacío).</summary>
+    [Parameter] public bool PermitirVacio { get; set; } = true;
+
+    private string texto = "";
+    private int ultimoValor = int.MinValue;
+    private bool? ultimoEnKilos;
+
+    protected override void OnParametersSet()
+    {
+        // solo se rearma el texto si el valor cambió desde afuera (así no se pisa lo que se está escribiendo: "4,")
+        if (Valor != ultimoValor || EnKilos != ultimoEnKilos)
+        {
+            texto = Bultos.ParaCampo(Valor, EnKilos);
+            ultimoValor = Valor;
+            ultimoEnKilos = EnKilos;
+        }
+    }
+
+    private async Task AlEscribirAsync(ChangeEventArgs e)
+    {
+        texto = e.Value?.ToString() ?? "";
+        if (AlEscribir) await AvisarAsync(alSalir: false);
+    }
+
+    private async Task AlSalirAsync(ChangeEventArgs e)
+    {
+        texto = e.Value?.ToString() ?? "";
+        await AvisarAsync(alSalir: true);
+    }
+
+    private async Task AvisarAsync(bool alSalir)
+    {
+        var n = Bultos.DesdeTexto(texto, EnKilos);
+        bool sirve = n.HasValue && n.Value >= Bultos.Minimo(EnKilos);
+
+        if (!sirve)
+        {
+            if (!PermitirVacio)
+            {
+                // mientras escribe se espera; al salir vuelve a lo que estaba
+                if (alSalir) texto = Bultos.ParaCampo(Valor, EnKilos);
+                return;
+            }
+            if (alSalir) texto = "";
+            if (ultimoValor == 1) return;
+            ultimoValor = 1;
+            await ValorChanged.InvokeAsync(1);
+            return;
+        }
+
+        if (alSalir) texto = Bultos.ParaCampo(n, EnKilos);   // queda prolijo: "4.35" → "4,35"
+        if (n!.Value == ultimoValor) return;
+        ultimoValor = n.Value;
+        await ValorChanged.InvokeAsync(n.Value);
+    }
+}

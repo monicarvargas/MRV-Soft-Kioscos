@@ -50,6 +50,20 @@ namespace BlazorKioscoCompartido.Services
         public static bool EsVentaPorPeso(this Producto? producto)
             => producto.IsMedidaGramos() || producto.IsMedidaKilos();
 
+        // === BULTO ("Lo compro por bulto") ===  las cuentas están todas en Services/Bultos.cs
+        // BultoUnidades guarda UNIDADES si se vende por unidad, y GRAMOS si se vende por peso (bolsa de 15 kg = 15000).
+
+        /// <summary>Lo que trae el bulto del producto en la unidad del costo: unidades, o KILOS. 0 = sin bulto.</summary>
+        public static decimal CantidadBulto(this Producto? producto)
+            => producto == null ? 0m : Bultos.Factor(producto.BultoUnidades, producto.EsVentaPorPeso());
+
+        /// <summary>"48 u" o "15 kg" / "4,35 kg".</summary>
+        public static string TextoCantidadBulto(this Producto? producto)
+            => producto == null ? "" : Bultos.Texto(producto.BultoUnidades, producto.EsVentaPorPeso());
+
+        /// <summary>Gramos escritos en kilos: 15000 → "15 kg", 4350 → "4,35 kg".</summary>
+        public static string TextoKilos(int gramos) => Bultos.TextoCantidad(gramos, enKilos: true);
+
         /// <summary>
         /// ¿El precio de venta se muestra (y se redondea) cada 100 g? Solo en GRAMOS (golosinas sueltas).
         /// En KILO el precio es por kilo, igual que el costo. (Al vender, los dos se pesan en gramos.)

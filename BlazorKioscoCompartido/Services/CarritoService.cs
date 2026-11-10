@@ -157,6 +157,12 @@ namespace BlazorKioscoCompartido.Services
 
 
         public bool EsProductoVario { get; set; }
+
+        /// <summary>Cuántos de este combo armó el sistema solo (al escanear sus productos). Se pueden desarmar.</summary>
+        public int ArmadosSolos { get; set; }
+
+        /// <summary>Los productos que se usaron en cada combo armado solo (para desarmarlo y devolverlos).</summary>
+        public List<List<(Producto Producto, int Cantidad)>> PartesArmadas { get; } = new();
     }
 
     public class CarritoService
@@ -222,6 +228,7 @@ namespace BlazorKioscoCompartido.Services
                 nuevo.Cantidad = 1;
                 Items.Add(nuevo);
             }
+            ArmarCombos();
         }
 
         public void AgregarManual(Producto p, string columnaPrecioActiva, bool esProductoVario = false, int cantidad = 1)
@@ -249,6 +256,7 @@ namespace BlazorKioscoCompartido.Services
                 nuevo.Cantidad = cantidad;
                 Items.Add(nuevo);
             }
+            ArmarCombos();
         }
 
         /// <summary>Agrega con un precio fijo (productos "varios" sin código: el precio lo escribe el vendedor y no se toca).</summary>
@@ -270,12 +278,162 @@ namespace BlazorKioscoCompartido.Services
         {
             if (cantidad <= 0) Items.Remove(item);
             else item.Cantidad = cantidad;
+            ArmarCombos();
+        }
+
+        /// <summary>Suma unidades a un renglón (botón + o "llevando 1 más") y se fija si se arma un combo.</summary>
+        public void Sumar(ItemCarrito item, int cantidad = 1)
+        {
+            item.Cantidad += cantidad;
+            ArmarCombos();
         }
 
         public void Eliminar(ItemCarrito item) => Items.Remove(item);
 
         public void Eliminar(long id) => Items.RemoveAll(x => x.Producto.Id == id);
-        public void Vaciar() { Items.Clear(); ListaDeLaVenta = null; }
+        public void Vaciar() { Items.Clear(); ListaDeLaVenta = null; combosDesarmados.Clear(); }
+
+        // ===================================================== COMBOS QUE SE ARMAN SOLOS
+        // Ej: combo HAMBURGUESA = 1 pan + 2 hamburguesas a $5.000. El empleado escanea el pan y las 2 hamburguesas
+        // por separado → en el carrito queda 1 COMBO HAMBURGUESA a $5.000 (y avisa con un cartel).
+        // El stock no cambia: al cobrar un combo se descuenta cada producto que lo forma (Cobrar).
+        // No se arman: combos inactivos, fuera de su vigencia o con productos por peso (esos se venden por el nombre del combo).
+
+        /// <summary>Un combo con sus productos (cantidades) para armarlo solo cuando están en el carrito.</summary>
+        public sealed record ComboParaArmar(Producto Combo, List<(long ProductoId, int Cantidad)> Partes);
+
+        /// <summary>Los combos que se pueden armar solos (los carga Vender, con o sin internet).</summary>
+        public List<ComboParaArmar> CombosParaArmar { get; private set; } = new();
+
+        /// <summary>Se armó un combo solo: el texto del cartel (lo muestra Vender).</summary>
+        public event Action<string>? AlArmarCombo;
+
+        /// <summary>Combos que el vendedor desarmó en esta venta: no se vuelven a armar solos hasta la próxima venta.</summary>
+        private readonly HashSet<long> combosDesarmados = new();
+
+        /// <summary>Carga los combos activos y vigentes con sus productos.</summary>
+        public void FijarCombos(IEnumerable<Producto>? combos, IEnumerable<ComboDetalle>? detalles)
+        {
+            var hoy = DateTime.Today;
+            var partes = (detalles ?? Enumerable.Empty<ComboDetalle>())
+                .Where(d => d.Cantidad > 0)
+                .GroupBy(d => d.ComboId)
+                .ToDictionary(g => g.Key, g => g.GroupBy(d => d.ProductoHijoId)
+                                                .Select(x => (ProductoId: x.Key, Cantidad: x.Sum(d => d.Cantidad))).ToList());
+            CombosParaArmar = (combos ?? Enumerable.Empty<Producto>())
+                .Where(c => c.EsCombo == true && c.Activo
+                         && (!c.FechaVigenciaDesdeCombo.HasValue || c.FechaVigenciaDesdeCombo.Value.Date <= hoy)
+                         && (!c.FechaVigenciaHastaCombo.HasValue || c.FechaVigenciaHastaCombo.Value.Date >= hoy)
+                         && partes.ContainsKey(c.Id))
+                .Select(c => new ComboParaArmar(c, partes[c.Id]))
+                .Where(c => c.Partes.Sum(p => p.Cantidad) >= 2)   // "combo" de 1 solo producto x 1: no se arma
+                .ToList();
+        }
+
+        /// <summary>
+        /// Si en el carrito están todos los productos de un combo (en sus cantidades), los cambia por el combo.
+        /// Ej: combo = 1 pan + 2 hamburguesas; pan + 2 hamburguesas → 1 COMBO; 2 panes + 4 hamburguesas → 2 COMBOS.
+        /// Si un producto está en dos combos, se arma el que más le ahorra al cliente.
+        /// </summary>
+        public void ArmarCombos()
+        {
+            if (CombosParaArmar.Count == 0 || Items.Count == 0) return;
+            var armados = new Dictionary<string, int>();
+            string columna = ListaDeLaVenta ?? "precio_venta";
+
+            for (int vuelta = 0; vuelta < 500; vuelta++)
+            {
+                ComboParaArmar? mejor = null;
+                decimal mejorAhorro = decimal.MinValue;
+                foreach (var c in CombosParaArmar)
+                {
+                    if (combosDesarmados.Contains(c.Combo.Id) || !HayLugarEnLimite(c.Combo)) continue;
+                    decimal sueltos = 0;
+                    bool completo = true;
+                    foreach (var (id, cant) in c.Partes)
+                    {
+                        var it = RenglonSuelto(id);
+                        if (it == null || it.Cantidad < cant) { completo = false; break; }
+                        sueltos += it.PrecioUnitario * cant;
+                    }
+                    if (!completo) continue;
+                    decimal ahorro = sueltos - ResolverPrecioBase(c.Combo, columna);
+                    if (ahorro > mejorAhorro) { mejor = c; mejorAhorro = ahorro; }
+                }
+                if (mejor == null) break;
+
+                // se sacan los productos sueltos...
+                var usadas = new List<(Producto Producto, int Cantidad)>();
+                foreach (var (id, cant) in mejor.Partes)
+                {
+                    var it = RenglonSuelto(id)!;
+                    usadas.Add((it.Producto, cant));
+                    if (it.Cantidad - cant <= 0) Items.Remove(it);
+                    else it.Cantidad -= cant;
+                }
+
+                // ...y se pone (o se suma) el combo
+                var linea = Items.FirstOrDefault(i => !i.EsProductoVario && i.Producto.Id == mejor.Combo.Id);
+                if (linea != null) linea.Cantidad++;
+                else
+                {
+                    decimal precio = ResolverPrecioBase(mejor.Combo, columna);
+                    linea = new ItemCarrito
+                    {
+                        Producto = mejor.Combo,
+                        PrecioUnitario = precio,
+                        PrecioLista = precio,
+                        State = _state,
+                        Escalas = Escalas.GetValueOrDefault(mejor.Combo.Id)
+                    };
+                    linea.Cantidad = 1;
+                    Items.Add(linea);
+                }
+                linea.ArmadosSolos++;
+                linea.PartesArmadas.Add(usadas);
+
+                var nombre = string.IsNullOrWhiteSpace(mejor.Combo.Nombre) ? "combo" : mejor.Combo.Nombre!;
+                armados[nombre] = armados.GetValueOrDefault(nombre) + 1;
+            }
+
+            if (armados.Count > 0)
+                AlArmarCombo?.Invoke("Se armó " + string.Join(" y ", armados.Select(a =>
+                    a.Value == 1 ? $"el combo {a.Key}" : $"{a.Value} combos {a.Key}")) + ": se cobra el precio del combo.");
+        }
+
+        /// <summary>
+        /// Deshace los combos que se armaron solos en ese renglón: vuelven los productos sueltos.
+        /// En esta venta ese combo ya no se arma solo (por si el cliente no lo quería).
+        /// </summary>
+        public void Desarmar(ItemCarrito linea)
+        {
+            int veces = Math.Min(Math.Min(linea.ArmadosSolos, linea.Cantidad), linea.PartesArmadas.Count);
+            if (veces <= 0) return;
+            combosDesarmados.Add(linea.Producto.Id);
+
+            var devolver = linea.PartesArmadas.Skip(linea.PartesArmadas.Count - veces).SelectMany(x => x).ToList();
+            linea.PartesArmadas.RemoveRange(linea.PartesArmadas.Count - veces, veces);
+            linea.ArmadosSolos -= veces;
+            if (linea.Cantidad - veces <= 0) Items.Remove(linea);
+            else linea.Cantidad -= veces;
+
+            string columna = ListaDeLaVenta ?? "precio_venta";
+            foreach (var g in devolver.GroupBy(x => x.Producto.Id))
+                AgregarManual(g.First().Producto, columna, false, g.Sum(x => x.Cantidad));
+        }
+
+        /// <summary>El renglón de un producto suelto (no combo, no "varios", no por peso).</summary>
+        private ItemCarrito? RenglonSuelto(long productoId) =>
+            Items.FirstOrDefault(i => !i.EsProductoVario && i.Producto.Id == productoId
+                                      && i.Producto.EsCombo != true && !i.Producto.EsVentaPorPeso());
+
+        /// <summary>El combo tiene límite de unidades (0 o vacío = sin límite) y todavía no se llegó en este carrito.</summary>
+        private bool HayLugarEnLimite(Producto combo)
+        {
+            int limite = combo.LimiteUnidadesCombo ?? 0;
+            if (limite <= 0) return true;
+            return Items.Where(i => i.Producto.Id == combo.Id).Sum(i => i.Cantidad) < limite;
+        }
 
         // HELPER PRIVADO: Resuelve la lista activa considerando si la BD guarda el valor en base a 100g
         private decimal ResolverPrecioBase(Producto p, string columnaPrecioActiva)

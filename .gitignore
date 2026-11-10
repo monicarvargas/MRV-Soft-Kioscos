@@ -48,3 +48,9 @@ _backup_configuracion/
 *.dump
 *.backup
 *.sql.gz
+
+# datos de la base de TEST (clave) para PisarBaseTestConProduccion.bat: nunca subirlo
+_backup_base/config_test.bat
+
+# datos de PRODUCCION que usan publicar_vercel.bat y publicar_escritorio.bat: nunca subirlo
+appsettings.produccion.json

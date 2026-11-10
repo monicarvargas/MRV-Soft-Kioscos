@@ -12,23 +12,132 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="icon" type="image/png" href="favicon.png" />
 
-    <!-- Lector de códigos con la cámara (el mismo que usa el celular). En la PC también anda el lector de mano. -->
-    <script src="https://unpkg.com/html5-qrcode"></script>
+    <!-- Lector de códigos con la cámara: versión fija (la dirección sin versión dejó de andar y no abría la cámara) -->
+    <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
     <script>
-        window.methodsJS = {
-            iniciarEscaneo: function (dotNetHelper) {
-                const html5QrCode = new Html5Qrcode("reader");
-                const config = { fps: 10, qrbox: { width: 250, height: 150 } };
-                html5QrCode.start(
-                    { facingMode: "environment" },
-                    config,
-                    (decodedText) => {
-                        dotNetHelper.invokeMethodAsync('ProcesarCodigoEscaneado', decodedText);
-                        html5QrCode.stop();
-                    }
-                );
+        // ===== Lector de códigos de barras con la cámara =====
+        // iniciarEscaneo(ref, metodo)       : muestra la cámara dentro del recuadro id="reader" de la página.
+        // escanearEnVentana(ref, metodo)    : abre una ventana encima de todo con la cámara y un botón Cerrar (BotonCamara).
+        // detenerEscaneo / cerrarVentanaEscaneo : apagan la cámara.
+        // El lector de mano (USB) no usa nada de esto: escribe el código en el campo y manda Enter.
+        window.methodsJS = (function () {
+            const LIB = "https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js";
+
+            function aviso(caja, msg) {
+                if (caja) caja.innerHTML = '<div style="padding:.8rem;border:1px solid #f2d48a;border-radius:12px;background:#fff8e1;color:#7a5200;font-weight:700;text-align:center">' + msg + '</div>';
             }
-        };
+
+            async function cargarLibreria() {
+                if (typeof Html5Qrcode !== "undefined") return true;
+                // si no cargó (internet lento), se intenta de nuevo
+                await new Promise((ok) => {
+                    const s = document.createElement("script");
+                    s.src = LIB; s.onload = ok; s.onerror = ok;
+                    document.head.appendChild(s);
+                });
+                return typeof Html5Qrcode !== "undefined";
+            }
+
+            async function pararLector() {
+                const l = window.__lectorMRV;
+                window.__lectorMRV = null;
+                if (!l) return;
+                try { await l.stop(); } catch (e) { }
+                try { l.clear(); } catch (e) { }
+            }
+
+            function quitarVentana() {
+                const v = document.getElementById("mrvLectorVentana");
+                if (v) v.remove();
+            }
+
+            async function detener() { await pararLector(); quitarVentana(); }
+
+            function textoError(err) {
+                const t = String((err && (err.name || err.message)) ? (err.name + " " + err.message) : (err || ""));
+                if (/Permission|NotAllowed/i.test(t))
+                    return "La app no tiene permiso para usar la cámara. Dáselo en los ajustes del celular (Apps → Chrome / MRV Soft → Permisos → Cámara) y probá de nuevo.";
+                if (/NotFound|Requested device|OverconstrainedError/i.test(t))
+                    return "No se encontró la cámara en este equipo. Usá el lector de códigos o escribí el código.";
+                if (/NotReadable|in use|Could not start/i.test(t))
+                    return "La cámara está siendo usada por otra app. Cerrala y probá de nuevo.";
+                if (/secure|https/i.test(t))
+                    return "La cámara solo anda entrando por https (la dirección de la app).";
+                return "No se pudo abrir la cámara: " + t;
+            }
+
+            // arranca la cámara dentro del elemento idCaja; alLeer(texto) se llama una sola vez
+            async function arrancar(idCaja, alLeer) {
+                const caja = document.getElementById(idCaja);
+                if (!caja) return;
+                if (!(await cargarLibreria())) { aviso(caja, "No se pudo cargar el lector de la cámara. Revisá la conexión a internet y probá de nuevo."); return; }
+
+                await pararLector();
+                caja.innerHTML = "";
+
+                const F = window.Html5QrcodeSupportedFormats || {};
+                const formatos = [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.CODE_128, F.CODE_39, F.ITF, F.QR_CODE].filter(x => x !== undefined);
+                let lector;
+                try { lector = new Html5Qrcode(idCaja, formatos.length ? { formatsToSupport: formatos, verbose: false } : undefined); }
+                catch (e) { aviso(caja, textoError(e)); return; }
+                window.__lectorMRV = lector;
+
+                let leido = false;
+                try {
+                    await lector.start(
+                        { facingMode: "environment" }, // cámara de atrás
+                        { fps: 10, qrbox: { width: 260, height: 140 } },
+                        (texto) => {
+                            if (leido) return;
+                            leido = true;
+                            try { if (navigator.vibrate) navigator.vibrate(80); } catch (e) { }
+                            // apaga la cámara y le manda el código a C#
+                            detener().finally(() => alLeer(texto));
+                        }
+                    );
+                    // si mientras arrancaba la cerraron (o se abrió otra), se apaga
+                    if (window.__lectorMRV !== lector) { try { await lector.stop(); } catch (e) { } try { lector.clear(); } catch (e) { } }
+                } catch (err) {
+                    console.warn("Lector de códigos:", err);
+                    if (window.__lectorMRV === lector) window.__lectorMRV = null;
+                    aviso(document.getElementById(idCaja), textoError(err));
+                }
+            }
+
+            return {
+                iniciarEscaneo: async function (dotNetHelper, metodo) {
+                    quitarVentana();
+                    await arrancar("reader", (t) => dotNetHelper.invokeMethodAsync(metodo || 'ProcesarCodigoEscaneado', t));
+                },
+
+                escanearEnVentana: async function (dotNetHelper, metodo) {
+                    await detener();
+                    const v = document.createElement("div");
+                    v.id = "mrvLectorVentana";
+                    v.style.cssText = "position:fixed;inset:0;z-index:100000;background:rgba(15,23,42,.9);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:16px";
+                    v.innerHTML =
+                        '<div style="color:#fff;font-weight:800;font-size:1.05rem;text-align:center">Apuntá la cámara al código de barras</div>' +
+                        '<div id="mrvLectorVideo" style="width:100%;max-width:440px;min-height:120px;background:#000;border-radius:14px;overflow:hidden"></div>' +
+                        '<button type="button" id="mrvLectorCerrar" style="min-width:180px;height:48px;border:0;border-radius:12px;background:#fff;color:#1f2a44;font-weight:800;font-size:1rem">✕ Cerrar</button>';
+                    document.body.appendChild(v);
+                    v.querySelector("#mrvLectorCerrar").addEventListener("click", () => detener());
+                    v.addEventListener("click", (e) => { if (e.target === v) detener(); });
+                    await arrancar("mrvLectorVideo", (t) => dotNetHelper.invokeMethodAsync(metodo || 'CodigoDeCamara', t));
+                },
+
+                detenerEscaneo: detener,
+
+                cerrarVentanaEscaneo: async function () {
+                    if (document.getElementById("mrvLectorVentana")) await detener();
+                }
+            };
+        })();
+
+        // Escape cierra la ventana de la cámara
+        document.addEventListener("keydown", function (e) {
+            if (e.key === "Escape" && document.getElementById("mrvLectorVentana")) window.methodsJS.cerrarVentanaEscaneo();
+        });
     </script>
 </head>
 

@@ -47,7 +47,10 @@
                     <div class="ar-dos">
                         <div>
                             <label class="ar-lbl">Código del proveedor <small>(opcional)</small></label>
-                            <input type="text" class="ar-input" placeholder="Ej: PROV-7791234" @bind="nuevoCodigoProveedor" />
+                            <div style="display:flex; gap:.4rem">
+                                <input type="text" class="ar-input" placeholder="Ej: PROV-7791234" @bind="nuevoCodigoProveedor" />
+                                <BotonCamara Clase="gp-btn gp-btn-soft gp-btn-sm" OnCodigo="@(c => nuevoCodigoProveedor = c)" />
+                            </div>
                         </div>
                     </div>
 
@@ -64,16 +67,17 @@
                         @if (nuevoTipoBulto != BlazorKioscoCompartido.Constants.TiposBulto.Unidad)
                         {
                             <div>
-                                <label class="ar-lbl">¿Cuántas unidades trae? <small>(opcional)</small></label>
-                                <input type="number" min="2" inputmode="numeric" class="ar-input" onfocus="this.select()" placeholder="Ej: 48"
-                                       value="@(nuevoUnidadesBulto > 1 ? nuevoUnidadesBulto.ToString() : "")" @onchange="e => nuevoUnidadesBulto = int.TryParse(e.Value?.ToString(), out var n) && n > 1 ? n : 1" />
+                                <label class="ar-lbl">@(EnKilos ? "¿Cuántos kilos trae?" : "¿Cuántas unidades trae?") <small>(opcional)</small></label>
+                                <div class="pp-addon">
+                                    <InputBulto @bind-Valor="nuevoUnidadesBulto" EnKilos="@EnKilos" Clase="ar-input" ConUnidad="true" />
+                                </div>
                             </div>
                         }
                     </div>
                     @if (nuevoTipoBulto != BlazorKioscoCompartido.Constants.TiposBulto.Unidad)
                     {
-                        <div class="ar-hint"><i class="bi bi-box-seam"></i> En el pedido, <b>1 = 1 @nuevoTipoBulto.ToLower()@(nuevoUnidadesBulto > 1 ? $" de {nuevoUnidadesBulto} unidades" : "")</b>.
-                            @(nuevoUnidadesBulto > 1 ? "El stock se sigue contando por unidad." : "Si no ponés cuántas trae, en el pedido solo dice la cantidad de " + nuevoTipoBulto.ToLower() + "s.")</div>
+                        <div class="ar-hint"><i class="bi bi-box-seam"></i> En el pedido, <b>1 = 1 @nuevoTipoBulto.ToLower()@(nuevoUnidadesBulto > 1 ? " de " + Bultos.Texto(nuevoUnidadesBulto, EnKilos) : "")</b>.
+                            @(nuevoUnidadesBulto > 1 ? (EnKilos ? "El stock se sigue contando en kilos." : "El stock se sigue contando por unidad.") : "Si no ponés " + (EnKilos ? "cuántos kilos" : "cuántas") + " trae, en el pedido solo dice la cantidad de " + nuevoTipoBulto.ToLower() + "s.")</div>
                     }
 
                     @if (!string.IsNullOrEmpty(mensajeError))
@@ -135,10 +139,8 @@
                                 {
                                     <div class="pp-addon pp-cell-bulto">
                                         <span>de</span>
-                                        <input type="number" min="2" inputmode="numeric" class="gp-control pp-cell-input" onfocus="this.select()"
-                                               placeholder="?" title="Cuántas unidades trae (opcional)"
-                                               value="@(rel.UnidadesPorBulto > 1 ? rel.UnidadesPorBulto.ToString() : "")" @onchange="e => CambiarUnidadesBulto(rel, e)" />
-                                        <span>u.</span>
+                                        <InputBulto Valor="rel.UnidadesPorBulto" ValorChanged="n => CambiarUnidadesBulto(rel, n)" EnKilos="@EnKilos"
+                                                    Clase="gp-control pp-cell-input" Placeholder="?" ConUnidad="true" />
                                     </div>
                                 }
                             </div>
@@ -178,8 +180,13 @@
 @code {
     [Parameter] public long ProductoId { get; set; }
     [Parameter] public long KioscoId { get; set; }
-    /// <summary>Unidades del bulto cargado en el producto ("Lo compro por bulto"): sirve para completar "de x u.".</summary>
+    /// <summary>Unidades del bulto cargado en el producto ("Lo compro por bulto"): sirve para completar "de x u.".
+    /// Si el producto se vende por peso, son GRAMOS (15 kg = 15000).</summary>
     [Parameter] public int? UnidadesBultoProducto { get; set; }
+
+    /// <summary>El producto se vende por peso: el bulto se escribe en KILOS y se guarda en GRAMOS (bolsa de 15 kg = 15000).</summary>
+    [Parameter] public bool EnKilos { get; set; }
+
 
     /// <summary>Al crear una variante: copia los proveedores (y unidades por bulto) de este producto.
     /// El código y la descripción del proveedor NO se copian porque cada variante tiene los suyos.</summary>
@@ -335,9 +342,9 @@
         await AvisarBultosAsync();
     }
 
-    private async Task CambiarUnidadesBulto(ProductoProveedor rel, ChangeEventArgs e)
+    private async Task CambiarUnidadesBulto(ProductoProveedor rel, int n)
     {
-        rel.UnidadesPorBulto = int.TryParse(e.Value?.ToString(), out int n) && n > 1 ? n : 1;
+        rel.UnidadesPorBulto = n > 1 ? n : 1;
         // se borra el número: el tipo (caja, pack...) se mantiene
         await AvisarBultosAsync();
     }

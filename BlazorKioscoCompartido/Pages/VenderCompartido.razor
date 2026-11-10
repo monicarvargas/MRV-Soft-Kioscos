@@ -86,6 +86,11 @@
                                     @if (item.EsProductoVario) { <span class="vt-tag vario">VARIOS</span> }
                                     @if (esPesable) { <span class="vt-tag peso"><i class="bi bi-speedometer2"></i> PESO</span> }
                                     @if (item.Producto.EsCombo == true) { <span class="vt-tag combo">COMBO</span> }
+                                    @if (item.ArmadosSolos > 0)
+                                    {
+                                        <button type="button" class="vt-desarmar" title="Volver a los productos sueltos (en esta venta este combo no se arma solo)"
+                                                @onclick="() => Carrito.Desarmar(item)"><i class="bi bi-scissors"></i> Desarmar</button>
+                                    }
                                     @item.Producto.Nombre
                                 </div>
                                 <div class="vt-item-sub">
@@ -104,7 +109,7 @@
                                     }
                                     @if (item.Sugerencia is { } sug)
                                     {
-                                        <button type="button" class="vt-sugerencia" title="Sumar al carrito" @onclick="() => item.Cantidad += sug.Mas">
+                                        <button type="button" class="vt-sugerencia" title="Sumar al carrito" @onclick="() => Carrito.Sumar(item, sug.Mas)">
                                             <i class="bi bi-lightbulb-fill"></i>
                                             Llevando @(sug.Mas == 1 ? "1 más" : sug.Mas + " más") paga $ @sug.Total.ToString("N0")@(sug.Ahorro > 0 ? " (ahorra $ " + sug.Ahorro.ToString("N0") + ")" : " (lo mismo)")
                                             <b>+@sug.Mas</b>
@@ -130,7 +135,7 @@
                                         <button type="button" aria-label="Uno menos" @onclick="() => DecrementarCantidad(item)"><i class="bi bi-dash-lg"></i></button>
                                         <input type="number" min="1" inputmode="numeric" value="@item.Cantidad" onfocus="this.select()"
                                                @onchange="@(e => ActualizarCantidadManual(item, e.Value))" />
-                                        <button type="button" aria-label="Uno más" @onclick="() => item.Cantidad++"><i class="bi bi-plus-lg"></i></button>
+                                        <button type="button" aria-label="Uno más" @onclick="() => Carrito.Sumar(item)"><i class="bi bi-plus-lg"></i></button>
                                     </div>
                                 }
                             </div>
@@ -296,7 +301,7 @@
 {
     bool esPesableModal = EsProductoPesable(productoSeleccionadoParaVenta);
     <div class="gp-scope gp-modal-backdrop" @onclick="CerrarModales">
-        <div class="gp-modal" role="dialog" aria-modal="true" @onclick:stopPropagation="true">
+        <div class="gp-modal vt-modal-color" role="dialog" aria-modal="true" @onclick:stopPropagation="true">
             <div class="gp-modal-head">
                 <span class="gp-bubble gp-bubble-sm"><i class="bi @(esPesableModal ? "bi-speedometer2" : "bi-box")"></i></span>
                 <div>
@@ -325,11 +330,11 @@
                             </div>
                         </div>
                         <div class="vt-rapidos">
-                            <button type="button" @onclick="() => PesoRapido(100)">100 g</button>
-                            <button type="button" @onclick="() => PesoRapido(150)">150 g</button>
-                            <button type="button" @onclick="() => PesoRapido(250)">¼ kg</button>
-                            <button type="button" @onclick="() => PesoRapido(500)">½ kg</button>
-                            <button type="button" @onclick="() => PesoRapido(1000)">1 kg</button>
+                            <button type="button" class="@(CalcularGramosCalculados() == 100 ? "is-active" : "")" @onclick="() => PesoRapido(100)">100 g</button>
+                            <button type="button" class="@(CalcularGramosCalculados() == 150 ? "is-active" : "")" @onclick="() => PesoRapido(150)">150 g</button>
+                            <button type="button" class="@(CalcularGramosCalculados() == 250 ? "is-active" : "")" @onclick="() => PesoRapido(250)">¼ kg</button>
+                            <button type="button" class="@(CalcularGramosCalculados() == 500 ? "is-active" : "")" @onclick="() => PesoRapido(500)">½ kg</button>
+                            <button type="button" class="@(CalcularGramosCalculados() == 1000 ? "is-active" : "")" @onclick="() => PesoRapido(1000)">1 kg</button>
                         </div>
                         <div class="vt-calc">
                             <span>@FormatearCantidadPesable(CalcularGramosCalculados())</span>
@@ -476,7 +481,55 @@
             catch (Exception ex) when (off != null && VentaSinInternet.EsErrorDeRed(ex)) { Carrito.FijarEscalas(off.Escalas()); }
             catch { /* falta el script 27: se vende como siempre */ }
         }
+
+        // combos que se arman solos al escanear sus productos (ej: pan + 2 hamburguesas → COMBO HAMBURGUESA)
+        Carrito.AlArmarCombo -= AvisarComboArmado;
+        Carrito.AlArmarCombo += AvisarComboArmado;
+        if (off?.ModoLimitado == true) { var g = off.CombosGuardados(); Carrito.FijarCombos(g.Combos, g.Detalles); }
+        else
+        {
+            try
+            {
+                // (las mismas consultas que ya usan Combos y la copia sin internet)
+                long k = State.KioscoId;
+                var combos = (await SupaClient.From<Producto>()
+                    .Where(p => p.KioscoId == k)
+                    .Where(p => p.EsCombo == true)
+                    .Get()).Models ?? new();
+                var detalles = new List<ComboDetalle>();
+                foreach (var tanda in combos.Select(c => (object)c.Id).Chunk(100))
+                {
+                    var res = await SupaClient.From<ComboDetalle>()
+                        .Select("id, combo_id, producto_hijo_id, cantidad, kiosco_id")
+                        .Filter("combo_id", Supabase.Postgrest.Constants.Operator.In, tanda.ToList())
+                        .Get();
+                    detalles.AddRange(res.Models ?? new());
+                }
+                Carrito.FijarCombos(combos, detalles);
+                Console.WriteLine($"[Combos] {combos.Count} combos, {detalles.Count} productos de combos, {Carrito.CombosParaArmar.Count} se arman solos");
+            }
+            catch (Exception ex) when (off != null && VentaSinInternet.EsErrorDeRed(ex))
+            {
+                var g = off.CombosGuardados();
+                Carrito.FijarCombos(g.Combos, g.Detalles);
+            }
+            catch (Exception ex)
+            {
+                // sin combos: se vende como siempre (queda anotado para encontrar el problema)
+                Console.WriteLine("[Combos] No se pudieron cargar: " + ex.Message);
+#if DEBUG
+                avisos?.Toast("(prueba) No se cargaron los combos: " + ex.Message, "peligro", 8000);
+#endif
+            }
+        }
     }
+
+    /// <summary>Cartel cuando se arma un combo solo (no se le pregunta nada al vendedor).</summary>
+    private void AvisarComboArmado(string texto) => _ = InvokeAsync(() =>
+    {
+        avisos?.Toast(texto, "info", 4000);
+        StateHasChanged();
+    });
 
     // ======================= LISTA DE PRECIOS DE LA VENTA =======================
     private System.Threading.Timer? timerLista;
@@ -507,7 +560,11 @@
         return true;
     }
 
-    public void Dispose() => timerLista?.Dispose();
+    public void Dispose()
+    {
+        timerLista?.Dispose();
+        Carrito.AlArmarCombo -= AvisarComboArmado;
+    }
 
     /// <summary>Al abrir Vender, el cursor queda en el buscador (listo para escanear o escribir).</summary>
     protected override async Task OnAfterRenderAsync(bool firstRender)

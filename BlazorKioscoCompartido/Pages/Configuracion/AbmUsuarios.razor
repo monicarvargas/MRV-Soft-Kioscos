@@ -153,9 +153,9 @@
         guardando = true;
         try
         {
-            // el username es único en todo el sistema (es el login)
-            if (await Config.ExisteUsername(editando.Username, esNuevo ? null : editando.Id))
-            { avisos.Toast("Ese nombre de usuario ya está en uso.", "peligro"); return; }
+            // el nombre de usuario es único dentro del negocio (otro negocio puede tener el mismo)
+            if (await Config.ExisteUsername(editando.Username, KioscoId, esNuevo ? null : editando.Id))
+            { avisos.Toast("En este negocio ya hay un usuario con ese nombre.", "peligro"); return; }
 
             if (esNuevo)
             {

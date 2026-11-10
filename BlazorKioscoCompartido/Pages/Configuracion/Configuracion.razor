@@ -39,8 +39,12 @@
     }
     else
     {
-        <!-- PESTAÑAS -->
-        <div class="gp-tabs cf-tabs" role="tablist">
+        <!-- PESTAÑAS (en el celular van en una fila que se corre con el dedo; las flechitas avisan que hay más) -->
+        <div class="cf-tabs-wrap">
+        <button type="button" class="cf-flecha cf-flecha-izq" aria-label="Ver las opciones anteriores"
+                onclick="this.parentElement.querySelector('.cf-tabs').scrollBy({ left: -220, behavior: 'smooth' })"><i class="bi bi-chevron-left"></i></button>
+        <div class="gp-tabs cf-tabs" role="tablist"
+             onscroll="var w = this.parentElement; w.classList.toggle('hay-izq', this.scrollLeft > 4); w.classList.toggle('fin', this.scrollLeft + this.clientWidth + 4 > this.scrollWidth);">
             @foreach (var t in TabsVisibles)
             {
                 <button type="button" role="tab" aria-selected="@(tab == t.Nombre)"
@@ -48,6 +52,9 @@
                     <i class="bi @t.Icono"></i> <span>@t.Nombre</span>
                 </button>
             }
+        </div>
+        <button type="button" class="cf-flecha cf-flecha-der" aria-label="Ver más opciones"
+                onclick="this.parentElement.querySelector('.cf-tabs').scrollBy({ left: 220, behavior: 'smooth' })"><i class="bi bi-chevron-right"></i></button>
         </div>
 
         @if (tab == "Clientes")               { <AbmClientes KioscoId="KioscoIdActual" /> }

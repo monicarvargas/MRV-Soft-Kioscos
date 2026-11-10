@@ -171,7 +171,7 @@
                                         }
                                         @if (d.UnidadesPorBulto > 1)
                                         {
-                                            <div class="gp-sub">@BlazorKioscoCompartido.Constants.TiposBulto.Texto(d.TipoBulto, d.UnidadesPorBulto, d.CantidadComprar) x @d.UnidadesPorBulto = @((d.CantidadComprar * d.UnidadesPorBulto).ToString("0.##")) u.</div>
+                                            <div class="gp-sub">@BlazorKioscoCompartido.Constants.TiposBulto.Texto(d.TipoBulto, d.UnidadesPorBulto, d.CantidadComprar) x @Bultos.Texto(d.UnidadesPorBulto, pesables.Contains(d.ProductoId)) = @Bultos.TextoCantidad((int)Math.Round(d.CantidadComprar * d.UnidadesPorBulto), pesables.Contains(d.ProductoId))</div>
                                         }
                                         else if (!BlazorKioscoCompartido.Constants.TiposBulto.EsSuelto(d.TipoBulto, d.UnidadesPorBulto))
                                         {
@@ -623,6 +623,29 @@
 
     // ======================= DETALLE DEL PEDIDO =======================
 
+    // productos del pedido que se venden por peso: su bulto va en gramos y se muestra en kilos (Services/Bultos.cs)
+    private HashSet<long> pesables = new();
+
+    private async Task CargarPesablesAsync()
+    {
+        pesables = new();
+        try
+        {
+            var ids = detalleItems.Where(d => d.UnidadesPorBulto > 1).Select(d => d.ProductoId).Distinct().ToList();
+            foreach (var tanda in ids.Chunk(100))
+            {
+                var criterio = tanda.Cast<object>().ToList();
+                var res = await SupaClient.From<Producto>()
+                    .Select("id, unidad")
+                    .Where(p => p.KioscoId == State.KioscoId)
+                    .Filter(p => p.Id, Supabase.Postgrest.Constants.Operator.In, criterio)
+                    .Get();
+                foreach (var p in res.Models.Where(p => p.EsVentaPorPeso())) pesables.Add(p.Id);
+            }
+        }
+        catch { /* sin conexión: se muestra como unidades */ }
+    }
+
     private async Task AbrirDetalleAsync(ListaPedido pedido)
     {
         errorDetalle = null;
@@ -638,6 +661,7 @@
                 .Get();
 
             detalleItems = res.Models.OrderBy(d => d.NombreProducto).ToList();
+            await CargarPesablesAsync();
         }
         catch (Exception ex)
         {

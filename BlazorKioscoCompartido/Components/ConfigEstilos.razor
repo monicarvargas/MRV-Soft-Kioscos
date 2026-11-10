@@ -3,6 +3,9 @@
     /* ===== Configuración (prefijo cf-) — se apoya en los estilos gp- de PedidosEstilos ===== */
     /* En PC / tablet las pestañas bajan a otra fila en vez de ensanchar la página */
     /* solapas más anchas (menos por fila) y letra un poco más chica: se lee el nombre entero */
+    .cf-tabs-wrap { position: relative; margin: 0 0 1.6rem; }
+    .cf-tabs-wrap .cf-tabs { margin: 0; }
+    .cf-flecha { display: none; }
     .cf-tabs { display: grid; grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr)); gap: .45rem; }
     .cf-tabs .gp-tab { min-width: 0; padding: .65rem .7rem; font-size: .88rem; white-space: nowrap; justify-content: flex-start; }
     .cf-tabs .gp-tab span { overflow: visible; }
@@ -99,5 +102,27 @@
         .cf-tabs { display: flex; overflow-x: auto; scrollbar-width: none; }
         .cf-tabs::-webkit-scrollbar { display: none; }
         .cf-tabs .gp-tab { flex: 0 0 auto; min-width: 5.6rem; }
+        .cf-tabs { padding-right: 2.6rem; padding-left: .45rem; scroll-padding: 0 2.6rem; }
+
+        /* flechitas: avisan que el menú sigue y se tocan para correrlo */
+        .cf-tabs-wrap .cf-flecha {
+            display: flex; align-items: center; justify-content: center;
+            position: absolute; top: 50%; transform: translateY(-50%); z-index: 3;
+            width: 2.1rem; height: 2.1rem; padding: 0; border-radius: 50%;
+            border: 1px solid var(--gp-line); background: #fff; color: var(--gp-primary);
+            font-size: 1.05rem; box-shadow: 0 3px 10px rgba(22,33,72,.22); cursor: pointer;
+        }
+        .cf-flecha-der { right: .3rem; animation: cf-flecha-aviso 1.4s ease-in-out 3; }
+        .cf-flecha-izq { left: .3rem; }
+        .cf-tabs-wrap:not(.hay-izq) .cf-flecha-izq { display: none; }
+        .cf-tabs-wrap.fin .cf-flecha-der { display: none; }
+        .cf-tabs-wrap.hay-izq .cf-tabs { padding-left: 2.6rem; }
+    }
+    @@keyframes cf-flecha-aviso {
+        0%, 100% { transform: translateY(-50%) translateX(0); }
+        50% { transform: translateY(-50%) translateX(4px); }
+    }
+    @@media (prefers-reduced-motion: reduce) {
+        .cf-flecha-der { animation: none; }
     }
 </style>

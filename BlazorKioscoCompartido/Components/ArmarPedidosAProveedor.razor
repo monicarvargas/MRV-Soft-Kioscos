@@ -305,7 +305,7 @@
                                     }
                                     @if (item.TieneTipo)
                                     {
-                                        <div class="gp-sub" style="color:var(--gp-primary)"><i class="bi bi-box-seam"></i> Viene por @TipoTxt(item, 1)@(item.PorBulto ? $" de {item.UnidadesPorBulto} u." : "")
+                                        <div class="gp-sub" style="color:var(--gp-primary)"><i class="bi bi-box-seam"></i> Viene por @TipoTxt(item, 1)@(item.PorBulto ? " de " + Bultos.Texto(item.UnidadesPorBulto, item.EnKilos) : "")
                                             @if (item.BultoDeOtroLado) { <span style="color:var(--gp-muted)"> (último cargado)</span> }</div>
                                     }
                                 </td>
@@ -326,11 +326,15 @@
                                     <input type="number" class="gp-input-sm gp-input-buy" @bind="item.CantidadAComprar" min="1" />
                                     @if (item.PorBulto)
                                     {
-                                        <div class="gp-sub">@TipoTxt(item, item.CantidadAComprar) = @((item.CantidadAComprar * item.UnidadesPorBulto).ToString("0.##")) u.</div>
+                                        <div class="gp-sub">@TipoTxt(item, item.CantidadAComprar) = @Bultos.TextoCantidad((int)Math.Round(item.CantidadAComprar * item.UnidadesPorBulto), item.EnKilos)</div>
                                     }
                                     else if (item.TieneTipo)
                                     {
                                         <div class="gp-sub">@TipoTxt(item, item.CantidadAComprar)</div>
+                                    }
+                                    else if (item.EnKilos)
+                                    {
+                                        <div class="gp-sub">gramos = @Bultos.TextoCantidad((int)Math.Round(item.CantidadAComprar), true)</div>
                                     }
                                 </td>
                                 <td class="t-right gp-money" data-label="Subtotal est.">$@item.SubtotalEstimado.ToString("N2")</td>
@@ -783,22 +787,23 @@
     private void AplicarDatosProveedor(ItemPedidoViewModelDTO item)
     {
         var p = item.Producto;
-        item.UnidadesPorBulto = !p.EsVentaPorPeso() && bultosProveedor.TryGetValue(p.Id, out var n) && n > 1 ? n : 1;
-        item.TipoBulto = !p.EsVentaPorPeso() && tiposBultoProveedor.TryGetValue(p.Id, out var tb) ? tb : null;
+        bool enKilos = item.EnKilos;   // por peso el bulto va en gramos (bolsa de 15 kg = 15000)
+        item.UnidadesPorBulto = bultosProveedor.TryGetValue(p.Id, out var n) && Bultos.Tiene(n, enKilos) ? n : 1;
+        item.TipoBulto = tiposBultoProveedor.TryGetValue(p.Id, out var tb) ? tb : null;
         item.DescripcionProveedor = descripcionesProveedor.TryGetValue(p.Id, out var d) && !string.IsNullOrWhiteSpace(d) ? d : null;
         item.BultoDeOtroLado = false;
 
         // no es del proveedor elegido: "viene por" del último proveedor cargado; si no tiene, el bulto del producto
-        if (!p.EsVentaPorPeso() && !TieneRelacionConElegido(p.Id))
+        if (!TieneRelacionConElegido(p.Id))
         {
             if (ultimaRelacion.TryGetValue(p.Id, out var ult) && ult != null
                 && !BlazorKioscoCompartido.Constants.TiposBulto.EsSuelto(ult.TipoBulto, ult.UnidadesPorBulto))
             {
-                item.UnidadesPorBulto = Math.Max(1, ult.UnidadesPorBulto);
+                item.UnidadesPorBulto = Bultos.Tiene(ult.UnidadesPorBulto, enKilos) ? ult.UnidadesPorBulto : 1;
                 item.TipoBulto = ult.TipoBulto;
                 item.BultoDeOtroLado = true;
             }
-            else if ((p.BultoUnidades ?? 0) > 1 && (p.BultoPrecio ?? 0) > 0)
+            else if (Bultos.Tiene(p.BultoUnidades, enKilos) && (p.BultoPrecio ?? 0) > 0)
             {
                 item.UnidadesPorBulto = p.BultoUnidades!.Value;
                 item.TipoBulto = "BULTO";
@@ -807,13 +812,14 @@
         }
 
         // viene por bolsa / caja... sin decir cuántas trae: se toman las unidades del bulto cargado en el producto
-        if (item.TieneTipo && item.UnidadesPorBulto <= 1 && (p.BultoUnidades ?? 0) > 1) item.UnidadesPorBulto = p.BultoUnidades!.Value;
+        if (item.TieneTipo && item.UnidadesPorBulto <= 1 && Bultos.Tiene(p.BultoUnidades, enKilos)) item.UnidadesPorBulto = p.BultoUnidades!.Value;
 
         // costo: si viene por bulto/caja/bolsa, el PRECIO DEL BULTO que se cargó en el producto ("Lo compro por bulto")
         item.CostoDelBulto = item.TieneTipo && (p.BultoPrecio ?? 0) > 0 && item.UnidadesPorBulto > 1;
         item.PrecioCostoLocal = item.CostoDelBulto
             ? p.BultoPrecio!.Value
-            : (p.PrecioCosto ?? 0) * item.UnidadesPorBulto;
+            : item.PorBulto ? Bultos.CostoDelBulto(p.PrecioCosto ?? 0, item.UnidadesPorBulto, enKilos)   // por peso: costo x kilo × kilos
+            : (p.PrecioCosto ?? 0);
         RecalcularSugerencia(item);
     }
 
@@ -1063,6 +1069,7 @@
                 ? $"{item.CantidadAComprar:0.##} {TipoTxt(item, item.CantidadAComprar)}"   // sin las unidades: es un dato interno del negocio
                 : item.TieneTipo
                 ? $"{item.CantidadAComprar:0.##} {TipoTxt(item, item.CantidadAComprar)}"
+                : item.EnKilos ? Bultos.TextoCantidad((int)Math.Round(item.CantidadAComprar), true)
                 : $"{item.CantidadAComprar:0.##} un.";
             texto += $"• {NombreParaProveedor(item)}{codTxt}: {cantTxt}\n";
         }

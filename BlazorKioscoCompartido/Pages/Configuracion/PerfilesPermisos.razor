@@ -155,7 +155,7 @@ else
         get
         {
             yield return "Vender y cobrar (también fiado, si el negocio fía)";
-            yield return "Ver productos, editarlos y cargar nuevos";
+            yield return "Ver productos y cargar nuevos";
             if (State.Tiene(FuncionesPlan.Carteles)) yield return "Imprimir carteles y códigos de barras";
             if (State.Tiene(FuncionesPlan.Tareas)) yield return "Cargar sus tareas del día";
         }
@@ -200,7 +200,7 @@ else
         foreach (var perfil in new[] { Roles.Encargado, Roles.Vendedor })
         {
             if (guardado != null && guardado.TryGetValue(perfil, out var lista))
-                elegidos[perfil] = new HashSet<string>(lista ?? new());
+                elegidos[perfil] = Roles.DesdeGuardado(lista);
             else
                 elegidos[perfil] = new HashSet<string>(Roles.PorDefecto.TryGetValue(perfil, out var d) ? d : Array.Empty<string>());
         }
@@ -227,7 +227,7 @@ else
         try
         {
             // se guardan los dos perfiles (así queda claro qué tiene cada uno)
-            var nuevo = elegidos.ToDictionary(x => x.Key, x => x.Value.OrderBy(v => v).ToList());
+            var nuevo = elegidos.ToDictionary(x => x.Key, x => Roles.ParaGuardar(x.Value));
             long id = KioscoId;
             await Db.From<Kiosco>().Where(x => x.Id == id).Set(x => x.PermisosRoles!, nuevo).Update();
             guardado = nuevo;

@@ -22,6 +22,7 @@
                        value="@((Producto.PrecioCosto ?? 0).ToString("#,##0.00", argCulture))"
                        @onchange="OnCostoChanged" />
             </span>
+            <span class="pp-help">Lo que te cuesta a vos. <b>No</b> es el precio de venta</span>
         </label>
 
         @* ================= UTILIDAD ================= *@
@@ -43,16 +44,61 @@
         </label>
 
         @* ================= PRECIO VENTA ================= *@
-        <label class="pp-tile is-venta">
-            <span class="pp-tile-label"><i class="bi bi-cash-stack"></i> Precio de venta <small>@TextoVenta</small></span>
+        <label class="pp-tile is-venta is-fuerte">
+            <span class="pp-tile-label"><i class="bi bi-cash-stack"></i> @NombreVenta <small>@TextoVenta</small></span>
             <span class="pp-money">
                 <span>$</span>
                 <input type="text" inputmode="decimal" class="pp-big js-monto" onfocus="this.select()"
                        value="@(Producto.ObtenerPrecioVentaMostrar("Principal", State, argCulture))"
                        @onchange="OnPrecioVentaPrincipalChanged" />
             </span>
+            <span class="pp-help pp-venta-help"><i class="bi bi-person-fill"></i> Lo que paga el cliente</span>
         </label>
     </div>
+
+    @* ================= AVISO: parece que pusieron el precio de venta en Costo ================= *@
+    @if (CostoParecePrecioVenta)
+    {
+        <div class="pp-alerta-costo">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            <span><b>Ojo:</b> el costo es igual o más alto que el <b>@NombreVenta</b>. ¿Escribiste el precio de venta en <b>Costo</b>?
+                El costo es lo que le pagás vos al proveedor; lo que paga el cliente va en el recuadro verde.</span>
+        </div>
+    }
+
+    @* ================= LISTA 2 (ej: PRECIO NOCHE) — bien a la vista, justo debajo del precio principal ================= *@
+    @if (MostrarLista2 && !string.IsNullOrEmpty(NombreLista2Efectivo))
+    {
+        <div class="pp-noche">
+            <div class="pp-noche-head">
+                <i class="bi bi-moon-stars-fill"></i>
+                <b>@NombreLista2Efectivo</b>
+                <small>lo que paga el cliente con esta lista · cargalo acá</small>
+            </div>
+            <div class="pp-noche-grid">
+                <label class="pp-tile pp-noche-util">
+                    <span class="pp-tile-label"><i class="bi bi-graph-up-arrow"></i> Utilidad</span>
+                    <span class="pp-money">
+                        <input type="number" inputmode="decimal" class="pp-big" onfocus="this.select()"
+                               @bind="Producto.UtilidadLista2"
+                               @bind:event="oninput"
+                               @onchange="OnUtilidadLista2Changed" />
+                        <span>%</span>
+                    </span>
+                </label>
+                <label class="pp-tile is-noche">
+                    <span class="pp-tile-label"><i class="bi bi-cash-stack"></i> @NombreLista2Efectivo <small>@TextoVenta</small></span>
+                    <span class="pp-money">
+                        <span>$</span>
+                        <input type="text" inputmode="decimal" class="pp-big js-monto" onfocus="this.select()"
+                               value="@(Producto.ObtenerPrecioVentaMostrar("Lista2", State, argCulture))"
+                               @onchange="OnPrecioLista2Changed" />
+                    </span>
+                </label>
+            </div>
+        </div>
+    }
+
 
     @* ================= REDONDEO (por producto) ================= *@
     @if (State.UsarRedondeo && State.MultiploRedondeo > 0)
@@ -69,13 +115,15 @@
         </div>
     }
 
-    @* ================= COSTO DESDE EL BULTO ================= *@
-    @if (!Producto.EsVentaPorPeso())
+    @* ================= COSTO DESDE EL BULTO =================
+       Por unidad: caja de 48 alfajores → costo por unidad.
+       Por peso (Kilo / Gramos): bolsa de 15 kg, horma de 4,35 kg → costo por kilo (se guarda en gramos). *@
+    @if (Producto != null)
     {
         @if (!mostrarCalcBulto)
         {
             <div class="pp-link-row">
-                <button type="button" class="gp-link" @onclick="() => mostrarCalcBulto = true"><i class="bi bi-box-seam"></i> Lo compro por bulto: calcular el costo por unidad</button>
+                <button type="button" class="gp-link" @onclick="() => mostrarCalcBulto = true"><i class="bi bi-box-seam"></i> Lo compro por bulto: calcular el costo por @(EnKilos ? "kilo" : "unidad")</button>
             </div>
         }
         else
@@ -85,7 +133,7 @@
                 {
                     <div class="pp-bulto-ult">
                         <i class="bi bi-clock-history"></i>
-                        <span>Última vez: <b>$@ultPrecio.Value.ToString("#,##0.##", argCulture)</b> el bulto de <b>@ultUnidades u</b>
+                        <span>Última vez: <b>$@ultPrecio.Value.ToString("#,##0.##", argCulture)</b> el bulto de <b>@TextoCantidad(ultUnidades)</b>
                             @if (ultFecha is DateTime uf) { <span>· @uf.ToLocalTime().ToString("dd/MM/yyyy")</span> }
                         </span>
                         @if (VariacionBulto is decimal v && v != 0)
@@ -108,20 +156,21 @@
                     </div>
                 </div>
                 <div>
-                    <label class="cf-lbl">Unidades que trae</label>
+                    <label class="cf-lbl">@(EnKilos ? "Kilos que trae" : "Unidades que trae")</label>
                     <div class="pp-addon">
-                        <input type="number" min="1" inputmode="numeric" class="gp-control" onfocus="this.select()" placeholder="Ej: 100" @bind="unidadesBulto" @bind:event="oninput" />
-                        <span>unid.</span>
+                        <InputBulto Valor="@(unidadesBulto ?? 0)" ValorChanged="v => unidadesBulto = v > 1 ? v : null"
+                                    EnKilos="@EnKilos" AlEscribir="true" ConUnidad="true" TextoUnidad="@(EnKilos ? "kg" : "unid.")"
+                                    Placeholder="@(EnKilos ? "Ej: 15 o 4,350" : "Ej: 100")" />
                     </div>
                 </div>
                 @if (bultoDelProveedor)
                 {
                     <div class="pp-bulto-ult"><i class="bi bi-truck"></i>
-                        <span>Cargado con lo del proveedor (viene por <b>@unidadesBulto u</b>, al costo actual). Tocá <b>Usar este costo</b> para dejarlo guardado en el producto.</span>
+                        <span>Cargado con lo del proveedor (viene por <b>@TextoCantidad(unidadesBulto)</b>, al costo actual). Tocá <b>Usar este costo</b> para dejarlo guardado en el producto.</span>
                     </div>
                 }
                 <div class="pp-bulto-res">
-                    <span class="cf-lbl" style="margin:0">Costo por unidad</span>
+                    <span class="cf-lbl" style="margin:0">Costo por @(EnKilos ? "kilo" : "unidad")</span>
                     <strong>$@CostoUnidadBulto.ToString("#,##0.00", argCulture)</strong>
                 </div>
                 <div class="pp-bulto-acc">
@@ -131,32 +180,6 @@
                 </div>
             </div>
         }
-    }
-
-    @* ================= LISTA 2 (opcional) ================= *@
-    @if (MostrarLista2 && !string.IsNullOrEmpty(NombreLista2Efectivo))
-    {
-        <div class="pp-sublist">
-            <div>
-                <label class="cf-lbl">Utilidad @NombreLista2Efectivo</label>
-                <div class="pp-addon">
-                    <input type="number" inputmode="decimal" class="gp-control" onfocus="this.select()"
-                           @bind="Producto.UtilidadLista2"
-                           @bind:event="oninput"
-                           @onchange="OnUtilidadLista2Changed" />
-                    <span>%</span>
-                </div>
-            </div>
-            <div>
-                <label class="cf-lbl">Precio @NombreLista2Efectivo @Producto.ObtenerTextoModoPesoVentaCorto()</label>
-                <div class="pp-addon">
-                    <span>$</span>
-                    <input type="text" inputmode="decimal" class="gp-control js-monto" onfocus="this.select()"
-                           value="@(Producto.ObtenerPrecioVentaMostrar("Lista2", State, argCulture))"
-                           @onchange="OnPrecioLista2Changed" />
-                </div>
-            </div>
-        </div>
     }
 
     @* ================= POR MAYOR (si la lista está tildada en Configuración → Listas de precios) ================= *@
@@ -206,6 +229,28 @@
                     padding-top: .6rem; border-top: 1px dashed var(--gp-primary-line); }
     .pp-bulto-ok { display: inline-flex; align-items: center; gap: .3rem; padding: .25rem .6rem; border-radius: 999px;
                    background: #e3f6ea; color: #137a3a; font-weight: 700; font-size: .82rem; white-space: nowrap; }
+    /* ---- precios bien notorios: el de venta y el de la lista 2 (ej: noche) ---- */
+    .pp-tile.is-venta.is-fuerte { border: 2px solid var(--gp-ok); box-shadow: 0 6px 18px rgba(16, 150, 90, .18); }
+    .pp-tile.is-venta.is-fuerte .pp-tile-label { font-size: .9rem; }
+    .pp-venta-help { color: var(--gp-ok); font-weight: 800; text-align: right; }
+    .pp-alerta-costo { display: flex; gap: .55rem; align-items: flex-start; margin-top: .75rem; padding: .65rem .85rem; border-radius: 12px;
+                       background: #fff4e5; border: 1px solid #f5b86b; color: #8a4b00; font-size: .88rem; font-weight: 600; }
+    .pp-alerta-costo > i { color: #e67700; font-size: 1.15rem; margin-top: .05rem; }
+    .pp-noche { margin-top: 1rem; padding: .8rem; border-radius: 16px; background: #eef0ff; border: 2px solid #6366f1; box-shadow: 0 6px 18px rgba(79, 70, 229, .15); }
+    .pp-noche-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .55rem; margin-bottom: .65rem; color: #4338ca; }
+    .pp-noche-head > i { font-size: 1.1rem; }
+    .pp-noche-head > b { font-size: 1rem; font-weight: 900; text-transform: uppercase; letter-spacing: .03em; }
+    .pp-noche-head > small { color: #6366f1; font-weight: 700; }
+    .pp-noche-grid { display: grid; grid-template-columns: minmax(0, .75fr) minmax(0, 1.25fr); gap: .85rem; }
+    .pp-noche .pp-tile { background: #fff; }
+    .pp-noche .pp-tile.is-noche { background: #fff; border: 2px solid #6366f1; }
+    .pp-noche .pp-tile.is-noche:focus-within { box-shadow: 0 0 0 3px rgba(99, 102, 241, .3); }
+    .pp-noche .pp-tile.is-noche .pp-tile-label, .pp-noche .pp-tile.is-noche .pp-tile-label i,
+    .pp-noche .pp-tile.is-noche .pp-money > span, .pp-noche .pp-tile.is-noche .pp-big { color: #4338ca; }
+    .pp-noche .pp-tile.is-noche .pp-tile-label { font-size: .9rem; }
+    .pp-noche .pp-tile.is-noche .pp-big { font-size: 2rem; text-align: right; }
+    .pp-noche .pp-tile.is-noche .pp-money { justify-content: flex-end; }
+    @@media (max-width: 575.98px) { .pp-noche-grid { grid-template-columns: 1fr; } .pp-noche .pp-noche-util .pp-big { font-size: 1.4rem; } }
     @@media (max-width: 575.98px) { .pp-bulto-acc { justify-content: stretch; } .pp-bulto-acc .gp-btn { flex: 1 1 auto; } .pp-bulto-ok { white-space: normal; } }
 </style>
 
@@ -229,17 +274,17 @@
 
     // ---------- Internos ----------
     private readonly CultureInfo argCulture = CultureInfo.GetCultureInfo("es-AR");
-    private string? nombreLista2Cargado;
-    private string NombreLista2Efectivo => NombreLista2 ?? nombreLista2Cargado ?? "";
+    // los nombres de las listas salen de UN solo lugar: PrecioService (Configuración → Listas de precios)
+    private string NombreVenta => PrecioService.NombreParaMostrar(State.KioscoId, "precio_venta");
+    private string NombreLista2Efectivo => NombreLista2 ?? PrecioService.NombreLista(State.KioscoId, "precio_lista2");
+    // costo >= precio de venta: casi siempre es que cargaron el precio de venta en Costo (en kilos no se compara: pueden ser medidas distintas)
+    private bool CostoParecePrecioVenta => Producto != null && !EnKilos
+        && (Producto.PrecioCosto ?? 0) > 0 && (Producto.PrecioVenta ?? 0) > 0 && Producto.PrecioCosto >= Producto.PrecioVenta;
     private string TextoVenta => Producto.PrecioCada100g() ? "x 100 g" : Producto.IsMedidaKilos() ? "x 1 kg" : "final";
 
     protected override async Task OnInitializedAsync()
     {
         await PrecioServ.AsegurarReglasAsync(State.KioscoId);   // recargos de la Lista 2 del negocio
-        if (NombreLista2 == null && MostrarLista2)
-        {
-            nombreLista2Cargado = await PrecioServ.ObtenerNombreColumnaAsync(State.KioscoId, "precio_lista2");
-        }
         // solo se muestran las listas tildadas en Configuración → Listas de precios
         if (MostrarPorMayor)
             nombreMayor = PrecioService.NombreLista(State.KioscoId, "precio_venta_por_mayor");
@@ -287,19 +332,42 @@
 
     private bool bultoDelProveedor;   // no tenía bulto guardado: se completó con las unidades del proveedor (importación / Armar pedido)
 
+    // ----- bulto en kilos (productos por peso): se escribe en kilos y se guarda en GRAMOS -----
+    private bool EnKilos => Producto.EsVentaPorPeso();
+    private bool? modoKilosCargado;   // para darse cuenta si cambiaron "Se vende por" (unidad ↔ peso)
+    private string TextoCantidad(int? cantidad) => Bultos.Texto(cantidad, EnKilos);
+
+    /// <summary>Lo que trae el bulto en la unidad del costo (unidades o kilos).</summary>
+    private decimal DivisorBulto => Bultos.Factor(unidadesBulto, EnKilos);
+
     protected override async Task OnParametersSetAsync()
     {
+        if (Producto == null) return;
+
+        // cambiaron "Se vende por" de unidad a peso (o al revés): lo cargado del bulto ya no sirve
+        if (ReferenceEquals(Producto, cargadoDe) && modoKilosCargado.HasValue && modoKilosCargado != EnKilos)
+        {
+            modoKilosCargado = EnKilos;
+            ultPrecio = null; ultUnidades = null; ultFecha = null;
+            unidadesBulto = null;
+            bultoDelProveedor = false; usado = false;
+            return;
+        }
+
         // al abrir el producto: la calculadora arranca con lo último que se cargó
-        if (Producto == null || ReferenceEquals(Producto, cargadoDe)) return;
+        if (ReferenceEquals(Producto, cargadoDe)) return;
         cargadoDe = Producto;
+        modoKilosCargado = EnKilos;
         ultPrecio = Producto.BultoPrecio;
         ultUnidades = Producto.BultoUnidades;
         ultFecha = Producto.BultoFecha;
+        // por peso se guarda en gramos: menos de 100 g no es un bulto (dato viejo cargado en unidades) y no se usa
+        if (!Bultos.Tiene(ultUnidades, EnKilos)) { ultPrecio = null; ultUnidades = null; ultFecha = null; }
         precioBulto = ultPrecio;
         unidadesBulto = ultUnidades;
         bultoDelProveedor = false;
         mostrarCalcBulto = (ultPrecio ?? 0) > 0 && (ultUnidades ?? 0) > 0;
-        if (!mostrarCalcBulto && Producto.Id > 0 && !Producto.EsVentaPorPeso())
+        if (!mostrarCalcBulto && Producto.Id > 0)
             await CompletarBultoDelProveedorAsync(Producto);
     }
 
@@ -313,21 +381,21 @@
         {
             long idP = p.Id;
             var links = (await SupaBulto.From<ProductoProveedor>().Where(x => x.IdProducto == idP).Get()).Models ?? new();
-            var link = links.Where(x => x.UnidadesPorBulto > 1)
+            var link = links.Where(x => Bultos.Tiene(x.UnidadesPorBulto, EnKilos))
                             .OrderByDescending(x => x.IdProveedor == (p.ProveedorId ?? 0))
                             .ThenByDescending(x => x.EsPrincipal)
                             .FirstOrDefault();
             if (link == null || !ReferenceEquals(p, Producto)) return;
             unidadesBulto = link.UnidadesPorBulto;
-            decimal costo = p.PrecioCosto ?? 0m;
-            precioBulto = costo > 0 ? Math.Round(costo * link.UnidadesPorBulto, 2) : null;
+            decimal costo = p.PrecioCosto ?? 0m;   // por peso: costo por kilo × kilos
+            precioBulto = costo > 0 ? Math.Round(costo * DivisorBulto, 2) : null;
             bultoDelProveedor = true;
             mostrarCalcBulto = true;
         }
         catch { /* sin conexión o sin la tabla: queda vacía como antes */ }
     }
-    private decimal CostoUnidadBulto => (precioBulto ?? 0) > 0 && (unidadesBulto ?? 0) > 0
-        ? Math.Round(precioBulto!.Value / unidadesBulto!.Value, 2) : 0m;
+    /// <summary>Costo por unidad, o por KILO si se vende por peso.</summary>
+    private decimal CostoUnidadBulto => Bultos.CostoPorUnidad(precioBulto ?? 0, unidadesBulto, EnKilos);
 
     private async Task UsarCostoBulto()
     {
